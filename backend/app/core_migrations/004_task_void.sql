@@ -1,5 +1,5 @@
 -- 'void': the task never should have existed. A terminal state, not a
--- delete — blockers, waiting_on edges, proposals and the activity ledger
+-- delete - blockers, waiting_on edges, proposals and the activity ledger
 -- all reference task ids, and docs/CORRECTIONS.md rule 2 says records that
 -- carry history get a terminal state. 'done' could not carry this meaning:
 -- it feeds throughput, cycle time and kept-%, so voiding-by-done polluted

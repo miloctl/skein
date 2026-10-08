@@ -30,7 +30,7 @@ function compare(
 }
 
 // TypeScript declarations do not validate an installed JavaScript package.
-// A malformed manifest must fail HERE with the extension named — not later
+// A malformed manifest must fail HERE with the extension named - not later
 // as a bare TypeError inside the shell (Nav calls activePaths.includes on
 // every render).
 function requireString(owner: string, field: string, value: unknown): string {

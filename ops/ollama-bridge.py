@@ -6,7 +6,7 @@ reach. The clean fix is a systemd override (needs root):
 
     sudo systemctl edit ollama    # add: Environment="OLLAMA_HOST=0.0.0.0"
 
-Without root, run this bridge as a user service instead — it listens on the
+Without root, run this bridge as a user service instead - it listens on the
 Docker bridge gateway (172.17.0.1:11435 by default, BRIDGE_LISTEN to change
 it) and forwards to 127.0.0.1:11434. Point the container at
 http://host.docker.internal:11435. Stdlib only, no dependencies.

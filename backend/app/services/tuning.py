@@ -6,7 +6,7 @@ overrides it, and clearing returns to the env rather than to a hardcoded
 guess. The difference is that these are numbers with bounds, so every write
 is range-checked and some pairs are checked against each other.
 
-READ THROUGH, never cache. effective() hits the database on every call — a
+READ THROUGH, never cache. effective() hits the database on every call - a
 sub-millisecond indexed lookup by primary key. A module-level cache would be
 faster and wrong: the moment this app runs more than one worker, each process
 would hold its own copy and admins would see a change that only some requests
@@ -17,7 +17,7 @@ WHAT IS DELIBERATELY ABSENT, so a later reader does not read it as an
 oversight: SKEIN_AUTH_MODE, SKEIN_TRUST_PROXY_HOPS, SKEIN_ADMINS, every
 SKEIN_OIDC_* setting, and every model-provider and credential setting.
 Letting a web surface change how identity is resolved, or who counts as an
-administrator, is privilege escalation with extra steps — an admin who can
+administrator, is privilege escalation with extra steps - an admin who can
 lower the bar can let themselves through it. Those stay env-only, set by
 whoever runs the server.
 
@@ -47,7 +47,7 @@ class Tunable:
     unbounded knob is one an admin can use to take the deployment down, and
     the floor matters as much as the ceiling (a 0 rate limit refuses
     everyone, a 1-thread pool deadlocks the first tool that waits on the
-    pool). `live` is False when the value is read once at startup — the UI
+    pool). `live` is False when the value is read once at startup - the UI
     must say so rather than imply a change took effect."""
 
     name: str
@@ -182,7 +182,7 @@ def _member_timeout() -> float:
 
 
 def member_deadline() -> float:
-    """The consultative-turn deadline in force right now — a flock member's
+    """The consultative-turn deadline in force right now - a flock member's
     whole turn, and a consulted specialist's (agents/team_agent.py).
 
     Read per turn so an administrator's change applies to the next message
@@ -192,7 +192,7 @@ def member_deadline() -> float:
     Lives here so agents/team_agent.py reads the number through the service
     layer instead of importing a route. _member_timeout below still reaches
     routes/chat.py for the DEFAULT, so the import is deferred rather than
-    removed — what this buys is one lazy hop at call time in place of a second
+    removed - what this buys is one lazy hop at call time in place of a second
     literal in team_agent.py, which the comment on team_agent.py::READ_TIMEOUT_S
     forbids: a duplicated bound goes stale the moment one side moves, and the
     ordering _check_pairs enforces is then enforced against a number nothing
@@ -219,7 +219,7 @@ def default_of(name: str) -> int:
 
 def _overrides() -> dict[str, int]:
     # A RANGE, not LIKE: `_` is LIKE's single-character wildcard, so
-    # `key LIKE 'tuning_%'` also matched `tuningXchat_limit` — and the slice
+    # `key LIKE 'tuning_%'` also matched `tuningXchat_limit` - and the slice
     # below then read it as the knob `chat_limit`, letting a foreign key in
     # this shared table drive a live rate limit. The range is also an index
     # scan on the primary key instead of the full table scan LIKE forced,
@@ -245,7 +245,7 @@ def override_of(name: str) -> int | None:
 
     This, not effective(), is what a hot call site asks: it answers "did an
     administrator change this" without computing the default, so the code
-    constant stays the single source of the default — which is also what
+    constant stays the single source of the default - which is also what
     keeps monkeypatching that constant working in the suite.
     """
     knob = BY_NAME.get(name)
@@ -258,7 +258,7 @@ def override_of(name: str) -> int | None:
 
 
 def effective(name: str) -> int:
-    """The value a call site must use. Read through on every call — see the
+    """The value a call site must use. Read through on every call - see the
     module docstring on why this is not cached."""
     got = _overrides().get(name)
     if got is None:
@@ -318,11 +318,11 @@ def set_tunable(name: str, value: int | None, *, actor: str) -> dict:
     """None clears the override and returns the knob to its env default."""
     knob = BY_NAME.get(name)
     if knob is None:
-        # never echo the rejected name back — it is caller-supplied
-        raise ValueError(f"unknown setting — expected one of: {', '.join(sorted(BY_NAME))}")
+        # never echo the rejected name back - it is caller-supplied
+        raise ValueError(f"unknown setting - expected one of: {', '.join(sorted(BY_NAME))}")
     if value is None:
         # CHECKED like any other write. Clearing moves the value just as a set
-        # does — to the default — so an unchecked clear was a way around the
+        # does - to the default - so an unchecked clear was a way around the
         # pair rule: raise the socket timeout, raise the deadline under it,
         # then clear the socket timeout and the pair lands inverted.
         _check_pairs(name, default_of(name), {t.name: effective(t.name) for t in TUNABLES})

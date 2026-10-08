@@ -1,5 +1,5 @@
 """REST API: reads for the dashboard, writes for humans (the second write path
-alongside agent tools — both go through app.services)."""
+alongside agent tools - both go through app.services)."""
 
 import asyncio
 import json
@@ -214,7 +214,7 @@ def get_capabilities(
     for action in sorted(requested):
         # An action outside the composed catalog fails closed. The engine's
         # human-origin default otherwise answered `permit` for a misspelled
-        # frontend action — and for a frontend whose backend module is not
+        # frontend action - and for a frontend whose backend module is not
         # installed at all, which is exactly when its UI must stay hidden.
         # The `skein.` exemption exists because core REST actions are derived
         # from routes, not contributed; it is safe because composition
@@ -474,7 +474,7 @@ def get_task(
 ):
     """The side peek's read. Declared BEFORE /tasks/{task_id}/worklog is
     irrelevant to routing here (the paths differ in segment count), but it
-    must stay after the literal /tasks route above — FastAPI matches in
+    must stay after the literal /tasks route above - FastAPI matches in
     declaration order, and a bare "/tasks/{task_id}" first would swallow it."""
     try:
         # Bind the viewer-scoped row, domain policy, and returned projection to
@@ -931,7 +931,7 @@ class NotePatch(BaseModel):
 @router.patch("/notes/{note_id}")
 def patch_note(note_id: int, body: NotePatch, user: CurrentUser):
     # edits scan for @mentions, so an uncapped PATCH is a notification
-    # amplifier — same cap as the create routes
+    # amplifier - same cap as the create routes
     ratelimit.check("write", user)
     try:
         return collab.update_note(note_id, body.topic, body.content, actor=user)
@@ -979,7 +979,7 @@ def get_activity_feed(
     limit: int = 50,
 ):
     """The rendered feed: agent and system actions plus your own. The scope is
-    enforced in the service — there is no parameter for another person."""
+    enforced in the service - there is no parameter for another person."""
     fieldguide.mark(user, "activity_feed")
     with db.read_transaction():
         _require_opaque_project_policy(request, subject, viewer, "skein.rest.get.activity.feed")
@@ -1081,7 +1081,7 @@ def get_review(
             # existing clients. PENDING deliberately breaks that contract: the
             # queue is worked FIFO, so this answers the OLDEST 50 ascending and
             # `after` pages forward, where the pre-cursor response was the
-            # newest 200 descending. Do not "restore" the old window — a client
+            # newest 200 descending. Do not "restore" the old window - a client
             # that reads the bare array and never pages sees the oldest 50 by
             # design, and docs/FEATURES.md states the FIFO order.
             limit=limit
@@ -1300,7 +1300,7 @@ def get_capacity(
 ):
     with db.read_transaction():
         # Capacity composes allocations against engagements only, and both
-        # are classified rows — no free-form legacy text rides along. Testing
+        # are classified rows - no free-form legacy text rides along. Testing
         # the full type set (and the unclassified gate) hid the whole card
         # behind a rule about regulated tasks that no capacity row contains.
         _require_opaque_project_policy(
@@ -1346,7 +1346,7 @@ def get_playbooks():
 # row_policy=False mirrors a destination route that applies no per-row decide
 # today (get_questions, get_decisions, get_insights read viewer-scoped lists
 # with route-level policy only). Adding a per-row decide to one of those
-# routes means flipping its flag here in the same change — left False, a
+# routes means flipping its flag here in the same change - left False, a
 # thread chip confirms the existence of a row the destination now denies.
 _ARTIFACT_THREAD_DESTINATIONS = {
     "task": ("skein.rest.get.tasks", "tasks", True, True),
@@ -1774,7 +1774,7 @@ def download_file(artifact_id: int, user: CurrentUser):
     # attachment + nosniff on EVERY upload, whatever its type: the bytes came
     # from a person, and an uploaded .html served inline would run as script on
     # this origin, holding the reader's session. RFC 5987 encoding because the
-    # title is a person's filename — a quote or a comma in it would otherwise
+    # title is a person's filename - a quote or a comma in it would otherwise
     # end the header value early.
     disposition = f"attachment; filename*=UTF-8''{quote(row['title'], safe='')}"
     return Response(
@@ -1817,7 +1817,7 @@ class UserActiveIn(BaseModel):
 
 @router.post("/users/{name}/active")
 def post_user_active(name: str, body: UserActiveIn, request: Request, user: AdminUser):
-    # roster edits are admin surface — one teammate must not be able to
+    # roster edits are admin surface - one teammate must not be able to
     # deactivate another, and deactivation starts the erasure clock, so it
     # takes the named-administrator test rather than the key-holder fallback
     _require_named_admin(user, request, "deactivate or reactivate an account")
@@ -1826,7 +1826,7 @@ def post_user_active(name: str, body: UserActiveIn, request: Request, user: Admi
 
 # ---- crews -----------------------------------------------------------------
 #
-# A crew is membership only (docs/VISIBILITY.md) — it grants nothing until the
+# A crew is membership only (docs/VISIBILITY.md) - it grants nothing until the
 # tier columns land. Editing one is a STEWARD's job or an administrator's, and
 # _crew_steward below is the only place that pair is decided.
 
@@ -1861,12 +1861,12 @@ def _crew_admin_override(user: str, request: Request) -> bool:
 
     Strong identity, and whether this caller is a named administrator. The
     steward test itself moved into the services (crews.assert_steward), where
-    it runs inside the write's own transaction — membership decides what every
+    it runs inside the write's own transaction - membership decides what every
     person reads, and a guard that lives only here is a guard the next caller
     does not have.
 
     Not AdminUser on the route: a crew whose membership only an administrator
-    can edit is a crew nobody maintains. Not CurrentUser alone either — in
+    can edit is a crew nobody maintains. Not CurrentUser alone either - in
     trusted-header mode that is a self-asserted header.
     """
     from .deps import _require_strong, is_named_admin
@@ -1981,7 +1981,7 @@ def post_crew_member_remove(crew_id: int, body: CrewMemberOut, user: CurrentUser
 
     A roster name may contain any character (ensure_user caps length and
     nothing else), and starlette's router does not match a path segment
-    holding `/` even percent-encoded — `a/b` could be added to a crew and
+    holding `/` even percent-encoded - `a/b` could be added to a crew and
     then never removed by any request the client could form. Removal is the
     only way out of a crew, so it must not be shaped by what the name is.
     """
@@ -2002,7 +2002,7 @@ def post_growth_interests(body: GrowthIn, user: CurrentUser):
 
 @router.get("/users/growth-interests")
 def get_growth_interests(user: CurrentUser):
-    # write-only fields can't be reviewed or cleared — prefill needs this
+    # write-only fields can't be reviewed or cleared - prefill needs this
     return users.get_growth_interests(user)
 
 
@@ -2179,7 +2179,7 @@ class DismissKnot(BaseModel):
 
 @router.post("/field-guide/dismiss")
 def post_field_guide_dismiss(body: DismissKnot, user: CurrentUser):
-    # the only write on this surface — cap it like every other write, or a
+    # the only write on this surface - cap it like every other write, or a
     # spoofed-name loop mints users + unlock rows without bound
     ratelimit.check("write", user)
     try:
@@ -2190,7 +2190,7 @@ def post_field_guide_dismiss(body: DismissKnot, user: CurrentUser):
 
 @router.get("/whoami")
 def get_whoami(user: CurrentUser, request: Request):
-    """Who the API thinks you are and how strongly — the Settings page uses
+    """Who the API thinks you are and how strongly - the Settings page uses
     this to validate a pasted key without the user needing to know anything."""
     from ..services import api_keys
     from .deps import _is_admin, is_named_admin
@@ -2211,11 +2211,11 @@ def get_whoami(user: CurrentUser, request: Request):
         # uses AdminUser, so its browser gate must use this result instead of the
         # stricter crew-steward flag above or an accepted key holder is locked out.
         "can_administer": strong and _is_admin(user, groups, request),
-        # active only — after a revoke-all, Settings must show the bootstrap
+        # active only - after a revoke-all, Settings must show the bootstrap
         # command again, not "a key exists, paste it". Counted only for a
         # proven identity: a bare X-User names anyone, and the count is the
         # same fact GET /keys refuses to weak callers. Zero is also what
-        # Settings must act on here — a caller with no proven key needs the
+        # Settings must act on here - a caller with no proven key needs the
         # bootstrap command, whatever the roster holds.
         "keys_minted": api_keys.active_key_count(user) if strong else 0,
     }
@@ -2226,7 +2226,7 @@ def post_key_request(user: CurrentUser, request: Request):
     from ..services.api_keys import request_key
 
     # ABOVE the try, never inside it: RateLimited subclasses ValueError, so
-    # the handler below caught the cap and answered 400 — wire-identical to a
+    # the handler below caught the cap and answered 400 - wire-identical to a
     # malformed request, and stripping the Retry-After header the class exists
     # to carry. This surface is capped at 3/minute and is the one a client is
     # most likely to retry.
@@ -2286,8 +2286,8 @@ def get_attention(
     request: Request,
     subject: PolicySubjectDep,
 ):
-    # `count` IS `yours`, not the Inbox number. Both readers of this field —
-    # the browser tab title and `skein attention` — say "waiting on you", and
+    # `count` IS `yours`, not the Inbox number. Both readers of this field -
+    # the browser tab title and `skein attention` - say "waiting on you", and
     # the Inbox total said that about a queue anyone may work. The nav badge
     # reads `inbox` for its own destination.
     #
@@ -2478,7 +2478,7 @@ def get_mcp_oauth_callback(
 
 @router.get("/admin/keys")
 def get_all_keys(user: AdminUser, request: Request):
-    # key metadata (owners, prefixes, last use) is admin surface — one
+    # key metadata (owners, prefixes, last use) is admin surface - one
     # teammate must not enumerate another's credentials. A named
     # administrator only: under the trusted-header fallback every key holder
     # is an administrator.
@@ -2806,7 +2806,7 @@ class PromiseIn(BaseModel):
     # 'received' records a promise made TO the team (migration 007)
     direction: str = Field("given", max_length=10)
     # No reader check on `to_whom`: it is deliberately not a roster name (the
-    # default audience is external) — promises.add_promise says why.
+    # default audience is external) - promises.add_promise says why.
     # the tier the writer picked, checked in the service: crew membership only.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
@@ -2963,7 +2963,7 @@ def post_week_open(
     subject: PolicySubjectDep,
     force: bool = False,
 ):
-    ratelimit.check("ritual", user)  # each run notifies people — cap the amplifier
+    ratelimit.check("ritual", user)  # each run notifies people - cap the amplifier
     # the ritual quotes promise, decision, question and task text of every
     # workspace project into an artifact and returns it: an aggregate that
     # cannot drop a denied project fails closed, outside the write transaction
@@ -3005,21 +3005,21 @@ def get_agents(user: CurrentUser, request: Request):
 
 @router.get("/agents/status")
 def get_agents_status(user: CurrentUser):
-    """Plain-language state of the agent layer — the UI must never make mock
+    """Plain-language state of the agent layer - the UI must never make mock
     mode look like a live model, or hide whether the review gate is on."""
     from .. import config
 
     return {
         "provider": config.MODEL_PROVIDER,
         # through the service, not config.MODEL_ID: with a pick in force the
-        # strip would otherwise claim a model the deployment is not running —
+        # strip would otherwise claim a model the deployment is not running -
         # the exact lie the CONTEXT_STRATEGY comment in config.py forbids
         "model": settings.model_pick_state()["model"],
         "provider_error": config.MODEL_PROVIDER_ERROR,
         "models_error": config.MODELS_ERROR,
         "review_gate": config.AGENT_REVIEW,
         # why the trust card cannot fill, when it cannot. An empty card reads
-        # as "no data yet" — under a gate-off or weak-identity deployment the
+        # as "no data yet" - under a gate-off or weak-identity deployment the
         # truth is "cannot produce data", which is an operator's fix, not a
         # wait (services/delegation.py::trust_blocked)
         "trust_blocked": delegation.trust_blocked(),
@@ -3039,7 +3039,7 @@ def get_agents_status(user: CurrentUser):
 
 class ContextStrategyIn(BaseModel):
     # extra=forbid + no default: a mistyped field name would otherwise fall
-    # through to "" — the CLEAR sentinel — silently reverting the whole team to
+    # through to "" - the CLEAR sentinel - silently reverting the whole team to
     # the env default and answering 200 as if it were deliberate
     model_config = ConfigDict(extra="forbid")
     strategy: str = Field(max_length=20)
@@ -3073,7 +3073,7 @@ def post_context_strategy(body: ContextStrategyIn, user: AdminUser):
 
 
 class ReasoningIn(BaseModel):
-    # extra=forbid + no default: same trap ContextStrategyIn names — a
+    # extra=forbid + no default: same trap ContextStrategyIn names - a
     # mistyped field falling through to "" is the CLEAR sentinel
     model_config = ConfigDict(extra="forbid")
     level: str = Field(max_length=20)
@@ -3110,7 +3110,7 @@ class AgentAutomationIn(BaseModel):
 
 @router.get("/settings/agent-automation")
 def get_agent_automation(user: CurrentUser):
-    """Reads for everyone — Task Peek's wake wording depends on whether
+    """Reads for everyone - Task Peek's wake wording depends on whether
     anything will drain the queue; writing is operator-only."""
     return {"enabled": settings.agent_automation_enabled()}
 
@@ -3119,13 +3119,13 @@ def get_agent_automation(user: CurrentUser):
 def post_agent_automation(body: AgentAutomationIn, user: AdminUser):
     """AdminUser, both directions: any administrator can pause every
     unattended turn, and any administrator can resume them. The switch stops
-    automation only — no authority or review decision moves through it."""
+    automation only - no authority or review decision moves through it."""
     ratelimit.check("write", user)
     return settings.set_agent_automation(body.enabled, actor=user)
 
 
 class ModelPickIn(BaseModel):
-    # extra=forbid + no default: same trap ContextStrategyIn names — a
+    # extra=forbid + no default: same trap ContextStrategyIn names - a
     # mistyped field falling through to "" is the CLEAR sentinel
     model_config = ConfigDict(extra="forbid")
     model: str = Field(max_length=200)
@@ -3157,7 +3157,7 @@ def get_model_pick(user: CurrentUser):
             {
                 **{k: e[k] for k in ("id", "label", "detail", "max_tokens", "context_tokens")},
                 # the MERGED price (registry entry, then SKEIN_MODEL_PRICES),
-                # so the menu compares what accounting will actually charge —
+                # so the menu compares what accounting will actually charge -
                 # usage.model_price also nulls a (0,0) pair, on every surface.
                 "price": _menu_price(str(e["id"])),
                 # level NAMES only: level params are request bodies, served
@@ -3188,7 +3188,7 @@ def get_model_pick(user: CurrentUser):
 def post_model_pick(body: ModelPickIn, user: AdminUser):
     """AdminUser: the pick changes what every chat costs for the whole team.
     Rate-capped because each call appends to the activity ledger, which is
-    never pruned. The service refuses ids outside the menu — hiding the
+    never pruned. The service refuses ids outside the menu - hiding the
     picker on a faulted registry is UI, this refusal is the enforcement."""
     ratelimit.check("write", user)
     try:
@@ -3211,7 +3211,7 @@ class TuningIn(BaseModel):
 def get_tuning(user: AdminUser):
     """AdminUser for the READ too, unlike the context strategy above. These
     numbers are the deployment's capacity limits, and listing them tells an
-    ordinary caller exactly how much room is left before a cap refuses —
+    ordinary caller exactly how much room is left before a cap refuses -
     which is reconnaissance, not a preference anyone needs to see."""
     return tuning.list_tunables()
 
@@ -3232,7 +3232,7 @@ def get_agents_trust(user: CurrentUser, request: Request):
     from ..services.users import MCP_SUFFIX
 
     # `<person>-mcp` is one person's agent, so its rejection streak is that
-    # person's — the person-level judgment trust_scores exists to withhold.
+    # person's - the person-level judgment trust_scores exists to withhold.
     # The owner and a named administrator see it; nobody else does.
     admin = _named_admin_reader(user, request)
     return [
@@ -3282,7 +3282,7 @@ class AuthorityIn(BaseModel):
 
 @router.post("/agents/authority")
 def post_agents_authority(body: AuthorityIn, user: AdminUser):
-    """Authority IS the kill switch — administrators only, and never a
+    """Authority IS the kill switch - administrators only, and never a
     spoofable X-User."""
     return delegation.set_authority(body.agent, body.entity, body.level, actor=user)
 
@@ -3336,13 +3336,13 @@ def post_delegate(
     subject: PolicySubjectDep,
 ):
     # capped like every other content write: this UPDATEs a task, appends a
-    # hash-chained activity row, and notifies the sponsor — the amplifier
+    # hash-chained activity row, and notifies the sponsor - the amplifier
     # patch_task's own comment names. It became a one-click control when the
     # task peek shipped.
     ratelimit.check("write", user)
     # Delegating to an EXISTING agent is ordinary work. Delegating to a name
     # that does not exist MINTS an agent identity (delegate_task calls
-    # ensure_user), and routes/deps.py refuses an agent name at every door —
+    # ensure_user), and routes/deps.py refuses an agent name at every door -
     # so an unproven caller could register a teammate's name before they join
     # and lock them out of sign-in, repairable only through rename_user. The
     # scarce credential is the bar for creating an identity, matching
@@ -3624,7 +3624,7 @@ class MilestoneIn(BaseModel):
     owner: str = Field("", max_length=64)
     due_date: str = Field("", max_length=10)
     # the tier the writer picked, checked in the service: crew membership only.
-    # No assignee check here — a milestone has an owner, not an assignee, and
+    # No assignee check here - a milestone has an owner, not an assignee, and
     # create_milestone takes no readability check on it.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
@@ -3637,7 +3637,7 @@ def post_milestone(body: MilestoneIn, user: CurrentUser):
 
 
 class MilestonePatch(BaseModel):
-    # caps match MilestoneIn — see the note on TaskPatch
+    # caps match MilestoneIn - see the note on TaskPatch
     status: str = Field("", max_length=20)
     title: str = Field("", max_length=work.TITLE_LEN)
     description: str = Field("", max_length=work.DESCRIPTION_LEN)
@@ -3728,7 +3728,7 @@ def patch_task(
     subject: PolicySubjectDep,
 ):
     # edits scan for @mentions, so an uncapped PATCH is a notification
-    # amplifier — same cap as the create routes
+    # amplifier - same cap as the create routes
     ratelimit.check("write", user)
     changes = body.model_dump()
     # Resolve the target domain state and write in one transaction, with the
@@ -3946,7 +3946,7 @@ class QuestionPatch(BaseModel):
 @router.patch("/questions/{question_id}")
 def patch_question(question_id: int, body: QuestionPatch, user: CurrentUser):
     # assignment NOTIFIES the named person every time (services/collab.py), so
-    # this is a send, not an edit — the one PATCH here that a loop turns into
+    # this is a send, not an edit - the one PATCH here that a loop turns into
     # somebody else's flooded inbox
     ratelimit.check("write", user)
     return collab.assign_question(question_id, body.assigned_to, actor=user)
@@ -3958,7 +3958,7 @@ class AnswerIn(BaseModel):
 
 @router.post("/questions/{question_id}/answer")
 def post_answer(question_id: int, body: AnswerIn, user: CurrentUser):
-    # answers scan for @mentions — capped like every other notifying write
+    # answers scan for @mentions - capped like every other notifying write
     ratelimit.check("write", user)
     return collab.answer_question(question_id, body.answer, answered_by=user, actor=user)
 
@@ -3971,7 +3971,7 @@ class DecisionIn(BaseModel):
     review_by: str = Field("", max_length=10)
     category: str = Field("", max_length=40)
     # the tier the writer picked, checked in the service: crew membership only.
-    # No assignee check here — a decision names nobody to hand work to.
+    # No assignee check here - a decision names nobody to hand work to.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
 
@@ -3998,7 +3998,7 @@ class StandupIn(BaseModel):
     today: str = Field("", max_length=2000)
     blockers: str = Field("", max_length=2000)
     # the tier the writer picked, checked in the service: crew membership, and
-    # the OWNER of the blocker this standup forks — which is always the author.
+    # the OWNER of the blocker this standup forks - which is always the author.
     # None: the capture default below (_personal_default).
     visibility: str | None = Field(None, max_length=16)
     crew_id: int = 0
@@ -4033,7 +4033,7 @@ class NoteIn(BaseModel):
     topic: str = Field(max_length=200)
     content: str = Field(max_length=20_000)
     # the tier the writer picked, checked in the service: crew membership only.
-    # No assignee check here — a note names nobody to hand work to.
+    # No assignee check here - a note names nobody to hand work to.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
 
@@ -4077,7 +4077,7 @@ def get_stakeholders(
 def get_event_stakeholders(
     event_id: int, user: CurrentUser, viewer: ViewerDep, request: Request, subject: PolicySubjectDep
 ):
-    """What is open with the outside people attending this meeting — useful in
+    """What is open with the outside people attending this meeting - useful in
     the hour before you speak to them, which a digest of everything is not."""
     # the generic gate judges the event row only; the brief carries promise,
     # intake and question rows of every project the attendees touch
@@ -4096,7 +4096,7 @@ def get_event_stakeholders(
 @router.post("/events/{event_id}/outcome")
 def post_event_outcome(event_id: int, body: OutcomeIn, user: CurrentUser):
     """What came out of a meeting. Set by a reader, never inferred: guessing
-    from "was anything written near this time" is wrong in both directions —
+    from "was anything written near this time" is wrong in both directions -
     an outcome recorded an hour later reads as empty, an unrelated note reads
     as an outcome (migration 008)."""
     ratelimit.check("write", user)
@@ -4105,7 +4105,7 @@ def post_event_outcome(event_id: int, body: OutcomeIn, user: CurrentUser):
     except db.NotFound:
         # db.NotFound subclasses ValueError, so a bare `except ValueError`
         # turned "no event #12" into a 400. The id is in the PATH here, which
-        # scope.missing_text says is the 404 case — and the sibling route
+        # scope.missing_text says is the 404 case - and the sibling route
         # GET /events/{id}/stakeholders already answers 404 for the same row.
         raise
     except ValueError as e:
@@ -4125,7 +4125,7 @@ class EventIn(BaseModel):
     agenda: str = Field("", max_length=2000)
     engagement_id: int = 0
     # the tier the writer picked, checked in the service: crew membership only.
-    # No assignee check here — `attendees` is free text, not a roster join.
+    # No assignee check here - `attendees` is free text, not a roster join.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
 
@@ -4167,7 +4167,7 @@ class BlockerIn(BaseModel):
     # the tier the writer picked, checked in the service: crew membership, and
     # the owner is checked as a READER (blockers.raise_blocker). Present here
     # even though the two doors that usually create a blocker inherit instead
-    # — capture.py and collab.post_standup. Every create body whose service
+    # - capture.py and collab.post_standup. Every create body whose service
     # accepts a tier offers one, pinned by
     # tests/test_visibility_writes.py::test_a_create_body_exposes_the_tier_its_service_accepts.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
@@ -4767,7 +4767,7 @@ class CaptureIn(BaseModel):
     # quick capture is the ONLY door tasks and notes are created through in
     # the web UI, so this is where their tier is chosen. It routes to seven
     # entities, and every one of the seven carries the tier through
-    # (services/capture.py) — a picker that applied to some kinds and not
+    # (services/capture.py) - a picker that applied to some kinds and not
     # others would be worse than none.
     # None: "only you" for a strong caller, a capture being personal until
     # shared (docs/VISIBILITY.md). _personal_default says why a weak one
@@ -4792,7 +4792,7 @@ def post_capture(
     visibility = body.visibility or _personal_default(request)
     with db.transaction():
         # FIRST in the transaction: the claim row is the idempotency receipt,
-        # and its insert is the lock — a concurrent same-key request blocks on
+        # and its insert is the lock - a concurrent same-key request blocks on
         # the in-doubt row and reads the settled claim. A capture that fails
         # below rolls the claim back with it, so a retry files normally.
         if not capture.claim_capture(user, body.capture_key):
@@ -4909,7 +4909,7 @@ def post_approve_batch(
     strong = bool(getattr(request.state, "strong_auth", False))
     results = []
     # BatchApproveIn.max_length is the only cap. A second limit here (a
-    # slice, a break) drops the tail with no result row — the caller counts
+    # slice, a break) drops the tail with no result row - the caller counts
     # the answers, sees fewer than it sent, and never learns which ids were
     # skipped. Every id the model accepted gets exactly one result row.
     for cid in body.ids:
@@ -4997,7 +4997,7 @@ class EngagementIn(BaseModel):
     kill_criteria: str = Field("", max_length=500)
     outcome: str = Field("", max_length=2000)
     # the tier the writer picked, checked in the service: crew membership only.
-    # It PROPAGATES — the handoff artifact, the ship-it note and the
+    # It PROPAGATES - the handoff artifact, the ship-it note and the
     # experiment lesson all inherit from the engagement they came from.
     visibility: str = Field(scope.WORKSPACE, max_length=16)
     crew_id: int = 0
@@ -5039,7 +5039,7 @@ def get_plan_diff(
 ):
     """Planned versus what happened, for an engagement born from a playbook.
 
-    `{}` for one created by hand — the close-out control renders nothing
+    `{}` for one created by hand - the close-out control renders nothing
     rather than an empty section, because "no variance" and "no plan to vary
     from" are different statements.
     """
@@ -5091,7 +5091,7 @@ def post_lesson(body: LessonIn, user: CurrentUser):
 
 
 class InstantiateIn(BaseModel):
-    # caps match EngagementIn — instantiate reaches create_engagement, so an
+    # caps match EngagementIn - instantiate reaches create_engagement, so an
     # uncapped name here writes past the create cap into the search index
     playbook: str = Field(max_length=40)
     engagement_name: str = Field(max_length=120)
@@ -5189,10 +5189,10 @@ def get_calendar_ics(request: Request, token: str = ""):
     """iCalendar feed of events + due dates (team-visible data only).
     Keep the feed inside the trusted network. Calendar clients can't send
     headers, so auth is a DEDICATED
-    feed secret (?token=SKEIN_ICS_TOKEN) — never the API token, which
+    feed secret (?token=SKEIN_ICS_TOKEN) - never the API token, which
     would end up in calendar configs and access logs. Fully-open mode only
     when the whole API is open (trusted-header mode, no API_TOKEN);
-    otherwise fail closed — the feed sits on the perimeter middleware's
+    otherwise fail closed - the feed sits on the perimeter middleware's
     open-path list, so this check is its only gate."""
     import hmac
 
@@ -5216,7 +5216,7 @@ def get_calendar_ics(request: Request, token: str = ""):
     ) != "trusted-header":
         raise HTTPException(
             status_code=403,
-            detail="calendar feed disabled — set SKEIN_ICS_TOKEN to enable it",
+            detail="calendar feed disabled - set SKEIN_ICS_TOKEN to enable it",
         )
     return Response(
         schedule.ics_feed(),
@@ -5310,7 +5310,7 @@ def get_interventions(
     subject: PolicySubjectDep,
     limit: int = 12,
 ):
-    """The manager's ranked queue. Composition only — every row restates one
+    """The manager's ranked queue. Composition only - every row restates one
     an engine already produced (services/intervention.py)."""
     with db.read_transaction():
         policy = _require_opaque_project_policy(
@@ -5331,7 +5331,7 @@ def get_engagement_brief(
     request: Request,
     subject: PolicySubjectDep,
 ):
-    """One engagement, whole. Composition only — every number keeps its own
+    """One engagement, whole. Composition only - every number keeps its own
     home (services/engagement_brief.py)."""
     with db.read_transaction():
         _require_resource_policy(

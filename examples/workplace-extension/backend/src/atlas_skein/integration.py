@@ -344,7 +344,7 @@ class AtlasIntegration:
 
         Delegates to the store. A store is a SCHEMA in the Skein database now,
         not a file of its own, so ExtensionStore.transaction() is the whole
-        contract — and it nests, which is what the re-entrancy guard that used
+        contract - and it nests, which is what the re-entrancy guard that used
         to live here provided.
         """
         with self.store.transaction():
@@ -373,7 +373,7 @@ class AtlasIntegration:
         # Network I/O runs AFTER the mapping is committed, never inside the
         # transaction that wrote it. A retry from a different contribution then
         # reuses the mapping and the same remote idempotency key instead of
-        # creating another task — and a slow remote never holds a write open.
+        # creating another task - and a slow remote never holds a write open.
         # (Core and extension data now live in one database, so this ordering
         # is a deliberate choice rather than something the storage forces.)
         self._deliver_pending_statuses(work, context)
@@ -451,7 +451,7 @@ class AtlasIntegration:
                 if self._complete_mapping(item, task):
                     created += 1
         with self._transaction():
-            # The SAME shape db.now() writes — ISO-8601, seconds, UTC. These are
+            # The SAME shape db.now() writes - ISO-8601, seconds, UTC. These are
             # TEXT columns compared lexicographically across the tree, and
             # now()::text renders a space separator that sorts before "T".
             self._execute(
@@ -478,7 +478,7 @@ class AtlasIntegration:
                 (external_id, owner_namespace),
             )
             # FOR UPDATE, then LOOK AGAIN. Two syncs of the same item both read
-            # "no link" and both insert — one no-ops on the conflict. The lock
+            # "no link" and both insert - one no-ops on the conflict. The lock
             # is what makes the loser wait for the winner to finish linking,
             # and the second read of work_links is what it sees when it wakes
             # up. Without the pair, both callers create a task for one item.
@@ -527,7 +527,7 @@ class AtlasIntegration:
 
     def _complete_mapping(self, item: AtlasItem, task: TaskView) -> bool:
         with self._transaction():
-            # The INSERT reports whether it created the link — a read taken
+            # The INSERT reports whether it created the link - a read taken
             # BEFORE it cannot. Two syncs of the same item both see "no prior
             # link" and both count a creation, so one item is reported created
             # twice while only one row exists. RETURNING yields a row only for

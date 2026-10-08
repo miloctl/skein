@@ -1,5 +1,5 @@
 def test_an_unreadable_artifact_answers_json_not_plain_text(client):
-    """The 500 class is right — this is our own state. The shape was not:
+    """The 500 class is right - this is our own state. The shape was not:
     with no handler Starlette answers a bare `Internal Server Error` in
     text/plain, and the operator instruction inside the message reached
     nobody. An error response is always JSON."""
@@ -19,13 +19,13 @@ def test_an_unreadable_artifact_answers_json_not_plain_text(client):
     r = client.get(f"/api/artifacts/{aid}")
     assert r.status_code == 500
     assert r.headers["content-type"].startswith("application/json")
-    # the operator instruction is the whole point — a body with a `detail`
+    # the operator instruction is the whole point - a body with a `detail`
     # key and none of the sentence would pass a shape check and help nobody
     assert "data/artifacts is mounted" in r.json()["detail"]
 
 
 def test_an_unclassified_failure_is_json_and_says_nothing_about_itself():
-    """The JSON rule held for the handled classes and nothing else — a
+    """The JSON rule held for the handled classes and nothing else - a
     KeyError or a bad-SQL OperationalError answered `Internal Server Error`
     in text/plain, and lib/api.ts fell back to the status line.
 

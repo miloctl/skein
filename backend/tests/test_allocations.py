@@ -33,7 +33,7 @@ def test_listing_engagements_does_not_scale_queries_with_engagements(fresh_db, m
     assert all(len(e["allocations"]) == 1 for e in out), "allocations must still be attached"
     allocation_reads = [s for s in seen if "FROM allocations" in s]
     assert len(allocation_reads) == 1, (
-        f"{len(allocation_reads)} allocations queries for 5 engagements — the N+1 is back"
+        f"{len(allocation_reads)} allocations queries for 5 engagements - the N+1 is back"
     )
 
 
@@ -84,7 +84,7 @@ def test_absences_shape_capacity_and_week_draft(client, fresh_db):
     users.ensure_user("dana")
     e = engagements.create_engagement("Staffed", actor="mira")
     engagements.allocate("dana", e["id"], percent=80, actor="mira")
-    # UTC, to match capacity()/draft_plan — local date.today() drifts a day at
+    # UTC, to match capacity()/draft_plan - local date.today() drifts a day at
     # the UTC boundary and the absence window then misses the service's today
     today = datetime.now(UTC).date()
     # anchor to the week's Monday: run on a Friday, today-1..today+7 covers

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 /** The two nav surfaces look alike and do opposite things: search READS,
  *  quick capture WRITES a row into the shared record. A user reported not
  *  being able to tell them apart, so each one now names the other at the
- *  moment the reader wants it — and the capture footer must stay silent for
+ *  moment the reader wants it - and the capture footer must stay silent for
  *  an anonymous visitor, who has no search box in the nav to be sent to. */
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -100,7 +100,7 @@ describe("⌘K focuses search", () => {
 
     expect(document.activeElement).toBe(input);
     // selected, so the next keystroke replaces the old query rather than
-    // appending to it — the command-palette behavior this key implies
+    // appending to it - the command-palette behavior this key implies
     expect(input.selectionStart).toBe(0);
     expect(input.selectionEnd).toBe("vendor".length);
     // capture WRITES a row. It must not open from a keystroke any more.

@@ -1,10 +1,10 @@
 /** The task id an activity row names, or null.
  *
  *  Keyed on the ACTION, never on the shape of `detail`. Real rows read
- *  "escalated a blocker — #5 …" and "minted an API key — #29 bootstrap":
+ *  "escalated a blocker - #5 …" and "minted an API key - #29 bootstrap":
  *  the entity word lives in the SENTENCE the verb registry produces, and the
  *  detail is a bare `#N` for every entity alike. A parser that read the
- *  detail therefore opened the task panel on a blocker id or an API-key id —
+ *  detail therefore opened the task panel on a blocker id or an API-key id -
  *  the wrong row, or a row that does not exist, and both look like the
  *  feature working.
  *

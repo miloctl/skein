@@ -2,7 +2,7 @@
 The message fans out to every member, each answers under its own name, and an
 optional synthesis merges the sections. See docs/FLOCKS.md.
 
-A flock is metadata over personas that already exist — it holds no prompt of
+A flock is metadata over personas that already exist - it holds no prompt of
 its own, and it is never an identity that writes. The members are the
 identities; their slugs are already in the authority matrix and trust scores.
 
@@ -40,7 +40,7 @@ _FIELDS = {"schema_version", "name", "description", "emoji", "members", "synthes
 
 
 def _flock_dirs() -> list[Path]:
-    """Stock first, overlay second — later wins."""
+    """Stock first, overlay second - later wins."""
     dirs = [FLOCKS_DIR]
     overlay = config.FLOCKS_OVERLAY
     if overlay and overlay.is_dir() and overlay.resolve() != FLOCKS_DIR.resolve():
@@ -72,7 +72,7 @@ def configured_slugs() -> set[str]:
 
 def _parse(path: Path, bench: set[str]) -> dict | None:
     """One flock file, or None when anything about it is wrong. Every None
-    here has a matching loud error in validate_all() — keep the two in step,
+    here has a matching loud error in validate_all() - keep the two in step,
     or a file drops off the roster with no CI failure to explain it."""
     slug = path.stem
     if not _SLUG.match(slug) or content_subject_refusal(slug):
@@ -134,7 +134,7 @@ def _member_card(slug: str) -> dict:
 
 
 def member_cards(slugs: list[str]) -> list[dict]:
-    """Display cards for the slugs get_flock returns — the chat fan-out needs
+    """Display cards for the slugs get_flock returns - the chat fan-out needs
     a name and an emoji per section masthead."""
     return [_member_card(s) for s in slugs]
 
@@ -160,10 +160,10 @@ def get_flock(slug: str) -> dict:
             f = _parse(path, personas.bench_slugs())
         if f:
             return f
-        raise ValueError(f"no flock '{slug}' — available: {_roster()}")
+        raise ValueError(f"no flock '{slug}' - available: {_roster()}")
     # the rejected value is NOT echoed: an off-charset slug is arbitrary
     # caller text, and CLAUDE.md holds that an error never reflects it back
-    raise ValueError(f"that is not a flock slug — available: {_roster()}")
+    raise ValueError(f"that is not a flock slug - available: {_roster()}")
 
 
 def _roster() -> str:
@@ -171,7 +171,7 @@ def _roster() -> str:
 
 
 def validate_all() -> list[str]:
-    """Every check _parse forgives, as loud errors — run by scripts/lint.sh so
+    """Every check _parse forgives, as loud errors - run by scripts/lint.sh so
     a malformed flock fails CI instead of silently vanishing from the roster."""
     errors: list[str] = []
     bench = personas.bench_slugs()
@@ -186,7 +186,7 @@ def validate_all() -> list[str]:
                 continue
             if path.stem in bench:
                 errors.append(
-                    f"{label}: {path.stem!r} is also a persona slug — rename the flock,"
+                    f"{label}: {path.stem!r} is also a persona slug - rename the flock,"
                     " or the two share one agent identity in usage and trust"
                 )
                 continue
@@ -220,11 +220,11 @@ def _check_members(label: str, members: object, bench: set[str]) -> list[str]:
     names = [str(m).strip() for m in members]
     if not MIN_MEMBERS <= len(names) <= MAX_MEMBERS:
         errors.append(
-            f"{label}: members has {len(names)} entries —"
+            f"{label}: members has {len(names)} entries -"
             f" a flock takes {MIN_MEMBERS} to {MAX_MEMBERS}"
         )
     for m in sorted({m for m in names if names.count(m) > 1}):
-        errors.append(f"{label}: members repeats {m!r} — each member answers one time")
+        errors.append(f"{label}: members repeats {m!r} - each member answers one time")
     for m in names:
         if m and m not in bench:
             errors.append(f"{label}: members names {m!r}, which is not a persona on the bench")
@@ -239,7 +239,7 @@ def _check_members(label: str, members: object, bench: set[str]) -> list[str]:
                 if not member["flock"]:
                     errors.append(
                         f"{label}: members names {m!r}, which works only in live"
-                        " conversation — a flock turn gives it nobody to interview"
+                        " conversation - a flock turn gives it nobody to interview"
                     )
         elif not m:
             errors.append(f"{label}: members has an empty entry")
@@ -250,7 +250,7 @@ def record_trace(
     thread_id: str, user: str, flock: str, members: list[dict], synthesis: dict | None = None
 ) -> int:
     """One flock turn, as the diamond view reads it. Called from the chat
-    route's close path, which also runs on a cancelled stream — a turn the
+    route's close path, which also runs on a cancelled stream - a turn the
     user stopped still produced spend, so it still owes a trace."""
     return db.execute(
         'INSERT INTO flock_traces (thread_id, "user", flock, members, synthesis, created_at)'
@@ -275,7 +275,7 @@ def list_traces(owner: str, thread_id: str = "", flock: str = "", limit: int = 2
     person who ran it and the thread id their chat transcript is keyed by
     (routes/chat.py scopes those per owner), and the row carries every
     member's receipts and token counts. With no filter, any identified caller
-    read every other person's runs — which the route's own comment already
+    read every other person's runs - which the route's own comment already
     said must not happen. A default would make the next caller's omission
     silent, and this is the only caller there is.
     """

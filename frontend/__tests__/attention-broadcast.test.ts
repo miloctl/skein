@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { bridgeAttentionChange, notifyAttentionChange } from "@/lib/attention";
 
 // BroadcastChannel delivery lands on its own schedule, not the next task
-// tick — one setTimeout(0) loses the race on a loaded machine
+// tick - one setTimeout(0) loses the race on a loaded machine
 async function flush(done: () => boolean = () => true) {
   for (let i = 0; i < 40 && !done(); i++) {
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -48,7 +48,7 @@ describe("attention change broadcast", () => {
       unbridge();
       // a probe channel proves delivery happened: BroadcastChannel orders
       // messages, so once the probe hears this post, a still-open bridge
-      // would already have relayed it — the bare single-tick wait passed
+      // would already have relayed it - the bare single-tick wait passed
       // even when a broken unbridge simply delivered late
       const probe = new BroadcastChannel("skein-attention");
       const probed: unknown[] = [];

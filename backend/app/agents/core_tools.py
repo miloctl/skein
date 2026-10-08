@@ -46,7 +46,7 @@ def _resource(arguments: dict[str, Any]) -> PolicyResource:
     for key, value in arguments.items():
         # A model sends "42" as often as 42, and Strands coerces the string
         # to int with pydantic AFTER this policy check runs. int() here must
-        # be as wide as that coercion — isdecimal() let ' 42', '+42' and
+        # be as wide as that coercion - isdecimal() let ' 42', '+42' and
         # '4_2' pass as a generic `tool` resource while the delegate wrote
         # to the real task, skipping its task-scoped rules.
         if isinstance(value, str):
@@ -58,7 +58,7 @@ def _resource(arguments: dict[str, Any]) -> PolicyResource:
         if entity == "project":
             entity = "engagement"
         # Hold the row this decision is about, before reading it. Same rule
-        # and same lock order as every other enforcement point — see
+        # and same lock order as every other enforcement point - see
         # services/policy_context.py::hold_resource.
         policy_context.hold_resource(entity, value)
         attributes = (

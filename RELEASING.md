@@ -30,7 +30,7 @@ Keep these account settings for each release pull request.
 
 A reviewed release pull request sets the marker on protected `main`. A push publishes nothing. Publication starts only when `publish-release` names a green `ci` run on protected `main` whose release marker and declared version agree. Tags do not trigger publication.
 
-Both publishers use OIDC Trusted Publishing. No registry token is stored anywhere. `RELEASE_TAG_TOKEN` is for the one annotated-tag push only — never for packages, gates, or registry access.
+Both publishers use OIDC Trusted Publishing. No registry token is stored anywhere. `RELEASE_TAG_TOKEN` is for the one annotated-tag push only - never for packages, gates, or registry access.
 
 After each npm publication, confirm that both packages are public on npmjs.com, carry provenance, and are linked to `miloctl/skein`.
 
@@ -54,7 +54,7 @@ PyPI is public. The published wheel contains the Skein Python source and package
 
 ### npm
 
-npm attaches a Trusted Publisher to an EXISTING package, so the first version of each package is published by hand, once, and every later version by the workflow. Publish the exact tarballs from the green `ci` run's `release-packages` artifact — the bytes finalize-release verified — never a local `npm pack`:
+npm attaches a Trusted Publisher to an EXISTING package, so the first version of each package is published by hand, once, and every later version by the workflow. Publish the exact tarballs from the green `ci` run's `release-packages` artifact - the bytes finalize-release verified - never a local `npm pack`:
 
 ```sh
 npm login
@@ -77,7 +77,7 @@ Select **Require two-factor authentication and disallow tokens** on the same pag
 
 The extension API's published `1.0.0` is frozen: the workplace consumer integrity-locks its tarball and the publish job refuses a same-version republish with different bytes, so its manifest keeps the `publishConfig` it was published with until the next API version. The publish job passes `--registry` and `--access public` explicitly, which makes that manifest field inert.
 
-The publisher runs `npm install -g npm@11.19.1` first: trusted publishing needs npm 11.5.1 or later and Node 22 ships 10.x. npm generates provenance automatically, and only from a PUBLIC repository — make the repository public before the first workflow publication, or that run fails.
+The publisher runs `npm install -g npm@11.19.1` first: trusted publishing needs npm 11.5.1 or later and Node 22 ships 10.x. npm generates provenance automatically, and only from a PUBLIC repository - make the repository public before the first workflow publication, or that run fails.
 
 ## Configure workplace access
 
@@ -87,7 +87,7 @@ The npm packages are public on npmjs.com and install with no token. A controlled
 
 A release starts when a reviewed pull request sets `.github/release-version` on protected `main`. The marker must match `backend/pyproject.toml`.
 
-The marker is a credential, not a trigger: a commit whose marker names X.Y.Z is the only commit that may publish X.Y.Z. Any green commit carrying that marker qualifies, so a fix commit after a failed gate publishes the release it fixed. The marker never rests at a sentinel value — `prepare-release.py` reads it as the previous version and refuses anything that is not X.Y.Z.
+The marker is a credential, not a trigger: a commit whose marker names X.Y.Z is the only commit that may publish X.Y.Z. Any green commit carrying that marker qualifies, so a fix commit after a failed gate publishes the release it fixed. The marker never rests at a sentinel value - `prepare-release.py` reads it as the previous version and refuses anything that is not X.Y.Z.
 
 The release tag records a successful publication. It does not start one.
 
@@ -107,11 +107,11 @@ The finalized prior tag must be reachable through Git remote `github`. If the tr
 The extension compatibility windows name the first incompatible core
 version (`maximum_core_exclusive`, and the `<X.Y.0` pip bound). A release
 that reaches that version must move every window forward FIRST, in its own
-reviewed commit, or the script refuses with a count mismatch — a bound that
+reviewed commit, or the script refuses with a count mismatch - a bound that
 names the new version is a compatibility claim, not stale release text.
 A window lives in every place a manifest is DECLARED, and test fixtures
 declare far more of them than the shipped extension does. Crossing 0.3.x to
-0.4.0 moved 151 of them. Run this from the repository root — not from
+0.4.0 moved 151 of them. Run this from the repository root - not from
 `backend/`, where a `backend/tests/` pathspec silently matches nothing:
 
 ```sh
@@ -123,12 +123,12 @@ grep -rn "maximum_core_exclusive\|maximumCoreExclusive" . \
 They live in the shipped manifests (`extension.toml`, `module.py`, the
 frontend `index.tsx`), their doc examples, the frontend test fixtures, the
 contract harnesses (`scripts/contract/`), and ~137 backend test fixtures.
-A missed one does not fail the script — it fails the backend, frontend, and
+A missed one does not fail the script - it fails the backend, frontend, and
 extension-contract gates afterwards with `supports core versions from X up
 to but not including Y`. Leave the deliberately out-of-range bounds that
 pin the REFUSAL path alone (`minimum_core="9.0.0"`).
 Moving a window forward asserts the extension works on the new core. The
-passing contract suite is that evidence — do not move a window the suite
+passing contract suite is that evidence - do not move a window the suite
 has not earned.
 
 ### Recover an abandoned prepared release
@@ -138,7 +138,7 @@ finalized, the next preparation refuses because the finalized prior tag
 does not exist. Recovery: complete the abandoned release's publication
 (push its marker commit, run the publishers, finalize with the run ID). If
 that release predates the finalize workflow itself, create the annotated
-tag by hand at the release commit and push it — a one-time bootstrap, done
+tag by hand at the release commit and push it - a one-time bootstrap, done
 for `v0.3.2` on 2026-08-30, never the normal path.
 
 ## Run the release gates
@@ -219,7 +219,7 @@ If the artifact expired, publish a new version instead of rebuilding the old ver
 
 ## Finalize the published release
 
-Do not treat a successful upload as completed publication. Open the GitHub `finalize-release` workflow on branch `main` and enter the original release run ID — the same run ID that published the version.
+Do not treat a successful upload as completed publication. Open the GitHub `finalize-release` workflow on branch `main` and enter the original release run ID - the same run ID that published the version.
 
 The workflow validates the original gated run and downloads its immutable artifact ID. It inspects the three package identities and versions without extracting them.
 

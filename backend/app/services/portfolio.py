@@ -1,6 +1,6 @@
 """Portfolio layer: engagement health, allocation conflicts, flow metrics,
 slip forecasting, what-if intake, and the exec readout. All deterministic SQL
-over data the team already records — receipts shown for every verdict."""
+over data the team already records - receipts shown for every verdict."""
 
 from collections.abc import Callable
 from datetime import date, timedelta
@@ -14,11 +14,11 @@ from .stats import median as _median
 
 
 def _today() -> date:
-    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    """The team's day (config.SKEIN_TZ), not the UTC day - see db.today()."""
     return db.today()
 
 
-# a wait on a resolved/done/kept target is satisfied — it must stop yellowing
+# a wait on a resolved/done/kept target is satisfied - it must stop yellowing
 # the engagement the moment the dependency clears, without a manual unset.
 # Keys mirror work.WAITING_ON_TYPES (the write path's whitelist): a type
 # added there without a query here KeyErrors _satisfied_targets → /portfolio
@@ -42,7 +42,7 @@ def health_changes(health: list[dict], since: date | None = None) -> list[dict]:
 
     `since` is the moment being compared BACK TO, and it must match what the
     caller's heading claims. Defaulting to yesterday answers "moved since
-    yesterday" — which for a WEEKLY artifact is the wrong 24 hours six days
+    yesterday" - which for a WEEKLY artifact is the wrong 24 hours six days
     out of seven: an engagement that went yellow on Wednesday reads as
     unchanged in Monday's readout, under a heading promising exactly that
     change. Callers pass the date their last one covered.
@@ -50,7 +50,7 @@ def health_changes(health: list[dict], since: date | None = None) -> list[dict]:
     Compared against the most recent snapshot at or before `since`, never
     today's: today's snapshot is today's state, and nothing would ever appear
     to have moved. An engagement with no earlier snapshot is new to the
-    comparison and is reported as such rather than as a change from green —
+    comparison and is reported as such rather than as a change from green -
     it never was green, and inventing a previous state is inventing a trend.
     """
     since = since or (_today() - timedelta(days=1))
@@ -61,7 +61,7 @@ def health_changes(health: list[dict], since: date | None = None) -> list[dict]:
     prior = {
         r["engagement_id"]: r["health"]
         for r in db.query(
-            "SELECT engagement_id, health FROM health_snapshots s"  # noqa: S608 — placeholders only
+            "SELECT engagement_id, health FROM health_snapshots s"  # noqa: S608 - placeholders only
             f" WHERE engagement_id IN ({marks}) AND day <= ?"
             " AND day = (SELECT MAX(day) FROM health_snapshots"
             "            WHERE engagement_id = s.engagement_id AND day <= ?)",
@@ -96,7 +96,7 @@ def _iso_week(day: str) -> str:
 
 def _satisfied_targets(waits: list[dict]) -> set[tuple[str, int]]:
     """(waiting_on_type, waiting_on_id) pairs whose dependency has cleared.
-    One IN query per target type — the per-wait probe this replaces was one
+    One IN query per target type - the per-wait probe this replaces was one
     query per waiting task, on every /portfolio load."""
     by_type: dict[str, set[int]] = {}
     for w in waits:
@@ -123,7 +123,7 @@ def _workspace_targets(waits: list[dict]) -> set[tuple[str, int]]:
         shown.update(
             (typ, r["id"])
             for r in db.query(
-                f"SELECT id FROM {_WAITING_TABLES[typ]} WHERE {WORKSPACE_ONLY} AND id IN ({marks})",  # noqa: S608 — closed table map, scope constant, placeholders built above
+                f"SELECT id FROM {_WAITING_TABLES[typ]} WHERE {WORKSPACE_ONLY} AND id IN ({marks})",  # noqa: S608 - closed table map, scope constant, placeholders built above
                 tuple(ids),
             )
         )
@@ -133,13 +133,13 @@ def _workspace_targets(waits: list[dict]) -> set[tuple[str, int]]:
 def _linked_blockers(engagement_id: int, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     # BOTH sides of the join carry the filter. Only the blockers side would let
     # a workspace blocker on a crew task through, and only the tasks side would
-    # let a crew blocker on a workspace task through — and the engagement
+    # let a crew blocker on a workspace task through - and the engagement
     # pack (services/context_pack.py) and the handoff both read this, the
     # second of which writes its body to an artifact file on disk.
     bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
     rows = db.query(
-        f"SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT b.* FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" WHERE {bfrag}"
         " AND (t.engagement_id = ? OR t.milestone_id IN (SELECT id FROM milestones WHERE engagement_id = ?))"
         " AND b.status != 'resolved'",
@@ -165,10 +165,10 @@ def engagement_health(
 
     Filtered, defaulting to NOBODY: /portfolio passes the caller's viewer, and
     the exec readout (services/readout.py) writes a markdown file with no
-    viewer at all — which is exactly the workspace tier this default gives it.
+    viewer at all - which is exactly the workspace tier this default gives it.
 
     name_assignees=False drops the one receipt that carries a person's name.
-    Callers that EGRESS their output pass it — see the stale-WIP receipt below.
+    Callers that EGRESS their output pass it - see the stale-WIP receipt below.
     """
     as_of = as_of or _today()
     today = as_of.isoformat()
@@ -179,7 +179,7 @@ def engagement_health(
     silence_cutoff = db.local_midnight_utc(as_of - timedelta(days=SILENCE_DAYS))
     frag, vp = scope.visible_filter(viewer, "engagements")
     engagements = db.query(
-        f"SELECT * FROM engagements WHERE status != 'closed' AND {frag} ORDER BY id",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM engagements WHERE status != 'closed' AND {frag} ORDER BY id",  # noqa: S608 - scope.visible_filter emits only bound marks
         tuple(vp),
     )
     if project_filter is not None:
@@ -192,7 +192,7 @@ def engagement_health(
     # ~6 queries per engagement plus one per waiting task, a growing
     # portfolio multiplies /portfolio and exec-readout latency.
     # A task can reach an engagement two ways (its own engagement_id, or its
-    # milestone's) — the id set below dedups the two paths, and a task whose
+    # milestone's) - the id set below dedups the two paths, and a task whose
     # two paths reach DIFFERENT engagements counts toward both.
     overdue_by: dict[int, list[dict]] = {}
     # each receipt scan carries the SAME viewer as the engagement list above,
@@ -202,7 +202,7 @@ def engagement_health(
     from . import policy_context
 
     overdue_rows = db.query(
-        f"SELECT id, title, due_date, engagement_id FROM milestones WHERE {mfrag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT id, title, due_date, engagement_id FROM milestones WHERE {mfrag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         " AND status != 'done' AND due_date IS NOT NULL AND due_date < ? ORDER BY id",
         (*mp, today),
     )
@@ -214,7 +214,7 @@ def engagement_health(
     bfrag, bp = scope.visible_filter(viewer, "blockers", "b")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")
     blocker_rows = db.query(
-        "SELECT b.*, t.engagement_id AS t_eng, m.engagement_id AS m_eng"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT b.*, t.engagement_id AS t_eng, m.engagement_id AS m_eng"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" FROM blockers b JOIN tasks t ON t.id = b.task_id AND {tfrag}"
         " LEFT JOIN milestones m ON m.id = t.milestone_id"
         f" WHERE b.status != 'resolved' AND {bfrag} ORDER BY b.id",
@@ -239,7 +239,7 @@ def engagement_health(
 
     all_waits: list[dict] = []
     task_rows = db.query(
-        "SELECT t.id, t.title, t.assignee, t.status, t.updated_at,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT t.id, t.title, t.assignee, t.status, t.updated_at,"  # noqa: S608 - scope.visible_filter emits only bound marks
         " t.waiting_on_type, t.waiting_on_id,"
         " t.engagement_id AS t_eng, m.engagement_id AS m_eng"
         " FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id"
@@ -286,7 +286,7 @@ def engagement_health(
                 receipts.append(f"blocker #{b['id']} {wording.quoted(b['title'])} open")
         for t in stale_by.get(eng["id"], []):
             # The assignee is named for a surface that asks "who do I go talk
-            # to" — planning the future, the permitted direction. It is
+            # to" - planning the future, the permitted direction. It is
             # dropped for a caller that will WRITE this receipt into a
             # forwardable artifact: "@ava let this sit for over a week", in
             # front of an audience outside the team, is the past-judging use
@@ -315,7 +315,7 @@ def engagement_health(
             # UTC date, and this receipt is READ BY A HUMAN in the forwarded
             # exec readout. Naming the hazard on one line and committing it on
             # the next is the strongest possible invitation to fix the wrong
-            # one — so the render converts, like every other date a person sees.
+            # one - so the render converts, like every other date a person sees.
             receipts.append(f"no task activity since {db.local_day(last_ts)}")
 
         if escalated or len(overdue) >= 2:
@@ -350,7 +350,7 @@ def allocation_conflicts(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     today = _today().isoformat()
     name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     return db.query(
-        "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
+        "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 - scope.visible_name emits only bound marks
         f" string_agg({name} || ' (' || a.percent || '%)', ', ') AS detail"
         " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
         " WHERE e.status != 'closed'"
@@ -367,9 +367,9 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
 
     allocation_conflicts and what_if both bind their window predicates to
     TODAY, so they answer one question: who is over right now. The staffing
-    questions a manager actually holds are forward-shaped — "who frees up when
+    questions a manager actually holds are forward-shaped - "who frees up when
     Atlas closes in three weeks", "does accepting this conflict with Dana's
-    allocation that STARTS next month" — and a request accepted today against
+    allocation that STARTS next month" - and a request accepted today against
     today's numbers is a conflict Skein notices only when the date arrives.
 
     A table, one row per week, never a Gantt: docs/ROADMAP.md records the Gantt
@@ -377,7 +377,7 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
     without pretending to schedule the work.
 
     Person-level and forward-looking, which is the direction the
-    anti-surveillance rule permits — this plans the future, it does not score
+    anti-surveillance rule permits - this plans the future, it does not score
     the past, so `a.person` is served raw. It is the ENGAGEMENT name that
     scope.visible_name masks, the way allocation_conflicts masks the same
     column.
@@ -390,7 +390,7 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
         start = monday + timedelta(weeks=i)
         end = start + timedelta(days=6)
         rows = db.query(
-            "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 — scope.visible_name emits only bound marks
+            "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 - scope.visible_name emits only bound marks
             f" string_agg({name} || ' (' || a.percent || '%)', ', ') AS detail"
             " FROM allocations a JOIN engagements e ON e.id = a.engagement_id"
             " WHERE e.status != 'closed'"
@@ -409,7 +409,7 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
         # that rule exists to stop. Unmasked here it reached every CurrentUser
         # through GET /api/planning.
         away = db.query(
-            "SELECT person, kind, visibility FROM absences"  # noqa: S608 — TEAM_SEES_DATES is a module constant
+            "SELECT person, kind, visibility FROM absences"  # noqa: S608 - TEAM_SEES_DATES is a module constant
             f" WHERE starts_on <= ? AND ends_on >= ? AND {TEAM_SEES_DATES}",
             (end.isoformat(), start.isoformat()),
         )
@@ -420,7 +420,7 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
                 "starts_on": start.isoformat(),
                 "people": rows,
                 "over": [r["person"] for r in rows if (r["total_percent"] or 0) > 100],
-                # away is capacity the allocations do not know about — a
+                # away is capacity the allocations do not know about - a
                 # person at 100% who is on PTO that week is not staffed, and
                 # a grid that showed only the percent would say they were
                 "away": [
@@ -439,28 +439,28 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
     """Cycle time / throughput / WIP from timestamps the platform already has.
     No estimates, no story points.
 
-    name_people=False aggregates the two person-named parts — wip_by_person
-    and the stale_wip assignees — for a caller whose output EGRESSES. Same
+    name_people=False aggregates the two person-named parts - wip_by_person
+    and the stale_wip assignees - for a caller whose output EGRESSES. Same
     split, and the same reason, as engagement_health's name_assignees: an
     agent's reply is text a manager pastes somewhere, and this function is
     judging the past. `team_capacity` is the planning-shaped read an agent
     should reach for when the question is who has room."""
     cutoff = db.local_midnight_utc(_today() - timedelta(weeks=weeks))
     # WORKSPACE_ONLY, like the `stale` read below and like every rule in
-    # services/insights.py. This function has no viewer — every caller is
+    # services/insights.py. This function has no viewer - every caller is
     # team-wide or egressing (the exec readout, the interrupt_load finding,
-    # the cockpit, the agent tool) — so counting private and crew tasks put
+    # the cockpit, the agent tool) - so counting private and crew tasks put
     # work the audience cannot see into a number presented to them as theirs.
     # A denominator that includes rows a reader will never find is a wrong
     # number before it is a leak.
     done = db.query(
-        "SELECT created_at, completed_at, committed_week,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT created_at, completed_at, committed_week,"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " ROUND((EXTRACT(epoch FROM completed_at::timestamptz - created_at::timestamptz) / 86400.0)::numeric, 1) AS days"
         f" FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= ? AND {WORKSPACE_ONLY}",
         (cutoff,),
     )
     # a NULL cycle time (an unparseable created_at from a restore or import)
-    # would blow up sorted()/sum() on None — a 500 on /portfolio and in the
+    # would blow up sorted()/sum() on None - a 500 on /portfolio and in the
     # exec readout for one bad row
     cycle_days = sorted(r["days"] for r in done if r["days"] is not None)
     n = len(cycle_days)
@@ -468,7 +468,7 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
         "tasks_done": n,
         "avg_days": round(sum(cycle_days) / n, 1) if n else None,
         # stats.median, not cycle_days[n // 2]: the latter takes the UPPER
-        # of the two middle values, so [1, 9] read as 9.0 instead of 5.0 — a
+        # of the two middle values, so [1, 9] read as 9.0 instead of 5.0 - a
         # systematically inflated cycle time on every even-n window, on the
         # headline number of /portfolio and the exec readout. One median
         # implementation, per the "one service layer" principle.
@@ -476,14 +476,14 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
     }
     throughput: dict[str, int] = {}
     for r in done:
-        # local_day, not [:10] — that slice is the UTC day, and the current
+        # local_day, not [:10] - that slice is the UTC day, and the current
         # week this chart is plotted against comes from db.today(). Mixed, a
         # task finished on Sunday evening in New York lands in NEXT week's bar
         d = date.fromisoformat(db.local_day(r["completed_at"])).isocalendar()
         throughput[f"{d.year}-W{d.week:02d}"] = throughput.get(f"{d.year}-W{d.week:02d}", 0) + 1
     # Interrupt ratio: work that arrived AND finished inside the same week,
     # having never been on that week's committed line. It is the receipt
-    # behind a weak kept-% — "we planned badly" and "we absorbed an incident"
+    # behind a weak kept-% - "we planned badly" and "we absorbed an incident"
     # have opposite remedies, and the commitment line alone cannot tell them
     # apart. Derived, so it costs nobody a new habit.
     #
@@ -504,8 +504,8 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
         "planned": planned,
         "unplanned": unplanned,
         # NAMED for what it measures. The denominator is planned + unplanned,
-        # and a task that CARRIED OVER — committed to an earlier week, finished
-        # in this one — is in neither, so this is not a share of all finished
+        # and a task that CARRIED OVER - committed to an earlier week, finished
+        # in this one - is in neither, so this is not a share of all finished
         # work. Carryover is exactly what a weak kept-% is about, so a field
         # called `unplanned_share` beside a sentence saying "of finished work"
         # would overstate on the number people quote.
@@ -522,7 +522,7 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
         "window_weeks": weeks,
     }
     wip = db.query(
-        "SELECT COALESCE(NULLIF(assignee, ''), 'unassigned') AS person,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT COALESCE(NULLIF(assignee, ''), 'unassigned') AS person,"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         f" COUNT(*) AS in_progress FROM tasks WHERE status = 'in_progress' AND {WORKSPACE_ONLY}"
         " GROUP BY person ORDER BY in_progress DESC"
     )
@@ -530,7 +530,7 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
     stale = db.query(
         # this list carries TITLES on top of the tier the counts above
         # share, and nudge_stale_wip notifies each assignee by name from it
-        "SELECT id, title, assignee,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT id, title, assignee,"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " FLOOR(EXTRACT(epoch FROM now() - updated_at::timestamptz) / 86400.0)::int"
         " AS days_stale"
         f" FROM tasks WHERE status = 'in_progress' AND updated_at < ? AND {WORKSPACE_ONLY}"
@@ -594,7 +594,7 @@ def _nudge_stale_wip_locked() -> dict:
 def slip_forecast() -> dict:
     """Forecast open milestone dates from the team's own slip history.
     Labeled heuristic: MEDIAN days late across done milestones that had a
-    due date (median, not mean — see the note below)."""
+    due date (median, not mean - see the note below)."""
     # completed_at, not updated_at: post-done corrections (relinks, title
     # fixes) bump updated_at and would inflate every forecast
     # the finishing TEAM day (db.local_day), not date_trunc in the database
@@ -611,7 +611,7 @@ def slip_forecast() -> dict:
         except (TypeError, ValueError):
             continue  # a malformed stored date must not sink the forecast
     # MEDIAN, not mean: docs/INSIGHTS.md says "medians over means everywhere",
-    # and a mean let one pathological milestone rewrite the whole portfolio —
+    # and a mean let one pathological milestone rewrite the whole portfolio -
     # nine delivered on time plus one 200 days late pushed EVERY open
     # milestone 20 days. The median of that history is 0.
     med = _median(slips)
@@ -620,12 +620,12 @@ def slip_forecast() -> dict:
     open_ms = db.query(
         # both sides of the join: the forecast names milestone TITLES and is
         # written to a snapshot table by the daily job, which has no viewer
-        f"SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id AND e.{WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT m.* FROM milestones m JOIN engagements e ON e.id = m.engagement_id AND e.{WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         f" WHERE m.{WORKSPACE_ONLY} AND e.status != 'closed' AND e.kind != 'experiment'"  # timeboxed, not deadlined
         " AND m.status != 'done' AND m.due_date IS NOT NULL ORDER BY m.due_date"
     )
     # one waiting-task query for all open milestones, one resolution query
-    # per target type — per-milestone and per-wait probes multiply with the
+    # per target type - per-milestone and per-wait probes multiply with the
     # portfolio, and this runs in the daily forecast snapshot too
     waits_by: dict[int, list[dict]] = {}
     if open_ms:
@@ -636,7 +636,7 @@ def slip_forecast() -> dict:
             # reaches every roster member on the portfolio page. The forecast
             # DATE is the median slip and does not read this list, so dropping
             # the row costs an annotation and not a number.
-            f"SELECT id, milestone_id, waiting_on_type, waiting_on_id FROM tasks"  # noqa: S608 — placeholders built above, and scope.WORKSPACE_ONLY is a module constant
+            f"SELECT id, milestone_id, waiting_on_type, waiting_on_id FROM tasks"  # noqa: S608 - placeholders built above, and scope.WORKSPACE_ONLY is a module constant
             f" WHERE {WORKSPACE_ONLY} AND milestone_id IN ({marks}) AND status NOT IN ('done', 'void')"
             f" AND waiting_on_type IS NOT NULL ORDER BY id",
             tuple(m["id"] for m in open_ms),
@@ -672,7 +672,7 @@ def slip_forecast() -> dict:
             }
         )
     return {
-        # median, and the key says so — an "avg_" key holding a median is
+        # median, and the key says so - an "avg_" key holding a median is
         # the same kind of quiet lie the median fix was for
         "basis": {"milestones_measured": len(slips), "median_slip_days": median_slip},
         "forecasts": forecasts,
@@ -694,12 +694,12 @@ def what_if(
     # them, with a message that says the request does not exist.
     frag, fp = scope.visible_filter(viewer, "intake_requests")
     req = db.query_one(
-        f"SELECT * FROM intake_requests WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM intake_requests WHERE id = ? AND {frag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (request_id, *fp),
     )
     if not req:
         raise scope.missing("intake_requests", request_id)
-    # window-aware like allocation_conflicts — an allocation that ended last
+    # window-aware like allocation_conflicts - an allocation that ended last
     # quarter must not veto today's intake decision
     today = _today().isoformat()
     current = {
@@ -724,7 +724,7 @@ def what_if(
     # ordered by starts_on: keep the NEAREST window. The kind shows at the
     # workspace tier only, the rule absences.away_today states.
     for a in db.query(
-        "SELECT person, visibility, starts_on, ends_on FROM absences"  # noqa: S608 — TEAM_SEES_DATES is a module constant
+        "SELECT person, visibility, starts_on, ends_on FROM absences"  # noqa: S608 - TEAM_SEES_DATES is a module constant
         f" WHERE (kind = 'pto' OR visibility <> 'workspace') AND ends_on >= ? AND {TEAM_SEES_DATES}"
         " ORDER BY starts_on, person",
         (today,),
@@ -742,7 +742,7 @@ def what_if(
                 "overcommitted": total > 100,
                 # display-only: the human weighs growth fit, no matching logic
                 "growth_interests": interests.get(p, ""),
-                # upcoming PTO is a staffing fact, not a veto — shown, not scored
+                # upcoming PTO is a staffing fact, not a veto - shown, not scored
                 "upcoming_absence": away.get(p, ""),
             }
         )

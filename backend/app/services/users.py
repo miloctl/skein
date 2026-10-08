@@ -33,10 +33,10 @@ def _is_bench_slug(name: str) -> bool:
 
 
 def fold(name: str) -> str:
-    """The one normalization every identity comparison uses — roster names
+    """The one normalization every identity comparison uses - roster names
     here, and crew names in services/crews.py. NFKC because
     a fullwidth `TEAM` renders as `team`, and category Cf is stripped
-    because a zero-width joiner inside `team` does too — a name that reads as a system actor in every
+    because a zero-width joiner inside `team` does too - a name that reads as a system actor in every
     surface must not be a different identity from the system actor."""
     return fold_identity(name)
 
@@ -46,7 +46,7 @@ def names_someone(text: str, roster: set[str]) -> bool:
 
     `name in text` is the trap this exists to close: with a roster holding
     Ram, Ian and Ana it suppressed "Program review", "Alliance sync" and
-    "Analytics review" — three ordinary meeting titles out of four. Callers
+    "Analytics review" - three ordinary meeting titles out of four. Callers
     use this to decide whether a team-wide string may quote free text, so a
     false positive costs one withheld sentence and a false negative names a
     person beside a past failure.
@@ -94,7 +94,7 @@ def person_agent_visible(agent: str, viewer: str, *, admin: bool = False) -> boo
 
 
 def refuse_reserved_name(name: str) -> None:
-    """One predicate for every identity entry point — ensure_user, rename, and
+    """One predicate for every identity entry point - ensure_user, rename, and
     the credential doors in routes/deps.py.
 
     ANY kind, not just human: the activity feed shows a system actor's rows to
@@ -104,7 +104,7 @@ def refuse_reserved_name(name: str) -> None:
     It normalizes its own input, because two of its four callers hand it a
     header value that nothing else has touched."""
     if fold(name) in {fold(a) for a in HUMAN_RESERVED_SUBJECTS}:
-        raise ValueError("that name is reserved for the system — pick another name")
+        raise ValueError("that name is reserved for the system - pick another name")
 
 
 def refuse_authenticated_name(name: str) -> None:
@@ -114,7 +114,7 @@ def refuse_authenticated_name(name: str) -> None:
     weak-header fallback. It is never a person, service, or agent identity.
     """
     if fold(name) in {fold(a) for a in CORE_MACHINE_SUBJECTS}:
-        raise ValueError("that name is reserved for the system — pick another name")
+        raise ValueError("that name is reserved for the system - pick another name")
 
 
 def reserved_refusal(name: str) -> str:
@@ -149,18 +149,18 @@ def reserved_name_rows() -> list[str]:
 
 
 def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
-    """One folded name, one roster row — checked wherever a row is created OR
+    """One folded name, one roster row - checked wherever a row is created OR
     moved. Checked only in ensure_user, rename_user is the back door:
     renaming a human onto an agent's name bricks them at every door,
     including the rename route itself. Kind does not soften it:
     authority_level and trust key on the EXACT name, so a second agent row
     folding onto the first would answer to neither's kill switch.
 
-    Folds in Python, not in SQL. No collation reproduces users.fold — it is
-    NFKC plus zero-width stripping, not case folding — so SQL that compared
+    Folds in Python, not in SQL. No collation reproduces users.fold - it is
+    NFKC plus zero-width stripping, not case folding - so SQL that compared
     with lower() would read
     `SCOÜT` and `scoüt` as one name here and resolve_teammate and
-    mentions.scan read them as the same one — the collision then arrives
+    mentions.scan read them as the same one - the collision then arrives
     through the very guard meant to stop it."""
     target = fold(name)
     for row in db.query("SELECT name, kind FROM users"):
@@ -175,9 +175,9 @@ def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
             # the EXISTING name only, never the submitted one: this message
             # reaches 403 bodies at the credential doors (routes/deps.py and
             # the main.py perimeter), and an error never echoes the rejected
-            # value — an OIDC claim here is provider-controlled text
+            # value - an OIDC claim here is provider-controlled text
             raise ValueError(
-                f"'{row['name']}' already exists as {article} {row['kind']} — a name"
+                f"'{row['name']}' already exists as {article} {row['kind']} - a name"
                 f" that differs only by case or width from it is refused, because"
                 f" one name must mean one identity"
             )
@@ -383,7 +383,7 @@ def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
     effective_kind = kind if kind in ("human", "agent") else "human"
     # The folded-name check and insert are one transaction, and the lock is
     # what makes that mean something: there is no unique index on the FOLDED
-    # name (folding is users.fold — NFKC plus zero-width stripping — which no
+    # name (folding is users.fold - NFKC plus zero-width stripping - which no
     # collation reproduces), so concurrent `Mira` and `MIRA` claims both read
     # "absent" and both insert unless they serialize here.
     with db.transaction():
@@ -414,10 +414,10 @@ def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
             refuse_released_name(name)
         refuse_fold_collision(name)
         if kind == "human" and _is_bench_slug(name):
-            raise ValueError("that name is reserved for a bench persona — pick another name")
+            raise ValueError("that name is reserved for a bench persona - pick another name")
         if existing is not None and existing["kind"] != kind and _is_bench_slug(name):
             raise ValueError(
-                f"'{name}' already exists as a {existing['kind']} — bench persona"
+                f"'{name}' already exists as a {existing['kind']} - bench persona"
                 " slugs cannot be shared across kinds"
             )
         # ON CONFLICT DO NOTHING preserves the established idempotent contract for
@@ -466,7 +466,7 @@ def ensure_agent_identity(name: str, *, owner: str = GENERIC_AGENT_OWNER) -> dic
     Keep the collision check, insert, and final kind check under one
     transaction HOLDING THE IDENTITY LOCK. Otherwise a concurrent human claim
     lands between the first query and the insert and makes a machine use the
-    human row — the transaction alone does not stop it, because a read takes
+    human row - the transaction alone does not stop it, because a read takes
     no lock.
     """
     normalized = (name or "anonymous").strip()[:64] or "anonymous"
@@ -548,7 +548,7 @@ def _reserve_core_agent_identity(name: str) -> dict:
 
 
 def set_growth_interests(name: str, interests: str, *, actor: str = "system") -> dict:
-    """Self-declared growth interests — person-level data used to plan the
+    """Self-declared growth interests - person-level data used to plan the
     future (staffing fit), never to judge the past. Display-only: no
     matching logic, no scores."""
     ensure_user(name)
@@ -615,7 +615,7 @@ def _validate_theme(theme: str) -> str:
 def set_theme(name: str, theme: str) -> dict:
     """Theme prefs follow the person across browsers. Stored as a small JSON
     object; validated for shape and size, never interpreted server-side.
-    Deliberate provenance exception: NOT activity-logged — saves arrive on a
+    Deliberate provenance exception: NOT activity-logged - saves arrive on a
     debounced timer (slider drags would flood the ledger), the data is
     cosmetic and self-visible only, and it's recoverable from backups."""
     theme = _validate_theme(theme)
@@ -625,7 +625,7 @@ def set_theme(name: str, theme: str) -> dict:
 
 
 def set_team_default_theme(theme: str, *, actor: str) -> dict:
-    """Operator-set look for fresh browsers and anonymous visitors — a
+    """Operator-set look for fresh browsers and anonymous visitors - a
     default, never an override: any personal choice beats it."""
     theme = _validate_theme(theme)
     db.execute(
@@ -662,7 +662,7 @@ def is_agent(name: str) -> bool:
     """Does ANY row with this name belong to an agent?
 
     Case-insensitive, and asking about the SET rather than about one row.
-    `users.name` is case-sensitively unique, so `Scout` and `scout` coexist —
+    `users.name` is case-sensitively unique, so `Scout` and `scout` coexist -
     an exact match let a human's capitalization walk through the agent wall in
     routes/deps.py, and a first-row match let it walk through the forge's.
     resolve_teammate already matches this way, so the question every surface
@@ -672,7 +672,7 @@ def is_agent(name: str) -> bool:
         return False
     # folded in PYTHON, not in SQL. No collation reproduces users.fold, so it
     # reads `SCOÜT` and `scoüt` as different names while resolve_teammate and
-    # mentions.scan read them as the same one — the wall and the resolver must
+    # mentions.scan read them as the same one - the wall and the resolver must
     # not disagree about what two names being equal means.
     return any(
         fold(r["name"]) == target for r in db.query("SELECT name FROM users WHERE kind = 'agent'")
@@ -708,7 +708,7 @@ def is_content_identity(name: str) -> bool:
 
 
 def is_active(name: str) -> bool:
-    """Is this identity allowed through a door? True when NO row exists — a
+    """Is this identity allowed through a door? True when NO row exists - a
     first-ever sign-in has not been added to the roster yet, and reads never
     mint rows. Folded like is_agent above, or `ALICE` walks past the check that
     `alice` fails, and the wall would disagree with the resolver about what two
@@ -738,10 +738,10 @@ def resolve_teammate(
     name: str, actor: str = "", label: str = "name", allow_team: bool = True
 ) -> str:
     """Case-insensitive roster match; empty and 'team' (the broadcast
-    target) pass through, as does self-attribution (name == actor — capture
+    target) pass through, as does self-attribution (name == actor - capture
     uses the caller's own name before roster matching).
     Notifications match `"user" = ?` exactly, so a typo'd THIRD-PARTY owner
-    looks handled but notifies nobody — refuse that here, once.
+    looks handled but notifies nobody - refuse that here, once.
     allow_team=False for person-shaped data (allocations, absences) where
     'team' would be a phantom capacity row, not a broadcast."""
     name = name.strip()
@@ -755,7 +755,7 @@ def resolve_teammate(
 
 
 def list_users(active_only: bool = True) -> list[dict]:
-    """'anonymous' is the pre-name-pick fallback identity, not a teammate —
+    """'anonymous' is the pre-name-pick fallback identity, not a teammate -
     no listing surface (roster, People, staffing) shows it."""
     if active_only:
         return db.query(
@@ -787,7 +787,7 @@ def public_users(requester: str, active_only: bool = True) -> list[dict]:
     return result
 
 
-# every column that attributes a row to a person, per table — explicit so a
+# every column that attributes a row to a person, per table - explicit so a
 # new table with an attribution column fails the parity test until added here
 _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "milestones": ("created_by", "owner"),
@@ -803,7 +803,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "allocations": ("created_by", "person"),
     "intake_requests": ("created_by", "requester"),
     "lessons": ("created_by",),
-    # sponsor_at_submission is a NAME (010) and `tasks.sponsor` is renamed —
+    # sponsor_at_submission is a NAME (010) and `tasks.sponsor` is renamed -
     # leaving it behind makes the two disagree, and review._acceptance_evidence
     # reads that disagreement as a handover, printing "X sponsored this when the
     # work was submitted" about a delegation that never moved, in front of the
@@ -822,7 +822,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "feature_unlocks": ("person",),
     # activity is DELIBERATELY absent: every chained row's digest covers its
     # actor, so a bulk rewrite here breaks verify_chain permanently at the
-    # renamed person's earliest row — and the external anchor log makes
+    # renamed person's earliest row - and the external anchor log makes
     # re-chaining impossible by design. A rename leaves ledger history under
     # the old name; the ledger records what was true when it was written.
     "tool_usage": ("user",),
@@ -860,7 +860,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "task_worklog": ("author",),
     "comments": ("created_by", "deleted_by"),
     # the member slugs inside members-JSON are agent identities, not roster
-    # names, and rename_user moves an agent row too — but a slug rename would
+    # names, and rename_user moves an agent row too - but a slug rename would
     # need a JSON rewrite, so only the asking human moves here
     "flock_traces": ("user",),
     "agent_wakeups": ("agent", "requested_by"),
@@ -887,7 +887,7 @@ def _validate_rename_target(old: str, new: str, row: dict, *, identity_repair: b
         raise ValueError("identity ownership repair cannot merge roster rows")
     if target and target["kind"] != row["kind"]:
         raise ValueError(
-            f"'{old}' is a {row['kind']} and '{new}' is a {target['kind']} —"
+            f"'{old}' is a {row['kind']} and '{new}' is a {target['kind']} -"
             " merging across the human/agent boundary would fold trust and"
             " authority history that must stay separate"
         )
@@ -903,7 +903,7 @@ def _rename_names(old: str, new: str) -> tuple[str, str]:
     if old == "anonymous" or new == "anonymous":
         raise ValueError(
             "anonymous cannot be renamed, and no account can be renamed to"
-            " anonymous — pick a real name first"
+            " anonymous - pick a real name first"
         )
     return old, new
 
@@ -938,7 +938,7 @@ def _authors_crew_rows(name: str) -> bool:
     from . import scope
 
     parts = [
-        f'SELECT 1 FROM {table} WHERE "{column}" = ? AND visibility = ?'  # noqa: S608 — tables and columns from scope.CLASSIFIED
+        f'SELECT 1 FROM {table} WHERE "{column}" = ? AND visibility = ?'  # noqa: S608 - tables and columns from scope.CLASSIFIED
         for table, column in scope.CLASSIFIED.items()
     ]
     params = tuple(value for _ in parts for value in (name, scope.CREW))
@@ -955,7 +955,7 @@ def rename_user(
     consented: bool = False,
 ) -> dict:
     """Rename (or merge, when `new` already exists) a roster entry across
-    every attribution column — the fix for 'Mira' vs 'mira'. History moves;
+    every attribution column - the fix for 'Mira' vs 'mira'. History moves;
     the old row is deleted (merge) or renamed in place. Strong identity
     required at the route; team-visible tables only (the private schema is scoped
     by author name, so the author keeps access by renaming there too).
@@ -965,7 +965,7 @@ def rename_user(
     data only the source can read, and it moves the source's 1:1 journal,
     OIDC binding and notifications too. Every other caller leaves it False."""
     old, new = _rename_names(old, new)
-    # rename must honor the same identity walls ensure_user enforces —
+    # rename must honor the same identity walls ensure_user enforces -
     # otherwise it's the back door around the bench reservation and the
     # human/agent boundary that trust scores and authority assume
     row = db.query_one("SELECT * FROM users WHERE name = ?", (old,))
@@ -975,7 +975,7 @@ def rename_user(
     # rather than half-completed, and refused BEFORE any row moves. There is
     # no self-repair afterwards: this function deletes the `old` roster row,
     # so the author cannot re-run it as themselves, and their keys have moved
-    # with the rename — the notes would be stranded with no supported
+    # with the rename - the notes would be stranded with no supported
     # recovery, which is worse for the legitimate "Mira vs mira" cleanup than
     # refusing the rename.
     from . import private_notes as _pn
@@ -1123,7 +1123,7 @@ def rename_user(
         )
         # feature_unlocks (person, knot, kind): the target's existing unlock
         # wins. Without this move, a rename orphaned the guide state under the
-        # old name — and since the ledger is immutable across rename, the
+        # old name - and since the ledger is immutable across rename, the
         # activity-based predicates could never re-tie under the new one.
         db.execute(
             "DELETE FROM feature_unlocks WHERE person = ? AND EXISTS"
@@ -1169,13 +1169,13 @@ def rename_user(
         )
         for column, other in (("lead", "subject"), ("subject", "lead")):
             db.execute(
-                f"DELETE FROM one_on_one_pairs WHERE status <> 'ended' AND {column} = ?"  # noqa: S608 — column from a fixed pair
+                f"DELETE FROM one_on_one_pairs WHERE status <> 'ended' AND {column} = ?"  # noqa: S608 - column from a fixed pair
                 f" AND EXISTS (SELECT 1 FROM one_on_one_pairs n WHERE n.status <> 'ended'"
                 f" AND n.{column} = ? AND n.{other} = one_on_one_pairs.{other})",
                 (old, new),
             )
         # crew_members (crew_id, person): the target's row wins, but a STEWARD
-        # row is kept over a member one — merging two halves of one person
+        # row is kept over a member one - merging two halves of one person
         # must not quietly demote them out of a crew they steward. Two rows
         # that are the same person almost always share a crew, so without this
         # the whole merge raised IntegrityError and answered 500.
@@ -1192,7 +1192,7 @@ def rename_user(
             (old, new),
         )
         # chat_folders (owner, name): the target's folder wins. Same shape and
-        # the same 500 — a rename where both halves made a folder of the same
+        # the same 500 - a rename where both halves made a folder of the same
         # name could not complete.
         db.execute(
             "DELETE FROM chat_folders WHERE owner = ? AND EXISTS"
@@ -1242,7 +1242,7 @@ def rename_user(
             (db.now(), old, new),
         )
         # agent_wakeups keys on agent alone, and both halves of a merged agent
-        # having been delegated to is the ordinary case — without this fold
+        # having been delegated to is the ordinary case - without this fold
         # the generic UPDATE below hits the primary key and the whole merge
         # answers 500. The target's row wins, like the other folds.
         db.execute(
@@ -1253,7 +1253,7 @@ def rename_user(
         # notification_reads (notification_id, user): a dismissal the target
         # already made wins. A team announcement is one shared row that every
         # reader dismisses separately (009), so two halves of one person having
-        # both dismissed the same announcement is the ORDINARY case — without
+        # both dismissed the same announcement is the ORDINARY case - without
         # this fold the UPDATE below hits the primary key and the whole merge
         # raises IntegrityError, which has no handler and answers 500.
         db.execute(
@@ -1285,11 +1285,11 @@ def rename_user(
         for table, cols in _ATTRIBUTION.items():
             for col in cols:
                 # The column name is QUOTED because `user` is one of them and
-                # is a reserved word — unquoted it parses as CURRENT_USER and
+                # is a reserved word - unquoted it parses as CURRENT_USER and
                 # the statement is a syntax error. Quoting every name from the
                 # constant map is one rule instead of a per-column exception.
                 n = db.execute_rowcount(
-                    f'UPDATE {table} SET "{col}" = ? WHERE "{col}" = ?',  # noqa: S608 — constant map
+                    f'UPDATE {table} SET "{col}" = ? WHERE "{col}" = ?',  # noqa: S608 - constant map
                     (new, old),
                 )
                 if n:
@@ -1308,7 +1308,7 @@ def rename_user(
         )
         if target:
             # merge keeps the target's person-level fields but backfills any
-            # it never set — the typo'd row is usually the real profile
+            # it never set - the typo'd row is usually the real profile
             db.execute(
                 "UPDATE users SET"
                 " theme = CASE WHEN theme = '' THEN"
@@ -1343,13 +1343,13 @@ def rename_user(
             )
         # The private journal follows the person ONLY when the person is doing
         # the renaming. Every keyholder can rename any roster row (the
-        # trusted-network model makes them all admins over TEAM data) — but a
+        # trusted-network model makes them all admins over TEAM data) - but a
         # rename that also moved the private half would let anyone merge
         # someone else's row into their own name and inherit their 1:1 notes
         # and fb: journal, the one dataset the product promises teammates
         # cannot read.
         # ALWAYS move the subject reference: notes other people keep ABOUT
-        # this person carry no ownership, so moving them leaks nothing — and
+        # this person carry no ownership, so moving them leaks nothing - and
         # NOT moving them stranded every teammate's 1:1 journal about the
         # renamed person under a name with no roster row (empty brief,
         # feedback-gap reset).
@@ -1358,7 +1358,7 @@ def rename_user(
         # roster row holds, readable by the next person to claim that name.
         _pn.rename_subject(old, new)
         # Ownership (the person's OWN notes and audit) moves only when they
-        # are the one renaming — the guard above refuses a third-party rename
+        # are the one renaming - the guard above refuses a third-party rename
         # that would need this, so reaching here with actor != old means
         # nothing to move.
         private_moved = actor == old or consented
@@ -1415,7 +1415,7 @@ def repair_identity_ownership(old: str, new: str) -> dict:
     """Repair one quarantined identity without impersonating its owner.
 
     Private ownership moves and writes a private administrative audit, then
-    the core rename follows with the reserved ``system`` actor — both in ONE
+    the core rename follows with the reserved ``system`` actor - both in ONE
     transaction, so a failure at either step leaves the identity exactly where
     it was. Repeating the command is safe, and never necessary to reconcile a
     half-applied repair: there is no half to apply.
@@ -1463,7 +1463,7 @@ def claim_content_identity(slug: str) -> dict:
         # FIRST, like every other claim in this file: the owner check below
         # reads a row and then writes it, so two claims of the same name both
         # read GENERIC_AGENT_OWNER and the loser overwrites the winner's
-        # committed ownership — the state the refusal below exists to prevent.
+        # committed ownership - the state the refusal below exists to prevent.
         db.name_lock(db.LOCK_IDENTITY, fold(slug))
         refuse_ambiguous_identity(slug)
         row = db.query_row("SELECT name, kind, identity_owner FROM users WHERE name = ?", (slug,))
@@ -1496,7 +1496,7 @@ def claim_machine_identity(name: str, owner: str) -> dict:
     if owner.startswith("specialist:") and owner.removeprefix("specialist:") != name:
         raise ValueError("a specialist owner must use the specialist identity name")
     with db.transaction():
-        # FIRST — see claim_content_identity: without it two claims of one
+        # FIRST - see claim_content_identity: without it two claims of one
         # name both read GENERIC_AGENT_OWNER and the second silently takes
         # ownership the first already committed.
         db.name_lock(db.LOCK_IDENTITY, fold(name))
@@ -1519,7 +1519,7 @@ def claim_machine_identity(name: str, owner: str) -> dict:
 def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
     """Deactivate a roster entry (typo'd name, departed teammate). History
     stays attributed; the name leaves the roster, adoption counts, and the
-    context pack — and every API key they own is revoked, so deactivation
+    context pack - and every API key they own is revoked, so deactivation
     IS the offboarding switch for strong identity too. Reactivation does
     not resurrect keys (mint fresh ones). Strong identity required at the
     route. erasure.GRACE_DAYS after a human's deactivation, the erase job

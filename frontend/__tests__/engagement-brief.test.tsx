@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /** The engagement brief must not drop what the API sent it.
  *
  *  The page exists to answer "how is this going", and the answer is the health
- *  RECEIPTS — the sentences naming the overdue milestone and the escalated
+ *  RECEIPTS - the sentences naming the overdue milestone and the escalated
  *  blocker. A renderer that fetches them, resolves their references, and then
  *  shows only the coloured dot passes every shape check while dropping the
  *  whole answer. This pins that the receipts reach the screen, that their
@@ -77,7 +77,7 @@ describe("the engagement brief", () => {
     );
 
   // One throwaway mount first. `use()` suspends on a promise React has not yet
-  // seen settle, and that resolution does not flush inside RTL's act window —
+  // seen settle, and that resolution does not flush inside RTL's act window -
   // so without this the FIRST test in the file commits nothing while every
   // later one passes, which is a suite that proves the wrong thing.
   beforeEach(async () => {
@@ -110,8 +110,8 @@ describe("the engagement brief", () => {
 
   it("resolves the references inside a health receipt", async () => {
     page();
-    // the sentence is split into runs by design — `milestone #4` becomes a
-    // link and the rest stays text (components/receipt.tsx) — so the assertion
+    // the sentence is split into runs by design - `milestone #4` becomes a
+    // link and the rest stays text (components/receipt.tsx) - so the assertion
     // is on the link the split produces, which is the point of shipping refs
     const link = await waitFor(() =>
       screen.getByRole("link", { name: "milestone #4" }),
@@ -140,7 +140,7 @@ describe("the engagement brief", () => {
     // The queue is ranked portfolio-wide and narrowed to this engagement
     // AFTERWARD, so on a busy portfolio these rows can sit behind another
     // engagement's and never be read. The card can therefore speak only for
-    // the window it saw — a flat "nothing belongs to this engagement" is a
+    // the window it saw - a flat "nothing belongs to this engagement" is a
     // claim about the world that the blockers card above it can contradict on
     // the same screen. The assertion is on the NUMBER, because that is the
     // part a rewrite back to the flat sentence would drop.

@@ -1,6 +1,6 @@
 {
   "positive": [
-    "What level should we test this at \u2014 unit, integration, or end-to-end?",
+    "What level should we test this at - unit, integration, or end-to-end?",
     "Our suite is flaky and nobody trusts it. Help me hunt the flake."
   ],
   "negative": [

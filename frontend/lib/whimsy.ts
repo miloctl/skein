@@ -1,10 +1,10 @@
-/** Date-seeded whimsy: the whole team sees the same line on the same day —
+/** Date-seeded whimsy: the whole team sees the same line on the same day -
  * shared jokes become team rituals. Deterministic, no LLM. */
 
 function seeded(pool: string[], seedExtra = ""): string {
   // The DATE is a client fact, exactly like the pack below. The server has a
   // different clock (and, once a page is statically prerendered, a clock
-  // frozen at BUILD time — "Reticulating milestones" was baked into
+  // frozen at BUILD time - "Reticulating milestones" was baked into
   // index.html and served on every later day). Rendering a date-seeded line
   // during SSR or the hydration pass therefore mismatches, React regenerates
   // from the root, and that recreates <html> and throws away the theme the
@@ -24,12 +24,12 @@ const EMPTY: Record<string, string[]> = {
   review: [
     "Approvals: zero. The agents fear you.",
     "Nothing pending. Approve yourself a coffee.",
-    "Empty. The agents have nothing pending — enjoy the quiet.",
+    "Empty. The agents have nothing pending - enjoy the quiet.",
   ],
   blockers: [
     "No unresolved blockers. Suspicious. Enjoy it.",
     "Zero blockers. The escalation clock rests.",
-    "Nothing is blocked. Someone is about to change that — capture it fast.",
+    "Nothing is blocked. Someone is about to change that - capture it fast.",
   ],
   // My Day shows these when nothing is addressed to the reader, while the
   // team queue and escalated blockers can still hold work. A line that says
@@ -51,7 +51,7 @@ const EMPTY: Record<string, string[]> = {
 };
 
 // Pack-aware voice (TP6): the fabric speaks in its own register on the
-// highest-traffic empty states. Capped and fallback-first — a new empty
+// highest-traffic empty states. Capped and fallback-first - a new empty
 // state gets the default pool for free; packs never block feature work.
 const PACK_EMPTY: Record<string, Record<string, string[]>> = {
   phosphor: {
@@ -67,7 +67,7 @@ const PACK_EMPTY: Record<string, Record<string, string[]>> = {
     calendar: ["The diary lies open.", "A fresh page in the diary.", "The pen is ready."],
   },
   atelier: {
-    review: ["Nothing to approve — the gallery is hung.", "No proposals on the easel.", "The review wall is bare, beautifully."],
+    review: ["Nothing to approve - the gallery is hung.", "No proposals on the easel.", "The review wall is bare, beautifully."],
     blockers: ["No blockers. The studio is quiet.", "Nothing in the way of the work.", "Every piece has room to breathe."],
     allclear: ["Nothing needs you. Step back and admire the work.", "The studio is swept. Make something.", "A blank canvas kind of day."],
     calendar: ["Fresh linen for the work.", "Room for the work.", "A sketchbook, ready."],
@@ -79,7 +79,7 @@ const PACK_EMPTY: Record<string, Record<string, string[]>> = {
     calendar: ["The watch bill has room.", "Plot a course for the month.", "Deck ready for orders."],
   },
   hermes: {
-    review: ["Telemetry clean — nothing awaits approval.", "Approval queue empty. Instruments steady.", "No signals pending sign-off."],
+    review: ["Telemetry clean - nothing awaits approval.", "Approval queue empty. Instruments steady.", "No signals pending sign-off."],
     blockers: ["No blockers on the wire.", "All channels open. Nothing is stuck.", "Obstruction scan returned nothing."],
     allclear: ["Instruments read nominal. Go make contact.", "Mission board clear. Nothing needs you.", "Quiet skies. Enjoy the glide."],
     calendar: ["Flight plan open for the month.", "The mission clock waits.", "Skies ready for planning."],
@@ -91,7 +91,7 @@ const PACK_EMPTY: Record<string, Record<string, string[]>> = {
 // when empty states actually matter).
 //
 // The flag flips in a post-hydration EFFECT, never a microtask. A microtask
-// fires when the module finishes evaluating — long before React hydrates — so
+// fires when the module finishes evaluating - long before React hydrates - so
 // the pack voice raced into the hydration render itself. That mismatch made
 // React regenerate the tree from the root, which recreates <html> and throws
 // away the data-pack/data-theme/data-appearance the pre-paint script set:
@@ -113,14 +113,14 @@ export function emptyState(view: string): string {
   return seeded(packPool ?? EMPTY[view] ?? EMPTY.allclear, view);
 }
 
-// The sign-off, shown by the auth gate after a CHOSEN sign-out — the person
+// The sign-off, shown by the auth gate after a CHOSEN sign-out - the person
 // is done and nothing is asked of them, which is where warmth is allowed.
 // Every line starts with "Signed out." so the state is stated before the
 // voice starts (auth-gate.test.tsx keys on that prefix). The expired-session
 // wording never comes from here: that state asks the reader to act.
 const SIGNED_OUT = [
   "Signed out. The formation flies on.",
-  "Signed out. Your strand rests — the weave holds.",
+  "Signed out. Your strand rests - the weave holds.",
   "Signed out. The loom hums along without you, a little quieter.",
 ];
 

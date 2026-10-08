@@ -5,7 +5,7 @@ import { axe } from "vitest-axe";
 import { FlockDiamond, type FlockTrace } from "@/components/flock-diamond";
 
 /** The diamond is the only place a reader learns the members ran at the SAME
- *  time and which of them proposed a write — the chat transcript shows the
+ *  time and which of them proposed a write - the chat transcript shows the
  *  sections one after another and cannot say either. It is also a picture, so
  *  everything it encodes with position or colour must be in words too. */
 
@@ -93,7 +93,7 @@ describe("FlockDiamond", () => {
     );
     expect(screen.getByText("1,200 tokens")).toBeTruthy();
     expect(screen.getByText("355 tokens")).toBeTruthy();
-    // 1200 + 355 + 45 — the merge call is spend the members do not carry
+    // 1200 + 355 + 45 - the merge call is spend the members do not carry
     expect(screen.getByText(/the turn used 1,600 tokens/i)).toBeTruthy();
     expect(label()).toContain("The turn used 1,600 tokens in total.");
   });

@@ -8,7 +8,7 @@ import { timeAgo } from "@/lib/time";
 /** How this row came to exist, and what has happened to it since.
  *
  *  `origin` said "agent" and stopped there. That is a label. The reason to
- *  trust a row — or to look at it again — is the chain: an agent proposed it,
+ *  trust a row - or to look at it again - is the chain: an agent proposed it,
  *  a named person approved it on Tuesday, and it has been edited twice since.
  *  Every one of those facts was already stored, in four different tables, with
  *  no surface that put them together (services/provenance.py).
@@ -70,7 +70,7 @@ export function Provenance({
     if (!open || answer?.revision === revision || err) return;
     // `live` guards the two writes against a reader who collapses mid-flight.
     // Without it a late failure sets `err` behind a closed panel, and the next
-    // expand shows a stale error it will not retry — the guard above treats a
+    // expand shows a stale error it will not retry - the guard above treats a
     // set `err` as "already answered".
     let live = true;
     api<Lineage>(`/api/provenance/${entity}/${entityId}`)
@@ -131,7 +131,7 @@ export function Provenance({
                     </>
                   ) : null}
                   {/* an override is a verdict somebody other than the sponsor
-                      made, with a reason on record — it never feeds a trust
+                      made, with a reason on record - it never feeds a trust
                       streak, and a reader judging this row must know that */}
                   {d.proposal.reviewed_override ? " (acting for the sponsor)" : ""}
                 </>
@@ -140,7 +140,7 @@ export function Provenance({
           ) : null}
           {/* the honest limit on the approval above. In trusted-header mode a
               name is whatever the caller typed, so the verdict records a click
-              and not a person — the same reason the trust score refuses to
+              and not a person - the same reason the trust score refuses to
               count it (services/delegation.py::trust_blocked). */}
           {d.verdict_is_weak && d.proposal?.reviewed_by ? (
             <p className="text-weld">

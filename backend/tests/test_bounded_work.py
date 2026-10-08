@@ -74,7 +74,7 @@ def test_preissued_commands_expire_at_the_handler_deadline(fresh_db, kind, creat
         release.set()
         assert finished.wait(5)
     assert outcomes == ["EXECUTION_CONTEXT_CLOSED"] * 3
-    assert fresh_db.query_one(f"SELECT COUNT(*) AS n FROM {kind}s")["n"] == 0  # noqa: S608 — closed KINDS table names
+    assert fresh_db.query_one(f"SELECT COUNT(*) AS n FROM {kind}s")["n"] == 0  # noqa: S608 - closed KINDS table names
 
 
 @pytest.mark.parametrize("kind,create,update", KINDS)
@@ -88,7 +88,7 @@ def test_commands_join_the_owner_rollback(fresh_db, kind, create, update):
         )
         assert not result.timed_out
         raise RuntimeError("rollback")
-    assert fresh_db.query_one(f"SELECT COUNT(*) AS n FROM {kind}s")["n"] == 0  # noqa: S608 — closed KINDS table names
+    assert fresh_db.query_one(f"SELECT COUNT(*) AS n FROM {kind}s")["n"] == 0  # noqa: S608 - closed KINDS table names
 
 
 def test_completed_handler_revokes_preissued_context(fresh_db):

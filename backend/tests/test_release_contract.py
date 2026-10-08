@@ -390,7 +390,7 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     # marker. ci.yml publishes nothing at all now.
     assert "github.event.before" not in github + publish + finalize
     # both dispatch paths judge a run through the same validator, and both
-    # name it the same way — RELEASE_RUN_ID, the only variable it now reads
+    # name it the same way - RELEASE_RUN_ID, the only variable it now reads
     assert finalize.count("scripts/validate_release_run.py") == 1
     assert "RELEASE_RUN_ID: ${{ inputs.release_run_id }}" in finalize
     assert "RELEASE_RUN_ID: ${{ inputs.release_run_id }}" in publish
@@ -426,7 +426,7 @@ def test_release_workflows_publish_the_tested_artifacts_and_audit_workplace():
     assert "id-token: write" in publish
     assert 'version: "0.11.11"' in publish
     assert "pypi-dist" in publish
-    # every artifact download names the validated run, and by artifact ID —
+    # every artifact download names the validated run, and by artifact ID -
     # the name fallback went with the guard that could leave the ID empty
     assert publish.count("run-id: ${{ needs.verify.outputs.artifact_run_id }}") == 2
     assert publish.count("artifact-ids: ${{ needs.verify.outputs.artifact_id }}") == 2

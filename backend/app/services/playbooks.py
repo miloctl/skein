@@ -127,7 +127,7 @@ def _playbook_files() -> dict[str, Path]:
     """slug -> path across the stock dir and the SKEIN_PLAYBOOKS_DIR overlay.
     The overlay wins a slug collision, so a deployment can tailor a stock
     playbook without editing the repo. A stem the slug charset rejects never
-    enters the map — it could never be fetched, so listing it would be a
+    enters the map - it could never be fetched, so listing it would be a
     roster entry with no playbook behind it."""
     files: dict[str, Path] = {}
     dirs = [PLAYBOOKS_DIR]
@@ -143,7 +143,7 @@ def _playbook_files() -> dict[str, Path]:
 
 def list_playbooks() -> list[dict]:
     """Lenient the way the persona loader is: one malformed overlay file drops
-    off the roster instead of taking down every playbook surface — the stock
+    off the roster instead of taking down every playbook surface - the stock
     files are CI-gated, but overlay files are live operator content."""
     out = []
     for slug, path in sorted(_playbook_files().items()):
@@ -171,12 +171,12 @@ def list_playbooks() -> list[dict]:
 
 
 def get_playbook(slug: str) -> dict:
-    if not _SLUG.match(slug):  # path traversal guard — slug becomes a filename
+    if not _SLUG.match(slug):  # path traversal guard - slug becomes a filename
         raise ValueError("playbook slug must be lowercase letters, digits, - or _")
     path = _playbook_files().get(slug)
     if path is None or not path.exists():
         raise ValueError(
-            f"no playbook '{slug}' — available: {[p['slug'] for p in list_playbooks()]}"
+            f"no playbook '{slug}' - available: {[p['slug'] for p in list_playbooks()]}"
         )
     try:
         pb = yaml.safe_load(path.read_text())
@@ -394,7 +394,7 @@ def _instantiate(
     for r in pb.get("rituals", []):
         starts = (start + timedelta(days=int(r.get("day_offset", 0)))).isoformat()
         evt = schedule.schedule_event(
-            title=f"{r['title']} — {engagement_name}",
+            title=f"{r['title']} - {engagement_name}",
             starts_at=f"{starts}T{r.get('time', '10:00')}",
             description=r.get("description", ""),
             attendees=lead,
@@ -424,7 +424,7 @@ def _instantiate(
 
 def snapshot_for(engagement_id: int) -> dict:
     """The plan an engagement started with, or {} when it was not born from a
-    playbook. Callers branch on the empty dict — an engagement created by hand
+    playbook. Callers branch on the empty dict - an engagement created by hand
     has no plan to diff against and must close exactly as it always did."""
     row = db.query_one(
         "SELECT path, content_sha256 FROM artifacts"
@@ -452,7 +452,7 @@ def snapshot_for(engagement_id: int) -> dict:
         return {}
     # SHAPE, not just parseability. The file carries no version field, so the
     # first change to the plan format would otherwise turn every older
-    # engagement's close-out panel into a permanent 500 — a list or a bare
+    # engagement's close-out panel into a permanent 500 - a list or a bare
     # number parses fine and then raises TypeError on dict(), and a dict
     # missing "milestones" raises KeyError deep inside close_out_diff.
     if not isinstance(plan, dict) or not all(
@@ -482,7 +482,7 @@ def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
         return [
             dict(r)
             for i in ids
-            if (r := db.query_one(f"SELECT {cols} FROM {table} WHERE id = ?", (i,)))  # noqa: S608 — cols and table are literals at every call site
+            if (r := db.query_one(f"SELECT {cols} FROM {table} WHERE id = ?", (i,)))  # noqa: S608 - cols and table are literals at every call site
         ]
 
     plan = {
@@ -512,7 +512,7 @@ def _snapshot(created: dict, slug: str, start: date, actor: str) -> int:
         (
             eng["id"],
             "plan-snapshot",
-            f"Plan at kickoff — {eng['name']}",
+            f"Plan at kickoff - {eng['name']}",
             str(path),
             actor,
             db.now(),
@@ -538,7 +538,7 @@ def _exists(table: str, row_id: int) -> bool:
     """
     return bool(
         db.query_one(
-            f"SELECT id FROM {table} WHERE id = ?",  # noqa: S608 — table is a literal at both call sites
+            f"SELECT id FROM {table} WHERE id = ?",  # noqa: S608 - table is a literal at both call sites
             (row_id,),
         )
     )
@@ -562,16 +562,16 @@ def close_out_diff(
     Viewer-scoped on every read, and the default NOBODY (workspace tier) is
     what the drafted lesson uses: that lesson becomes a proposal EVERY
     reviewer reads, so a private task added to the engagement must not reach
-    it through a title. The route passes the caller's own viewer instead —
+    it through a title. The route passes the caller's own viewer instead -
     reading a diff is not the same act as publishing one.
     """
     # the engagement first, and it RAISES rather than returning {}: the diff
     # quotes milestone and task titles, so an unreadable engagement and one
-    # that never had a playbook must not answer alike — the second is an empty
+    # that never had a playbook must not answer alike - the second is an empty
     # section, the first is a 404 (scope.missing gives both the same sentence)
     efrag, ep = scope.visible_filter(viewer, "engagements")
     eng = db.query_one(
-        f"SELECT visibility, project_class FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT visibility, project_class FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (engagement_id, *ep),
     )
     if not eng:
@@ -603,7 +603,7 @@ def close_out_diff(
         if not allowed("milestone", int(m["id"])):
             return {}
         row = db.query_one(
-            f"SELECT title, due_date, completed_at FROM milestones WHERE id = ? AND {mfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT title, due_date, completed_at FROM milestones WHERE id = ? AND {mfrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
             (m["id"], *mp),
         )
         # A row the VIEWER cannot see is indistinguishable from a deleted one,
@@ -614,7 +614,7 @@ def close_out_diff(
             return {}
         # TWO bases, because they answer different questions and a team can
         # produce either without the other. `re-dated` catches replanning;
-        # `finished` catches the case this feature exists for — a team that
+        # `finished` catches the case this feature exists for - a team that
         # never touches its dates and lands nine weeks late. Measuring only
         # the first rewards good date hygiene with a lesson and bad date
         # hygiene with silence, which is backwards.
@@ -622,7 +622,7 @@ def close_out_diff(
         if not planned:
             continue
         if row["completed_at"]:
-            # A finish date SETTLES the question, early or late — the `continue`
+            # A finish date SETTLES the question, early or late - the `continue`
             # is outside the `days > 0` test on purpose. Nested inside it, a
             # milestone delivered six days early still fell through to the
             # re-dated branch and reported the moved date as slip, so the
@@ -630,7 +630,7 @@ def close_out_diff(
             # db.local_day, never completed_at[:10]: `completed_at` is a UTC
             # timestamp and `planned` is a TEAM-local date, so the slice
             # compares two different calendars. West of UTC, a milestone
-            # finished at 20:00 local ON its due date reads as one day late —
+            # finished at 20:00 local ON its due date reads as one day late -
             # and three of those clear PLAN_DRIFT_ALARM, so
             # insights.py::_r_plan_drift files a permanent medium finding
             # against an engagement that is exactly on plan.
@@ -657,7 +657,7 @@ def close_out_diff(
         if not allowed("task", int(t["id"])):
             return {}
         row = db.query_one(
-            f"SELECT id, title, status FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT id, title, status FROM tasks WHERE id = ? AND {tfrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
             (t["id"], *tp),
         )
         # the same refusal as the milestone loop above, for the same reason:
@@ -673,14 +673,14 @@ def close_out_diff(
     # BOTH link paths, copied from engagements.py::_ship_it which carries the
     # same comment: _instantiate creates its tasks with a milestone_id and NO
     # engagement_id, so an engagement_id-only query matches almost nothing and
-    # this clause — the only one that names concrete titles to add to the
-    # YAML — silently never fires.
+    # this clause - the only one that names concrete titles to add to the
+    # YAML - silently never fires.
     # keyed on ID like every other read here: _snapshot's docstring says why,
     # and a title-keyed filter reports a RENAMED planned task as new work and
     # recommends adding it to the YAML it is already in
     planned_ids = {t["id"] for t in plan["tasks"]}
     added_rows = db.query(
-        f"SELECT id, title FROM tasks WHERE (engagement_id = ? OR milestone_id IN"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT id, title FROM tasks WHERE (engagement_id = ? OR milestone_id IN"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" (SELECT id FROM milestones WHERE engagement_id = ?)) AND {tfrag} ORDER BY id",
         (engagement_id, engagement_id, *tp),
     )
@@ -691,7 +691,7 @@ def close_out_diff(
         if not allowed("event", int(r["id"])):
             return {}
         if db.query_one(
-            f"SELECT id FROM events WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT id FROM events WHERE id = ? AND {efrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
             (r["id"], *ep),
         ):
             continue
@@ -704,7 +704,7 @@ def close_out_diff(
         skipped_rituals.append(r["title"])
     diff = {
         "playbook": plan["playbook"],
-        # whether closing will actually file a draft — BOTH conditions, not
+        # whether closing will actually file a draft - BOTH conditions, not
         # just the tier. engagements.py::_playbook_lesson draws the line at
         # the workspace tier, and _variance_lesson files nothing when the diff
         # has no fixable variance. Reporting only the first told the reader a
@@ -743,7 +743,7 @@ def _variance_lesson(diff: dict, engagement_name: str) -> tuple[str, str]:
     Empty when nothing moved: a lesson saying an engagement went to plan
     teaches the next reader nothing and costs a reviewer a verdict.
     """
-    # One fact per sentence, and no semicolons — this text lands in a kickoff
+    # One fact per sentence, and no semicolons - this text lands in a kickoff
     # note that the next team reads cold (the wording standard in CLAUDE.md).
     # Verb agreement is computed, because "1 task were added" is the sentence
     # a reader stops trusting the number in.
@@ -774,7 +774,7 @@ def _variance_lesson(diff: dict, engagement_name: str) -> tuple[str, str]:
         fixes.append("Remove the rituals nobody holds, or record who runs them.")
     # Every draft costs a reviewer a verdict, and the review queue is the
     # team's scarcest resource. A lesson with no fix in it is one sentence
-    # restating the engagement's own conclusion — an abandoned engagement
+    # restating the engagement's own conclusion - an abandoned engagement
     # would file one every time and teach the next kickoff nothing.
     if not fixes:
         return "", ""

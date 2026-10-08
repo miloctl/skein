@@ -118,7 +118,7 @@ def test_rate_caps(client, fresh_db):
 
 
 def test_a_refusal_is_429_with_a_computed_retry(client, fresh_db):
-    """As a bare ValueError the cap answered 400 — wire-identical to a
+    """As a bare ValueError the cap answered 400 - wire-identical to a
     malformed request, so no client could tell throttling from a typo, and
     with no Retry-After nothing knew when to come back. The wait is computed
     from the window, not quoted from WINDOW_SECONDS: the caller can act on an
@@ -151,7 +151,7 @@ def test_rate_limited_stays_catchable_as_valueerror():
 
 def test_a_multi_slot_charge_names_its_cost(client, fresh_db):
     """Measured live: six flock turns in a minute, and the seventh refusal
-    said the cap was twenty per minute — a number the caller's own experience
+    said the cap was twenty per minute - a number the caller's own experience
     contradicts, because a flock turn charges member-count slots. The refusal
     must name the request's cost or the arithmetic reads as a lie."""
     import pytest
@@ -183,7 +183,7 @@ def test_client_addr_ignores_the_header_at_zero_hops(monkeypatch):
 
 
 def test_client_addr_reads_the_declared_proxy_depth(monkeypatch):
-    """Behind the OpenShift router (1 hop), the socket peer is the router —
+    """Behind the OpenShift router (1 hop), the socket peer is the router -
     one signin bucket for the whole team. Entry -N is the client as the
     outermost TRUSTED proxy saw it; entries left of that are caller-typed."""
     from app import config, ratelimit
@@ -197,7 +197,7 @@ def test_client_addr_reads_the_declared_proxy_depth(monkeypatch):
 
 
 def test_client_addr_falls_back_when_the_header_is_short(monkeypatch):
-    """An in-cluster caller that bypasses the router sends no header — the
+    """An in-cluster caller that bypasses the router sends no header - the
     socket peer is then the honest answer, not a crash or an empty key."""
     from app import config, ratelimit
 
@@ -238,7 +238,7 @@ def test_signin_buckets_follow_the_forwarded_client(client, monkeypatch, pinned_
 def test_the_write_bucket_is_per_person_even_on_the_shared_agent(fresh_db, monkeypatch):
     """The default chat identity is one name ("agent") for the whole team.
     Keyed on the actor alone, the gate made it one team-wide 30/minute
-    bucket — person B's write refused because person A was mid-turn, under a
+    bucket - person B's write refused because person A was mid-turn, under a
     message claiming the cap was per person. The gate keys on the
     (agent, requester) pair now, so each person spends only their own."""
     import json

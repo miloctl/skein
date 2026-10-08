@@ -1,6 +1,6 @@
 """LLM digest narrator, registered into services.digest at startup so the
 service layer never imports the agent layer. Skipped entirely for the mock
-provider — the deterministic markdown publishes as-is."""
+provider - the deterministic markdown publishes as-is."""
 
 import contextlib
 

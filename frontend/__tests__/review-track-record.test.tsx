@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** The reviewer judged every proposal blind. Approval rate and streak were
- *  computed already and rendered on Team → Agents — two pages from the one
+ *  computed already and rendered on Team → Agents - two pages from the one
  *  screen where the number decides something, so a reviewer approving a
  *  fourth proposal in a row could not see that it was the fourth. */
 
@@ -57,7 +57,7 @@ describe("the proposer's record on the approvals row", () => {
     const summary = await screen.findByText("create a task");
     const record = screen.getByText(/settled proposal to add a task/);
     // the card led with the record, so a reviewer met the streak maths and
-    // the identity lecture before the sentence saying what the agent wants —
+    // the identity lecture before the sentence saying what the agent wants -
     // the summary must come first in document order, the record beside the
     // verdict buttons
     expect(
@@ -153,7 +153,7 @@ describe("the proposer's record on the approvals row", () => {
     expect(await screen.findByText(/1 approval in a row/)).toBeTruthy();
   });
 
-  /** In trusted-header mode — the DEFAULT — every verdict is weak, so the
+  /** In trusted-header mode - the DEFAULT - every verdict is weak, so the
    *  streak is 0 for everyone. A bare "no approvals in a row" beside "8 of 8
    *  approved" states a perfect record and no run in the same breath, and the
    *  promotion line could never appear. Say why instead. */

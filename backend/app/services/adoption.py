@@ -1,5 +1,5 @@
 """Adoption telemetry: is the TOOL being used, by whom, through which surface.
-Team-scoped by design — this measures the platform's reach, not people's
+Team-scoped by design - this measures the platform's reach, not people's
 output. One row per (day, user, surface); counts only, no content."""
 
 import contextlib
@@ -14,16 +14,16 @@ SURFACES = ("web", "cli", "chat", "mcp", "webhook", "api")
 # Buffered, not written per call: every authenticated request lands here, and
 # a per-call upsert costs a round trip on the hot path. The buffer
 # drains on the first record_use after FLUSH_SECONDS, when adoption() reads,
-# and at app shutdown — on an idle process the tail sits buffered until one
+# and at app shutdown - on an idle process the tail sits buffered until one
 # of those. Counts buffered at a crash, and a batch whose write fails, are
-# lost — accepted, these rows are reach counters, not an audit record.
+# lost - accepted, these rows are reach counters, not an audit record.
 # Process-local like ratelimit; conftest zeroes FLUSH_SECONDS and clears the
 # buffer between tests.
 FLUSH_SECONDS = 30.0
 _pending: dict[tuple[str, str, str], int] = {}
 _pending_lock = Lock()
 # -inf, never 0.0: time.monotonic()'s reference point is arbitrary (boot on
-# Linux), so 0.0 reads as "flushed at boot" — on a host up for less than
+# Linux), so 0.0 reads as "flushed at boot" - on a host up for less than
 # FLUSH_SECONDS the first record_use buffers instead of flushing, which is
 # what test_record_use_buffers_between_flushes pins. -inf means "never
 # flushed" at any uptime and for any FLUSH_SECONDS.
@@ -36,7 +36,7 @@ def _write(batch: dict[tuple[str, str, str], int]) -> None:
     #
     # db.savepoint() is what makes that suppression SAFE. This runs inside the
     # request's transaction (extensions/fastapi.py wraps mutating routes), and
-    # in PostgreSQL a failed statement aborts the whole transaction — so a
+    # in PostgreSQL a failed statement aborts the whole transaction - so a
     # swallowed error here left every later statement in the request failing
     # with InFailedSqlTransaction, and telemetry took down the write it was
     # only supposed to count. Rolling back to the savepoint discards the failed
@@ -61,8 +61,8 @@ def record_use(user: str, surface: str, *, counts: bool = True) -> None:
     action tally: the row is created or touched at +0, so
     weekly_active_users still sees them and by_surface does not. The web UI
     fans one page out into eight or more reads while a CLI invocation is one
-    request, so counting reads made non_web_share — the >50% success bar in
-    adoption() below — a measure of how many cards a page renders. Every
+    request, so counting reads made non_web_share - the >50% success bar in
+    adoption() below - a measure of how many cards a page renders. Every
     read resolves a caller now (tests/test_route_identity.py), which took
     that from a lean to a landslide.
     """
@@ -83,7 +83,7 @@ def record_use(user: str, surface: str, *, counts: bool = True) -> None:
 
 
 def reset() -> None:
-    """Drop buffered counts and re-arm the flush clock (conftest — a count
+    """Drop buffered counts and re-arm the flush clock (conftest - a count
     buffered against one test's database must not land in the next test's)."""
     global _last_flush
     with _pending_lock:
@@ -117,7 +117,7 @@ def adoption(weeks: int = 4) -> dict:
     # the leaderboard input the anti-surveillance rule refuses (docs/INSIGHTS.md:
     # person-level data plans the future, only team aggregates judge the past),
     # and this payload is served raw at GET /api/adoption. weekly_active_users
-    # below is the team COUNT, computed on its own — the reach number without
+    # below is the team COUNT, computed on its own - the reach number without
     # the names.
     by_surface = db.query(
         'SELECT surface, COUNT(DISTINCT "user") AS users, SUM(actions) AS actions'
@@ -132,7 +132,7 @@ def adoption(weeks: int = 4) -> dict:
     capture_total = db.query_row(
         "SELECT COUNT(*) AS n FROM activity WHERE action = 'capture' AND created_at >= ?", (cutoff,)
     )
-    # non-web = everything that isn't the web UI — keyed API automation
+    # non-web = everything that isn't the web UI - keyed API automation
     # (git hooks, scripts, webhooks) counts toward the automation bar
     non_web = db.query_row(
         "SELECT SUM(actions) AS n FROM tool_usage WHERE day >= ? AND surface != 'web'", (cutoff,)
@@ -160,7 +160,7 @@ def snapshot_health() -> dict:
     day = db.today().isoformat()
     n = 0
     # name_assignees=False: nothing here stores a receipt, but the flag keeps
-    # this caller honest if that ever changes — a snapshot is history, and
+    # this caller honest if that ever changes - a snapshot is history, and
     # history is the direction the anti-surveillance rule refuses
     for h in engagement_health(name_assignees=False):
         db.execute(

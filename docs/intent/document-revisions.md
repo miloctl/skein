@@ -280,7 +280,7 @@ All seven slices go on one branch, in order. Each passes `./scripts/lint.sh` and
 suites, and fixes the docs it makes false in the same commit. Each new test fails against
 the code before the change, with fixtures from a running mock-provider instance.
 
-### S1 — Revision rows behind the existing writes
+### S1 - Revision rows behind the existing writes
 
 - The migration. `_publish_revision`, `_head`, `head_revision`. `create_document` writes
   revision 1. `edit_document` reads the head row and writes n + 1. `tools/files.py`
@@ -305,7 +305,7 @@ the code before the change, with fixtures from a running mock-provider instance.
   `test_a_document_from_before_revisions_seeds_revision_one_on_its_next_write` (fixture: a
   row and file with no revision rows, the shape a released version leaves).
 
-### S2 — Save, history and restore over REST
+### S2 - Save, history and restore over REST
 
 - `save_document`, `restore_revision`, `history`, `read_revision`, `unified`,
   `StaleRevision`, `_editable_row`, `_readable_document`, the four id routes, and
@@ -315,7 +315,7 @@ the code before the change, with fixtures from a running mock-provider instance.
 - `handoff.read_artifact` parses with `quoted=row["kind"] != "document"`: a document has no
   generated frame, so an apostrophe is a word. The `documents.py` module docstring ("every
   write here goes through tools/_gate.py") changes: people write through REST too.
-- Docs: FEATURES "Artifacts & digest — Work → Reports" (the routes) and a new row
+- Docs: FEATURES "Artifacts & digest - Work → Reports" (the routes) and a new row
   "**Document revisions**" (the no-op rule, the 409, the stale auto-reject, names for
   readers only).
 - Fails first, in a new `tests/test_document_revisions.py`:
@@ -331,7 +331,7 @@ the code before the change, with fixtures from a running mock-provider instance.
   - `test_a_document_links_a_reference_after_an_apostrophe` ("Raj's task #4, don't" gives
     a thread for task #4. Today `_QUOTED` blanks it.)
 
-### S3 — Editor and history on Reports
+### S3 - Editor and history on Reports
 
 - **Actions.** For `shown.kind === "document"`, "Report actions" gains **Edit** and
   **History**. `KIND_LABEL.document` becomes "Document": a person now writes part of it.
@@ -384,7 +384,7 @@ the code before the change, with fixtures from a running mock-provider instance.
 | Rename and delete a shared document | The first request. |
 | A revision cap or pruning | A document passes 200 revisions, or `document_revisions` passes 5% of the dump. |
 
-### S4 — Agent edits pinned to their base
+### S4 - Agent edits pinned to their base
 
 - `tools/files.py::edit_document` stamps `base_revision = documents.head_revision(id)` into
   the payload when it files, so the model does not carry the number. The tool
@@ -410,7 +410,7 @@ the code before the change, with fixtures from a running mock-provider instance.
   comes back after every approval),
   `test_an_approved_edit_names_its_proposal_on_the_revision`.
 
-### S5 — The proposal shows as a diff
+### S5 - The proposal shows as a diff
 
 - For `document_edit`, `review.change_diff` returns `{current: {}, proposed: {}, unified,
   base_revision, head_revision}`. `unified` compares the base body with the base body
@@ -421,10 +421,10 @@ the code before the change, with fixtures from a running mock-provider instance.
   `head_revision > base_revision` it adds "The document changed after this proposal. If
   you approve it, Skein rejects it."
 - Fails first: `tests/test_review.py::test_a_document_edit_diff_is_unified_against_its_base`
-  (today the page renders "—" beside the new text),
+  (today the page renders a lone dash beside the new text),
   `frontend/__tests__/review-document-diff.test.tsx`.
 
-### S6 — Search finds documents by their current text
+### S6 - Search finds documents by their current text
 
 - `_publish_revision` calls `index_record("document", id, title, body)`. The index upserts
   on `(entity, entity_id)`, so no old revision is searchable.
@@ -438,7 +438,7 @@ the code before the change, with fixtures from a running mock-provider instance.
 - Fails first: `tests/test_search.py::test_a_document_is_found_by_its_current_text_only`,
   and `frontend/__tests__/nav-search.test.tsx` ("a document hit opens it on Reports").
 
-### S7 — People create documents with a tier
+### S7 - People create documents with a tier
 
 - Service: `create_document` gains `visibility` and `crew_id`, resolved by
   `scope.resolve_write` inside its transaction (the crew row lock must last until the

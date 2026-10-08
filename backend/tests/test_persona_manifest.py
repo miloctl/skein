@@ -1,6 +1,6 @@
 """Persona behavior fields (model / temperature / tools), pack defaults, and
-the strict validator lint.sh runs. The runtime stays lenient — a malformed
-persona drops off the bench instead of failing chat — so the validator is the
+the strict validator lint.sh runs. The runtime stays lenient - a malformed
+persona drops off the bench instead of failing chat - so the validator is the
 only thing standing between a typo and a silent disappearance."""
 
 import pytest
@@ -86,7 +86,7 @@ def test_the_validator_is_strict_where_the_runtime_is_lenient(bench):
 
 
 def test_the_shipped_bench_validates(fresh_db):
-    """The real personas/ directory must always pass — this is the same check
+    """The real personas/ directory must always pass - this is the same check
     lint.sh runs, pinned here so pytest alone catches a bad edit."""
     assert personas.validate_all() == []
 
@@ -172,7 +172,7 @@ def test_no_allowlist_keeps_the_full_registry(bench, fresh_db, monkeypatch):
 
 
 def test_persona_model_and_temperature_reach_the_provider(bench, fresh_db, monkeypatch):
-    """Through the REAL _model() on the keyless provider — the override must
+    """Through the REAL _model() on the keyless provider - the override must
     land in the model config, not just be accepted and dropped."""
     from app import config
     from app.agents import team_agent
@@ -198,14 +198,14 @@ def test_persona_temperature_beats_global_model_params(bench, fresh_db, monkeypa
 
 
 def test_a_persona_cannot_change_the_provider(bench):
-    """behavior() exposes a model ID, never a provider or base URL — a persona
+    """behavior() exposes a model ID, never a provider or base URL - a persona
     file must not be able to redirect traffic to a different endpoint."""
     _write(bench, "probe", "model: anything\n")
     assert set(personas.behavior("probe")) == {"model", "temperature", "tools"}
 
 
 def test_pack_json_native_types_are_accepted(bench):
-    """A JSON list is the natural way to write a tool list in a JSON file —
+    """A JSON list is the natural way to write a tool list in a JSON file -
     str() on it produced a repr matching no tool, silently building every
     persona with ZERO tools."""
     (bench / "pack.json").write_text(
@@ -234,7 +234,7 @@ def test_the_validator_rejects_unusable_pack_value_types(bench):
 
 
 def test_the_planner_inherits_the_persona_allowlist():
-    """plan_project spawns a sub-agent under the SAME persona identity — an
+    """plan_project spawns a sub-agent under the SAME persona identity - an
     allowlist that stopped at the outer agent handed a read-only persona three
     write tools through this one door."""
     from app.agents import team_agent
@@ -247,7 +247,7 @@ def test_the_planner_inherits_the_persona_allowlist():
 
 
 def test_build_agent_wires_the_planner_filter():
-    """The closure must call _planner_tools with the persona allowlist — the
+    """The closure must call _planner_tools with the persona allowlist - the
     helper being correct means nothing if build_agent ignores it."""
     import inspect
 
@@ -259,7 +259,7 @@ def test_build_agent_wires_the_planner_filter():
 
 def test_extra_tools_cannot_be_granted_by_allowlist_name(bench, fresh_db, monkeypatch):
     """The docs claim extra/MCP tools cannot be allowlisted by name. The
-    validator refuses such names in CI — but a persona file dropped on the box
+    validator refuses such names in CI - but a persona file dropped on the box
     never meets CI, so the guarantee must hold at construction: the allowlist
     is intersected with the REGISTRY names before filtering the pool."""
     from strands import tool
@@ -288,7 +288,7 @@ def test_extra_tools_cannot_be_granted_by_allowlist_name(bench, fresh_db, monkey
 
 
 def test_overlay_pack_json_merges_field_by_field(bench, tmp_path, monkeypatch):
-    """Naming one key must not clear the others — the same precedence persona
+    """Naming one key must not clear the others - the same precedence persona
     frontmatter already has over the pack."""
     from app import config
 

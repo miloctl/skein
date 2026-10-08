@@ -21,7 +21,7 @@ spec.loader.exec_module(harness)
 
 
 def test_optimized_python_cannot_skip_drill_assertions():
-    result = subprocess.run(  # noqa: S603 — current interpreter and the checked-in test driver
+    result = subprocess.run(  # noqa: S603 - current interpreter and the checked-in test driver
         [sys.executable, "-O", str(SCRIPT), "--help"], capture_output=True, text=True, check=False
     )
     assert result.returncode != 0

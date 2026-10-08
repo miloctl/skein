@@ -218,7 +218,7 @@ def run_bounded_work_handler[ContextT](
     """Run a handler in a worker and its public work on this calling thread.
 
     The calling thread can own a review transaction. The worker never receives
-    that connection — db.py keys the ambient transaction to the context, so a
+    that connection - db.py keys the ambient transaction to the context, so a
     worker thread starts with none. At the deadline, the facade closes before
     this function returns, so a late handler cannot use a committed
     connection.

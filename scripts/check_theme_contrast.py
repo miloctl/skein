@@ -31,7 +31,7 @@ Four hard invariants and one advisory note:
     a dark surface is not lighter than Loom's brightest. This one is a proxy:
     it is what let a single sweep against Loom stand for every pack. Invariants
     (b) and (c) now verify each pack directly, so a surface outside the bounds
-    is survivable — but only by an entry in SURFACE_BOUND_EXCEPTIONS that says
+    is survivable - but only by an entry in SURFACE_BOUND_EXCEPTIONS that says
     which surface and why. An unlisted surface outside the bounds fails, and a
     listed surface back inside them fails as a stale entry.
 
@@ -58,7 +58,7 @@ SURFACES = ("surface-page", "surface-card", "surface-raised")
 TEXTS = ("text-1", "text-2", "text-3")
 STATUSES = ("ok", "warn", "danger")
 # Tokens this file sweeps as INK on surfaces. Any of them under white text is
-# the misuse the mirror scan at the bottom catches — they are tuned to be
+# the misuse the mirror scan at the bottom catches - they are tuned to be
 # legible ON a surface, which is the opposite requirement. `weld` and `thread`
 # ride along because their fill halves are the -solid pair.
 INK_FILL_CANDIDATES = (*STATUSES, "weld", "thread")
@@ -75,7 +75,7 @@ CUSTOM_MIN = 4.5
 SURFACE_BOUND_EXCEPTIONS = {
     ("atelier", "light", "surface-raised"): (
         "paper warmth #f4eee2 (luminance 0.8587 vs the Loom floor 0.8802); accents on it are "
-        "proved directly by (b) and (c) — the custom-hue floor of 5.56:1 sits on this surface"
+        "proved directly by (b) and (c) - the custom-hue floor of 5.56:1 sits on this surface"
     ),
 }
 
@@ -92,7 +92,7 @@ _CUSTOM_ROW = re.compile(
 )
 _LIST_BLOCK = "export const {} = \\[(.*?)\\n\\] as const;"
 # [a-z0-9-]+, matching the CSS selectors below and the token regex above. A
-# narrower class here is not a stricter check — an id it cannot match drops out
+# narrower class here is not a stricter check - an id it cannot match drops out
 # of BOTH `declared` and `styled`, so the pack ships unswept and invariant (e)
 # reports nothing. Widen these four together or not at all.
 _ID = re.compile(r'\{\s*id:\s*"([a-z0-9-]+)"')
@@ -252,7 +252,7 @@ def check(
         for surface in SURFACES
     }
     # The baseline is NOT grandfathered. A pair Loom itself fails would
-    # otherwise vanish from the sweep entirely — the skip below excuses every
+    # otherwise vanish from the sweep entirely - the skip below excuses every
     # pack on exactly the pairs the baseline breaks, and Loom never appears
     # as a pack. text-3 on raised shipped at 4.16:1 in dark mode with every
     # gate green.
@@ -380,7 +380,7 @@ def check(
                 shown = packs[name][mode][surface]
                 if key in SURFACE_BOUND_EXCEPTIONS:
                     notes.append(
-                        f"accepted exception: {name} {mode} --{surface} — "
+                        f"accepted exception: {name} {mode} --{surface} - "
                         f"{SURFACE_BOUND_EXCEPTIONS[key]}"
                     )
                 else:
@@ -415,7 +415,7 @@ def main() -> int:
         parse_ids(ts, "COLORWAYS"),
         parse_default(ts, "COLORWAY"),
     )
-    # A token declared on:"white" is a FILL — its formula is tuned so white
+    # A token declared on:"white" is a FILL - its formula is tuned so white
     # text on top is legible, which says nothing about the token as ink. The
     # sweep below never looks at it that way, so `text-thread-solid` measured
     # 2.39:1 in dark on graphite with every gate green. Catch the usage
@@ -444,11 +444,11 @@ def main() -> int:
     # The mirror image of the scan above, and the one that was missing: an INK
     # token carrying white text. The sweep proves every ink against surfaces,
     # never under white, so `bg-ok text-white` sat at 1.87:1 in dark on the
-    # Approve button with every gate green. Same single source of intent — a
-    # token is safe under white only if it declares on:"white" — and no
+    # Approve button with every gate green. Same single source of intent - a
+    # token is safe under white only if it declares on:"white" - and no
     # literal list of call sites to maintain.
     # (?![-\w/]) matters twice: `-` stops bg-thread-solid matching bg-thread
-    # (a word boundary sits before a hyphen), and `/` stops the alpha tints —
+    # (a word boundary sits before a hyphen), and `/` stops the alpha tints -
     # bg-danger/10 is a wash carrying its own ink, not a fill under white.
     ink_class = re.compile(r"\bbg-(" + "|".join(sorted(INK_FILL_CANDIDATES)) + r")(?![-\w/])")
     for path in [*sorted(scanned), CSS]:
@@ -470,7 +470,7 @@ def main() -> int:
     print(f"custom formulas read from theme.ts: {', '.join(sorted(custom))}")
     print(f"packs: {', '.join(checked)} (baseline {BASE_PACK})")
     print(f"colorways: {', '.join(sorted(ways))} (+ the default on {BASE_PACK})")
-    for line in floors:  # a measurement, not a violation — never shares NOTE
+    for line in floors:  # a measurement, not a violation - never shares NOTE
         print(f"FLOOR {line}")
     for line in notes:
         print(f"NOTE {line}")

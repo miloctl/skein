@@ -16,7 +16,7 @@ import { timeAgo } from "@/lib/time";
 /** The landing place for every reference to a task.
  *
  *  Before this, My Day named the exact row ("task #12 due") and linked to
- *  /dashboard — the top of a thirteen-section page, where the reader hunted
+ *  /dashboard - the top of a thirteen-section page, where the reader hunted
  *  by eye. `/ask` citations and activity rows had the same dead end. The
  *  panel is addressed by `?task=<id>` so those links stay ordinary links.
  *
@@ -115,7 +115,7 @@ const PARAM = "task";
 
 /** Read the id the URL is asking for. window.location, not useSearchParams:
  *  the latter puts every consuming page behind a Suspense boundary for a
- *  value that is never prerendered — the reasoning app/auth/callback records. */
+ *  value that is never prerendered - the reasoning app/auth/callback records. */
 function taskIdFromUrl(): number | null {
   if (typeof window === "undefined") return null;
   const raw = new URLSearchParams(window.location.search).get(PARAM);
@@ -125,7 +125,7 @@ function taskIdFromUrl(): number | null {
 
 /** The one way to open the panel. A plain <a href="?task=5"> would
  *  reload the whole page for a same-page query change, so this pushes the
- *  entry itself and announces it — Back still closes the panel, because the
+ *  entry itself and announces it - Back still closes the panel, because the
  *  entry is real history and not private state. */
 export function openTaskPeek(taskId: number, anchor = "") {
   const url = new URL(window.location.href);
@@ -166,7 +166,7 @@ export function PeekLink({
       {/* the verb is ADDED, never an aria-label: a label replaces the whole
           subtree, so the task title left the accessibility tree entirely and
           a screen reader read twelve rows as "Open task #4, Open task #31".
-          Voice control was worse — the visible name was unspeakable. The
+          Voice control was worse - the visible name was unspeakable. The
           sibling edit button already names the task this way. */}
       <span className="sr-only">Open </span>
       {children}
@@ -179,8 +179,8 @@ export function TaskPeek() {
   const gated = useSyncExternalStore(subscribeGated, isGated, () => false);
   // Both results carry the id they belong to, and the render below ignores
   // any that does not match the open task. Storing them bare would need a
-  // synchronous reset when the id changes — setState inside an effect body,
-  // which cascades renders — and would flash the previous task's worklog
+  // synchronous reset when the id changes - setState inside an effect body,
+  // which cascades renders - and would flash the previous task's worklog
   // under the new task's title for one frame.
   const [loaded, setLoaded] = useState<{
     id: number;
@@ -194,7 +194,7 @@ export function TaskPeek() {
   } | null>(null);
   const [activation, setActivation] = useState<Activation | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  // where focus was before the panel took it — returning it is what keeps a
+  // where focus was before the panel took it - returning it is what keeps a
   // keyboard reader from being dropped at the top of the document on close
   const restoreFocus = useRef<HTMLElement | null>(null);
   const openedTask = useRef<number | null>(null);
@@ -238,7 +238,7 @@ export function TaskPeek() {
     }
   }, []);
 
-  // Focus handling only — an external system, which is what an effect is for.
+  // Focus handling only - an external system, which is what an effect is for.
   // Returning focus to whatever opened the panel is the difference between a
   // keyboard reader continuing where they were and being dropped at the top
   // of the document.
@@ -290,7 +290,7 @@ export function TaskPeek() {
           }),
         );
       })
-      // 404 covers "no such task" AND "not yours to read", deliberately —
+      // 404 covers "no such task" AND "not yours to read", deliberately -
       // services/scope.py raises the same sentence for both, because any
       // other pairing answers "does #12 exist" for sequential ids
       .catch((e) => {
@@ -341,12 +341,12 @@ export function TaskPeek() {
   useEffect(() => {
     // `gated` too, and not only in the render below: an effect still runs for
     // a component that returns null, so a ?task= link on a gated page inerted
-    // every body sibling — the gate included — and locked the page out with
+    // every body sibling - the gate included - and locked the page out with
     // no panel on screen to explain it.
     if (!taskId || gated) return;
     // aria-modal prunes the screen reader's buffer; it does NOT touch the
     // browser's Tab order. Without inert, three Tabs walk out of the panel
-    // into content the reader has just been told does not exist — a focus
+    // into content the reader has just been told does not exist - a focus
     // black hole, which is worse than claiming no modality at all.
     // Siblings, because the panel is a body child too. The status nodes stay
     // live (status-region.tsx).
@@ -367,7 +367,7 @@ export function TaskPeek() {
       // This gives back inert on body-level nodes another owner may also want
       // inert (capture-palette.tsx runs the same sibling loop). That is safe
       // only because every owner asserts inert from an effect, and React runs
-      // every cleanup in a commit before any effect body — an owner whose
+      // every cleanup in a commit before any effect body - an owner whose
       // inert is a rendered prop loses it here for good.
       others.forEach((el) => el.removeAttribute("inert"));
       document.removeEventListener("keydown", onKey);
@@ -375,11 +375,11 @@ export function TaskPeek() {
   }, [taskId, close, gated]);
 
   // a digest link carries ?task=12, and this panel opens on it unconditionally
-  // — over the gate, as an aria-modal dialog that prunes the gate from the
+  // - over the gate, as an aria-modal dialog that prunes the gate from the
   // screen reader's buffer while the gate moves focus into it
   if (!taskId || gated) return null;
 
-  // results from a previous id are ignored rather than cleared — see `loaded`
+  // results from a previous id are ignored rather than cleared - see `loaded`
   const task = loaded?.id === taskId ? loaded.task : undefined;
   const error = loaded?.id === taskId ? loaded.error : undefined;
   const worklog = log?.id === taskId ? log.rows : null;
@@ -456,7 +456,7 @@ export function TaskPeek() {
             {/* What is stopping it, named. `status: blocked` is set BY a
                 blocker (services/blockers.py::raise_blocker), so a panel that
                 showed the status without the row behind it left the reader to
-                find the blocker register by hand — and nothing on the way
+                find the blocker register by hand - and nothing on the way
                 there said which of its rows was theirs. Impact is what sets
                 the escalation clock, and the owner is who can stop it. */}
             {task.blockers && task.blockers.length > 0 ? (
@@ -520,7 +520,7 @@ export function TaskPeek() {
 
             {/* The write half of "the one landing place for every task
                 reference": every surface routes task references here, and the
-                panel offered nothing but Delegate — changing a status meant
+                panel offered nothing but Delegate - changing a status meant
                 leaving for Browse, whose edit row holds three of these seven
                 fields. A DELEGATED task's status stays off the form: the
                 sponsor's verdict is the only path that ends a delegation
@@ -540,7 +540,7 @@ export function TaskPeek() {
             {/* The other direction. `waiting_on` above says what this task is
                 stuck behind; the edge cost the person who typed it and paid
                 them nothing until this line existed. Absent when nothing
-                waits — a "Unblocks: nothing" heading on most tasks would be
+                waits - a "Unblocks: nothing" heading on most tasks would be
                 noise on every panel to serve the few. */}
             {task.unblocks && task.unblocks.length > 0 ? (
               <>
@@ -601,7 +601,7 @@ export function TaskPeek() {
               <summary className="cursor-pointer text-sm font-medium text-ink-2">Task details</summary>
               <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
               {/* set by work.py only on the move into `done`, so it is absent
-                  on every open task and Row drops the line entirely — the
+                  on every open task and Row drops the line entirely - the
                   panel says when a task finished without claiming a date for
                   one that has not */}
               <Row label="Finished" value={task.completed_at} />
@@ -632,7 +632,7 @@ export function TaskPeek() {
             </div>
 
             {/* The worklog is readable BEFORE the sponsor's verdict by
-                design (services/delegation.py::list_worklog) — this panel is
+                design (services/delegation.py::list_worklog) - this panel is
                 where a sponsor watches delegated work progress, and the only
                 place in the web app that shows it. */}
             <h3 className="mt-2 skein-section-title text-ink-3">
@@ -680,7 +680,7 @@ export function TaskPeek() {
   );
 }
 
-// mirrors work.py::TASK_STATUSES and PRIORITIES — a value absent here is
+// mirrors work.py::TASK_STATUSES and PRIORITIES - a value absent here is
 // merely unpickable, a value absent there is a 400. `void` is deliberately
 // not in the select: it has its own confirmed control below, and a voided
 // task's select carries it so the restore path (pick a live status) exists.
@@ -761,7 +761,7 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
           className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
         >
           <span className="sr-only">
-            Edit task #{task.id}: {task.title} —{" "}
+            Edit task #{task.id}: {task.title} - {" "}
           </span>
           edit…
         </button>
@@ -786,13 +786,13 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
             className="rounded bg-raised px-2 py-0.5 text-xs text-ink-2 hover:bg-line"
           >
             <span className="sr-only">
-              Block task #{task.id}: {task.title} —{" "}
+              Block task #{task.id}: {task.title} - {" "}
             </span>
             blocked…
           </button>
         ) : null}
         {/* void: the task never should have existed. Its own confirmed
-            control, never a select option — "done" claims the work happened
+            control, never a select option - "done" claims the work happened
             and feeds throughput, void removes it from every list and metric */}
         {task.status !== "void" && !delegated ? (
           voiding ? (
@@ -834,7 +834,7 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
               className="rounded bg-raised px-2 py-0.5 text-xs text-ink-3 hover:bg-line"
             >
               <span className="sr-only">
-                Void task #{task.id}: {task.title} —{" "}
+                Void task #{task.id}: {task.title} - {" "}
               </span>
               void…
             </button>
@@ -971,7 +971,7 @@ function EditControls({ task, onSaved }: { task: PeekTask; onSaved: () => void }
 }
 
 /** Hand a task to an agent. The roster comes from mission control, which is
- *  the same list /agents shows — a free-text field here would let a typo mint
+ *  the same list /agents shows - a free-text field here would let a typo mint
  *  a brand-new agent identity that nobody has granted any authority to. */
 function Delegate({ taskId, onDone }: { taskId: number; onDone: () => void }) {
   const [agents, setAgents] = useState<string[] | null>(null);
@@ -1012,7 +1012,7 @@ function Delegate({ taskId, onDone }: { taskId: number; onDone: () => void }) {
           </option>
         ))}
       </select>
-      {/* the contract fields, shown once an agent is picked — before that
+      {/* the contract fields, shown once an agent is picked - before that
           they are two mystery inputs on every task panel. Both optional:
           a delegation without them is what every delegation was before. */}
       {picked ? (
@@ -1233,7 +1233,7 @@ function ActivationGuide({
         What happens next
       </h3>
       {/* role="status": the poll repaints pending → running → terminal, and
-          the transition is the whole point — silent for a screen reader
+          the transition is the whole point - silent for a screen reader
           without a live region */}
       <p role="status" className="mt-1 text-ink-2">
         {message}

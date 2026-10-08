@@ -1,12 +1,12 @@
 """Database-backed strands session store.
 
 Sessions lived as files under data/sessions/, written by the SDK on its own
-schedule while session_log.py bridged command turns in from outside —
+schedule while session_log.py bridged command turns in from outside -
 read-modify-writes over a shared directory that needed per-thread locks and
 still left bridge-vs-agent-turn as an accepted race. In the database, session
 data joins the same backup, export, and delete story as every other table,
 and a caller that derives an id from a read serializes on
-db.name_lock(db.LOCK_SESSION, thread_id) — the transaction alone does not,
+db.name_lock(db.LOCK_SESSION, thread_id) - the transaction alone does not,
 because the read takes no lock (agents/session_log.py::log_exchange).
 
 The payload columns carry the SDK's own to_dict() JSON whole: the SDK owns
@@ -44,19 +44,19 @@ class OffLoopSessionManager(RepositorySessionManager):
     thread.
 
     The base register_hooks registers PLAIN lambdas, and the SDK invokes a
-    non-coroutine callback inline (strands/hooks/registry.py) — inside
+    non-coroutine callback inline (strands/hooks/registry.py) - inside
     stream_async, on the event loop. Every session INSERT (one message plus a
     sync per message, so 2 + 2 per tool cycle each turn) then ran a round trip
     on the loop that carries every open SSE stream, so one slow write stalled
     all of them. invoke_callbacks_async AWAITS a coroutine callback,
     and the message events are dispatched through it and nowhere else, so an
     async wrapper moves the writes off the loop without changing their order
-    — callbacks for one event are awaited sequentially in registration order.
+    - callbacks for one event are awaited sequentially in registration order.
 
     AgentInitializedEvent stays a plain lambda: Agent.__init__ dispatches it
     through the SYNC invoke_callbacks (strands/agent/agent.py), which raises
     RuntimeError on an async callback. The base class also registers
-    multiagent and bidi hooks — omitted here on purpose: build_agent only
+    multiagent and bidi hooks - omitted here on purpose: build_agent only
     ever constructs Agent, and a future MultiAgent handed this manager would
     persist nothing, which is this comment's warning.
     """
@@ -109,7 +109,7 @@ class DbOffloadStorage:
     preview plus reference in the persisted message; its
     retrieve_offloaded_content tool reads the bytes back. Scoping is the
     session_id column: the retrieval tool built into one thread's agent
-    reaches that thread's blobs and nothing else — the same visibility the
+    reaches that thread's blobs and nothing else - the same visibility the
     session_messages row the bytes used to live in. Rows CASCADE off the
     sessions row (migration 018), so thread deletion cleans them. The plugin
     calls write/read/delete only (eviction is disabled at the wiring site,
@@ -152,7 +152,7 @@ class DbOffloadStorage:
     async def list(self, query: str = "") -> list[str]:
         def _list() -> list[str]:
             # the plugin's keys carry '_' (toolUseId_blockIndex), a LIKE
-            # wildcard — escaped, or a prefix query over-matches
+            # wildcard - escaped, or a prefix query over-matches
             escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             rows = db.query(
                 "SELECT key FROM session_offload WHERE session_id = ?"
@@ -169,7 +169,7 @@ class DbOffloadStorage:
         # protocol completeness only: the offloader never searches storage
         # (its retrieval tool greps the retrieved bytes instead), and a
         # keyword scan over opaque blobs would promise relevance it cannot
-        # judge — an empty answer is honest
+        # judge - an empty answer is honest
         return []
 
 
@@ -252,7 +252,7 @@ def _without_attachment_bytes(payload: dict) -> dict:
 
     An attached file reaches the model as a content block holding the whole
     file. Stored as-is, it would sit in this row for the life of the thread
-    AND be replayed to the provider on every later turn — an 8 MB PDF billed
+    AND be replayed to the provider on every later turn - an 8 MB PDF billed
     once per message thereafter.
 
     So the bytes are a property of ONE turn, and the history keeps a name. No
@@ -263,7 +263,7 @@ def _without_attachment_bytes(payload: dict) -> dict:
     later turn, because no copy of the text is left to find.
 
     Applied by BOTH writers. create_message is the ordinary path; update_message
-    is the one a guardrail takes — RepositorySessionManager.redact_latest_message
+    is the one a guardrail takes - RepositorySessionManager.redact_latest_message
     rewrites the latest message in place, and that message still holds the
     original attachment blocks. Redacting only on create put the whole file into
     the row on exactly the event that exists to remove content.
@@ -324,7 +324,7 @@ def _current_text(artifact_id: int, name: str, owner: str) -> dict:
 
 
 # Backstop for paths the context offloader does not ride (plugin disabled,
-# wake turns, persona-allowlist agents — team_agent.build_agent names the
+# wake turns, persona-allowlist agents - team_agent.build_agent names the
 # contracts): a stored toolResult past this size replays to the provider on
 # every later turn of the thread. 128 KB sits far above the offloader's
 # token threshold, so on covered paths this never fires.
@@ -336,7 +336,7 @@ def _without_bulky_tool_results(payload: dict) -> dict:
     marker. toolUseId and status survive: _fix_broken_tool_use on restore and
     find_valid_trim_point (team_agent._user_aligned_offset) both need every
     toolUse to keep exactly one structurally valid result. The in-memory
-    message is untouched — the turn that fetched the result saw it in full,
+    message is untouched - the turn that fetched the result saw it in full,
     the same contract _without_attachment_bytes pins for attachments."""
     content = payload.get("message", {}).get("content")
     if not isinstance(content, list):
@@ -352,9 +352,9 @@ def _without_bulky_tool_results(payload: dict) -> dict:
         # the demand probe for extending the offloader to the excluded paths:
         # every fire is a fat result the plugin did not catch, and a season of
         # this line is the evidence that decision waits for (the evidence_gap
-        # pattern). Size and id only — the content is what must not spread.
+        # pattern). Size and id only - the content is what must not spread.
         log.warning(
-            "tool result truncated at storage: %s bytes (toolUseId=%s) —"
+            "tool result truncated at storage: %s bytes (toolUseId=%s) -"
             " the context offloader did not ride this path",
             size,
             result.get("toolUseId", "?"),
@@ -412,7 +412,7 @@ class DatabaseSessionRepository(SessionRepository):
 
     def create_agent(self, session_id: str, session_agent: SessionAgent, **_kwargs: Any) -> None:
         # upsert, never OR REPLACE: REPLACE deletes the existing row to
-        # resolve the conflict, and session_messages CASCADEs off this PK —
+        # resolve the conflict, and session_messages CASCADEs off this PK -
         # two concurrent first turns would wipe the thread's whole history
         db.execute(
             "INSERT INTO session_agents (session_id, agent_id, payload) VALUES (?, ?, ?)"
@@ -563,7 +563,7 @@ def delete_thread_sessions(thread_id: str) -> None:
     Equality and fixed patterns, never LIKE on the thread id: `_` is a LIKE
     wildcard inside the thread-id charset, and deleting `a_b` destroyed
     another owner's `axb` persona sessions."""
-    db.execute(f"DELETE FROM sessions WHERE {_THREAD_SESSION}", (thread_id,) * 5)  # noqa: S608 — a module constant
+    db.execute(f"DELETE FROM sessions WHERE {_THREAD_SESSION}", (thread_id,) * 5)  # noqa: S608 - a module constant
 
 
 def import_file_sessions() -> None:
@@ -604,7 +604,7 @@ def import_file_sessions() -> None:
                         store.create_message(session_id, agent_id, message)
             imported += 1
         except Exception:
-            # one unreadable session dir must not brick the boot — the loss
+            # one unreadable session dir must not brick the boot - the loss
             # is that thread's model-side history, already the outcome for
             # a corrupt file store
             failed += 1

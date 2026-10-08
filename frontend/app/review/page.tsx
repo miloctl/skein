@@ -35,10 +35,10 @@ function visible(text: string): string {
 }
 
 function cell(v: unknown): string {
-  if (v === null || v === undefined || v === "") return "—";
-  // a reviewer reads these values to decide — JSON.stringify put `[2]` in
+  if (v === null || v === undefined || v === "") return "-";
+  // a reviewer reads these values to decide - JSON.stringify put `[2]` in
   // front of them for the weekly plan's task list
-  if (Array.isArray(v)) return v.length ? v.map(cell).join(", ") : "—";
+  if (Array.isArray(v)) return v.length ? v.map(cell).join(", ") : "-";
   return visible(typeof v === "object" ? JSON.stringify(v) : String(v));
 }
 
@@ -120,7 +120,7 @@ type Change = {
   review_visibility?: string;
   origin: string;
   created_at: string;
-  label: string; // services/lexicon.py — what this write is called
+  label: string; // services/lexicon.py - what this write is called
   sponsor?: string; // task_completion only: whose verdict this is
   // task_completion only: what the sponsor is judging. The verdict controls
   // were here and the evidence was two navigations away (services/review.py).
@@ -137,7 +137,7 @@ type Change = {
     // so a presence test hits on every card.
     sponsor_was: string;
     // rows the criterion names (`<entity> #<id>`), each with its status as
-    // of this read. state is "" for a row the viewer cannot see — the same
+    // of this read. state is "" for a row the viewer cannot see - the same
     // one-sentence rule as an absent row. Display only, never a verdict.
     criteria_refs: { entity: string; id: number; state: string }[];
   };
@@ -146,14 +146,14 @@ type Change = {
   execution_status?: string;
   execution_error_code?: string;
   // this proposer's settled verdicts on THIS entity. null when none have
-  // settled — services/review.py sends no zeroed record, because "0 of 0
+  // settled - services/review.py sends no zeroed record, because "0 of 0
   // approved" is a claim about a history that does not exist
   record?: {
     approved: number;
     proposed: number;
     approval_rate: number;
     streak: number;
-    // why no streak CAN form, when none can — services/delegation.py's own
+    // why no streak CAN form, when none can - services/delegation.py's own
     // sentence, not a second one invented here
     streak_blocked: string;
     level: string;
@@ -164,7 +164,7 @@ type Change = {
 /** What the proposer's past verdicts on this entity say, at the moment the
  *  next one is being made.
  *
- *  The numbers existed already and rendered on Team → Agents — two pages from
+ *  The numbers existed already and rendered on Team → Agents - two pages from
  *  the one screen where they decide something. A reviewer approving a fourth
  *  proposal in a row could not see that it was the fourth.
  *
@@ -176,7 +176,7 @@ type Change = {
  *  trusted-header mode every verdict is weak, so a bare "no run of approvals"
  *  beside "8 of 8 approved" states a perfect record and no run in one breath.
  *  Team → Agents shows the same NUMBERS as a stat row rather than this
- *  sentence — a dense list is not prose and takes the label form. What both
+ *  sentence - a dense list is not prose and takes the label form. What both
  *  must agree on is the zero case: neither may print a bare `streak 0`,
  *  which reads as a score rather than as "the last verdict was not an
  *  approval". */
@@ -186,7 +186,7 @@ function TrackRecord({
 }: {
   record: NonNullable<Change["record"]>;
   /** what this write is CALLED (services/lexicon.py), never the raw entity
-   *  slug — the row already resolves it so the header, the checkbox and the
+   *  slug - the row already resolves it so the header, the checkbox and the
    *  notification cannot drift, and "settled task_completion proposals" is a
    *  column value no reader has met */
   label: string;
@@ -194,7 +194,7 @@ function TrackRecord({
   const settled = `${record.approved} of ${record.proposed}`;
   return (
     <p className="mb-2 text-xs text-ink-3">
-      {/* "proposals to <verb phrase>", not "settled <label> proposals" —
+      {/* "proposals to <verb phrase>", not "settled <label> proposals" -
           services/lexicon.py stores every entity as a VERB phrase ("add a
           task", "make a promise"), so slotting one into a noun position
           reads "settled add a task proposals" on every real entity */}
@@ -225,8 +225,8 @@ function TrackRecord({
 /** How the proposal was written, which the proposer's NAME does not answer:
  *  pasted meeting notes arrive as `human` under the person who pasted them
  *  (services/ingest.py), and everything a tool proposed arrives as `agent`.
- *  A reviewer reads those two differently — one is a transcription to check,
- *  the other is a model's judgment to check — and the queue showed neither.
+ *  A reviewer reads those two differently - one is a transcription to check,
+ *  the other is a model's judgment to check - and the queue showed neither.
  *  Any other value renders as itself rather than being mapped to a guess. */
 function OriginChip({ origin }: { origin: string }) {
   const said =
@@ -243,8 +243,8 @@ function OriginChip({ origin }: { origin: string }) {
   return (
     // sr-only text, NOT aria-label: the attribute is prohibited on a bare
     // span (role=generic) and Chrome drops it from the tree entirely, so the
-    // distinction this chip exists to draw — a transcription to check versus
-    // a model's judgment to check — reached no screen-reader user at all.
+    // distinction this chip exists to draw - a transcription to check versus
+    // a model's judgment to check - reached no screen-reader user at all.
     // axe does not flag it, because its aria-prohibited-attr rule skips
     // elements that have text content.
     <span
@@ -252,7 +252,7 @@ function OriginChip({ origin }: { origin: string }) {
       className="rounded-full bg-raised px-1.5 py-0.5 text-[10px] text-ink-3"
     >
       {said.word}
-      <span className="sr-only"> — {said.why}</span>
+      <span className="sr-only"> - {said.why}</span>
     </span>
   );
 }
@@ -261,7 +261,7 @@ function OriginChip({ origin }: { origin: string }) {
  *
  *  An acceptance proposal says "mark a delegated task done". The evidence for
  *  that call is the agent's own worklog, and the only other web surface that
- *  shows it is the task peek — so the sponsor left this screen, found the
+ *  shows it is the task peek - so the sponsor left this screen, found the
  *  task, read the notes, came back and voted from memory. The last few notes
  *  answer the common case here; the task link above opens the rest.
  */
@@ -281,7 +281,7 @@ function AcceptanceEvidence({
         </span>
       </p>
       {evidence.acceptance_criteria ? (
-        // the sponsor's own definition of done, written at delegation —
+        // the sponsor's own definition of done, written at delegation -
         // this verdict is the read it was written for
         <p className="mb-1 text-ink-2">
           <span className="font-medium">What done means:</span>{" "}
@@ -290,7 +290,7 @@ function AcceptanceEvidence({
       ) : null}
       {(evidence.criteria_refs ?? []).length > 0 ? (
         // the rows the criterion names, with each row's state as of this
-        // read — beside the verdict, never a verdict. "" state means the
+        // read - beside the verdict, never a verdict. "" state means the
         // row is absent or not visible, one sentence for both on purpose.
         <p className="mb-1 text-ink-3">
           {evidence.criteria_refs.map((r, i) => (
@@ -307,7 +307,7 @@ function AcceptanceEvidence({
       {evidence.sponsor_was ? (
         // authority follows the CURRENT sponsor
         // (010_sponsor_at_submission.sql), so this is a receipt and not a
-        // refusal — a reviewer must see the handover before Approve
+        // refusal - a reviewer must see the handover before Approve
         <p className="mb-1 text-weld">
           {evidence.sponsor_was} sponsored this task when the work was
           submitted. The verdict now belongs to the current sponsor.
@@ -385,13 +385,13 @@ function VerdictAsk({
           aria-describedby="verdict-reason-limit"
           aria-label={
             verb === "reject"
-              ? "Rejection reason — the proposer reads it"
+              ? "Rejection reason - the proposer reads it"
               : "Reason for accepting on the sponsor's behalf"
           }
           placeholder={
             verb === "reject"
-              ? "Why? — the proposer reads it"
-              : `Why are you accepting for ${sponsor}? — goes on the record`
+              ? "Why? - the proposer reads it"
+              : `Why are you accepting for ${sponsor}? - goes on the record`
           }
           className="w-full rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-sm outline-none focus:border-thread-solid"
         />
@@ -431,7 +431,7 @@ export default function ReviewPage() {
   const me = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
   // null until the fetch settles: [] is a real answer ("nothing is waiting"),
   // and starting there flashed that empty state on every navigation and left
-  // it standing after a failed load — an empty queue is a claim, not a blank
+  // it standing after a failed load - an empty queue is a claim, not a blank
   const [changes, setChanges] = useState<Change[] | null>(null);
   const [history, setHistory] = useState<Change[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -458,7 +458,7 @@ export default function ReviewPage() {
         setHistoryError(null);
       })
       // swallowing this hid the whole section, and a missing "Recently
-      // approved" list reads as "nothing was approved" — a claim
+      // approved" list reads as "nothing was approved" - a claim
       .catch((e) =>
         setHistoryError(
           `Cannot load the recently approved list. ${actionError(e)}`,
@@ -554,7 +554,7 @@ export default function ReviewPage() {
         // when nothing is left: it matches no element id, so the focus effect
         // falls through to the queue heading.
         focusAfterVerdict.current = (rest[at] ?? rest.at(-1))?.id ?? NO_CARD;
-        // nothing loaded is left to judge — only a reload separates a truly
+        // nothing loaded is left to judge - only a reload separates a truly
         // empty queue from proposals filed while this page stayed open
         if (rest.length === 0) reloadAfterVerdict.current = true;
         return rest;
@@ -674,14 +674,14 @@ export default function ReviewPage() {
       if (outcomes.length > 0) reportStatus(outcomes.join(" "));
       setSelected(new Set());
       notifyAttentionChange();
-      // only approved ids settled — forbidden/error rows remain in the queue
+      // only approved ids settled - forbidden/error rows remain in the queue
       settle(r.results.filter((x) => x.status === "approved").map((x) => x.id));
     } catch (e) {
       reportStatus(actionError(e));
     }
   };
 
-  // rejecting — and accepting on a sponsor's behalf — needs a reason the
+  // rejecting - and accepting on a sponsor's behalf - needs a reason the
   // record will keep; asked inline, not via a browser prompt
   const [asking, setAsking] = useState<{
     id: number;
@@ -769,7 +769,7 @@ export default function ReviewPage() {
   }
 
   // dismissing the reason input hands focus back to the button that opened
-  // it — a keyboard user must not be dropped at the top of the page
+  // it - a keyboard user must not be dropped at the top of the page
   const closeAsk = () => {
     if (!asking) return;
     const { id, verb } = asking;
@@ -886,7 +886,7 @@ export default function ReviewPage() {
                   aria-label={`Select #${c.id} ${c.label} for batch approval`}
                   title={
                     forSponsor(c)
-                      ? `sponsored by ${c.sponsor} — accept individually with a reason`
+                      ? `sponsored by ${c.sponsor} - accept individually with a reason`
                       : !selected.has(c.id) && selected.size >= BATCH_LIMIT
                         ? `Select at most ${BATCH_LIMIT} proposals at one time`
                         : undefined
@@ -896,20 +896,20 @@ export default function ReviewPage() {
                 <h2 className="skein-section-title min-w-0 break-words">
                 #{c.id} · {c.label}
                 {/* the id after a task_completion names the TASK the sponsor is
-                    accepting, not this proposal — the bare "#10" read as a
+                    accepting, not this proposal - the bare "#10" read as a
                     second proposal number */}
                 {c.entity_id ? (
                   c.entity === "task_completion" ? (
                     <>
                       {" on "}
                       {/* a link, not text. The panel behind it holds the full
-                          worklog, the forge link and the delegation — the
+                          worklog, the forge link and the delegation - the
                           evidence block below carries the last few notes so
                           the common verdict needs no navigation at all.
 
                           PeekLink, never a bare <a href="?task=">: this page
-                          holds unsubmitted state — a typed rejection note, the
-                          batch selection, loaded diffs — and an anchor to a
+                          holds unsubmitted state - a typed rejection note, the
+                          batch selection, loaded diffs - and an anchor to a
                           same-page query is a full navigation that discards all
                           of it. The panel opens either way, so nothing here
                           shows the loss (components/task-peek.tsx). */}
@@ -1004,7 +1004,7 @@ export default function ReviewPage() {
                 </table>
               </div>
             ) : (
-              /* a create proposal's payload IS the change — render it as
+              /* a create proposal's payload IS the change - render it as
                  fields, not as a JSON dump a phone user has to parse */
               <div className="mb-3 overflow-x-auto rounded-lg bg-raised p-3">
                 <table className="w-full text-xs">
@@ -1021,12 +1021,12 @@ export default function ReviewPage() {
                 </table>
                 {Object.keys(c.payload).length === 0 && (
                   <p className="text-xs text-ink-3">
-                    No fields — see the summary above.
+                    No fields - see the summary above.
                   </p>
                 )}
               </div>
             )}
-            {/* LAST, beside the verdict it informs — this card led with the
+            {/* LAST, beside the verdict it informs - this card led with the
                 track record, so a reviewer met the streak arithmetic and the
                 identity lecture before the one sentence saying what the agent
                 wants to do. The ask opens the card; the trust maths sit where
@@ -1064,7 +1064,7 @@ export default function ReviewPage() {
                     id={`verdict-approve-${c.id}`}
                     aria-label={`Accept for ${c.sponsor} proposal #${c.id}: ${c.label}`}
                     onClick={() => setAsking({ id: c.id, verb: "approve" })}
-                    title={`You are not the sponsor — your reason goes on the record and the verdict will not count toward ${c.proposed_by}'s trust streak`}
+                    title={`You are not the sponsor - your reason goes on the record and the verdict will not count toward ${c.proposed_by}'s trust streak`}
                     className="rounded-lg bg-ok-solid px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                   >
                     Accept for {c.sponsor}…
@@ -1146,7 +1146,7 @@ export default function ReviewPage() {
                 className={`text-xs ${c.execution_status === "completion_unknown" || c.execution_status === "failed" ? "text-danger" : "text-ink-3"}`}
               >
                 {c.execution_status === "completion_unknown"
-                  ? "Completion unknown — do not retry. "
+                  ? "Completion unknown - do not retry. "
                   : c.execution_status === "failed"
                     ? "The call did not complete. "
                     : "✅ "}

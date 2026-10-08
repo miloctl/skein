@@ -334,14 +334,14 @@ def run_sync_tool():
 
 # The review gate is a DEPLOYMENT policy, and it decides what a governed
 # extension tool RETURNS: the write itself, or a proposal for a human. Both
-# are correct outcomes of the same contract — the core routed the extension's
+# are correct outcomes of the same contract - the core routed the extension's
 # tool and neither refused nor errored. Only an error or a refusal is a
 # failure here.
 #
 # Rehearsed on BOTH settings rather than inheriting one. This assertion used
 # to read `status == "completed"` against whatever default was compiled in,
 # so it silently encoded "the gate is off" as if it were the extension
-# contract — and flipping that default turned an unrelated release into a red
+# contract - and flipping that default turned an unrelated release into a red
 # CI job pointing at the extension. Set explicitly, the flip is a fact this
 # gate states instead of a surprise it reports.
 original_agent_review = config.AGENT_REVIEW

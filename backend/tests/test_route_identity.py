@@ -1,7 +1,7 @@
 """Every read route resolves a caller, or is listed here with a reason.
 
 A read with no caller cannot be given a visibility filter later without
-changing its signature, and 45 of the 76 GET routes had none — the whole
+changing its signature, and 45 of the 76 GET routes had none - the whole
 team workspace answered an unidentified request. Both facts are why this
 inventory exists rather than a convention: the export allowlist
 (services/admin.py::TABLES), the rename map (services/users.py::_ATTRIBUTION)
@@ -90,7 +90,7 @@ def test_the_traversal_reaches_every_router():
     other tests green for the wrong reason."""
     paths = {route.path for route in _api_routes()}
     for router in ("/api/tasks", "/api/auth/config", "/api/chat", "/api/private/notes"):
-        assert router in paths, f"{router} is missing — _api_routes is not reaching every router"
+        assert router in paths, f"{router} is missing - _api_routes is not reaching every router"
     assert len(_api_routes()) > 100
 
 

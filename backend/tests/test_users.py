@@ -111,7 +111,7 @@ def test_rename_user_merges_into_existing(client, fresh_db):
     users.ensure_user("Mira")
     # planted raw: ensure_user refuses to CREATE a same-kind case variant now,
     # and this test is about repairing a roster that carries one from before
-    # that guard — rename-merge is the repair path, so it must keep working
+    # that guard - rename-merge is the repair path, so it must keep working
     fresh_db.execute(
         "INSERT INTO users (name, kind, active, created_at) VALUES ('mira', 'human', 1, ?)",
         (fresh_db.now(),),
@@ -170,7 +170,7 @@ def test_rename_route_keeps_the_existing_omitted_merge_contract(client, fresh_db
 
 
 def test_attribution_map_matches_schema(client, fresh_db):
-    """Every declared column exists. This is the FORWARD direction only — the
+    """Every declared column exists. This is the FORWARD direction only - the
     test below is the one that catches a new column nobody added."""
     from app.services.users import _ATTRIBUTION
 
@@ -194,7 +194,7 @@ def test_attribution_map_matches_schema(client, fresh_db):
 
 
 # column names that hold a person. A new table carrying one of these joins
-# _ATTRIBUTION or this list, with a reason — the map is what rename_user walks,
+# _ATTRIBUTION or this list, with a reason - the map is what rename_user walks,
 # and a column left out of it silently strands that person's rows under the old
 # name forever.
 _PERSON_SHAPED = frozenset(
@@ -286,7 +286,7 @@ def test_the_deliberate_absences_are_still_real_columns(client, fresh_db):
                 (table,),
             )
         }
-        assert col in have, f"{table}.{col} is gone — delete its entry"
+        assert col in have, f"{table}.{col} is gone - delete its entry"
         assert col not in _ATTRIBUTION.get(table, ()), f"{table}.{col} is in both lists"
         assert reason.strip(), f"{table}.{col} needs a reason"
 
@@ -373,7 +373,7 @@ def test_concurrent_machine_claims_cannot_overwrite_each_other(fresh_db):
     """Two owners claiming one generic agent row: exactly one wins.
 
     The claim reads identity_owner, refuses if another concern already holds
-    it, and then writes — a check-then-write with no index behind it.
+    it, and then writes - a check-then-write with no index behind it.
     Measured without the identity lock: both claims read GENERIC_AGENT_OWNER,
     both reported success, and the loser's UPDATE overwrote ownership the
     winner had already committed, which is the state the refusal exists to

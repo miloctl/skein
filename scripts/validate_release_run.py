@@ -39,7 +39,7 @@ class ReleaseRun(NamedTuple):
 
 
 def _get_json(url: str, token: str) -> dict[str, Any]:
-    request = urllib.request.Request(  # noqa: S310 — the caller accepts only HTTPS
+    request = urllib.request.Request(  # noqa: S310 - the caller accepts only HTTPS
         url,
         headers={
             "Accept": "application/vnd.github+json",

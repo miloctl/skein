@@ -117,7 +117,7 @@ def warn_wording(path):
     """WARN-ONLY ring over the shared user-visible strings: every plain
     string constant in services/wording.py of sentence length, minus
     docstrings (dev-facing). Promoted to fatal once the existing copy is
-    clean and stays clean — the same staging the knots gate went through.
+    clean and stays clean - the same staging the knots gate went through.
     f-string fragments are skipped on purpose: sentence rules misfire on
     fragments."""
     import ast
@@ -193,7 +193,7 @@ def main():
     failures = check_knots(root / "backend" / "fieldguide" / "knots.yaml")
     if failures:
         print("STE violations in knots.yaml how: strings (the STE half of the")
-        print("pitch/how split — fix the wording, docs/LEXICON.md has the terms):")
+        print("pitch/how split - fix the wording, docs/LEXICON.md has the terms):")
         for f in failures:
             print(f"  {f}")
         sys.exit(1)

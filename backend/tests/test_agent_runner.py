@@ -1,6 +1,6 @@
 """The unattended runner and its ceilings.
 
-Nothing here tests that an agent does GOOD work — that is the model's job and
+Nothing here tests that an agent does GOOD work - that is the model's job and
 the review gate's. These pin the bounds, because the whole point of the
 feature is a turn no human is watching."""
 
@@ -86,7 +86,7 @@ def test_the_ceiling_counts_only_today_and_only_this_agent(fresh_db, monkeypatch
         " output_tokens, cycles, latency_ms, created_at)"
         " VALUES ('t', 'research-agent', 'm', 5000, 5000, 1, 1, '2020-01-01T00:00:00+00:00')"
     )
-    # yesterday's spend must not either — the ceiling is per day
+    # yesterday's spend must not either - the ceiling is per day
     usage.assert_within_budget("research-agent")
 
 
@@ -395,7 +395,7 @@ def test_a_second_concurrent_turn_for_one_agent_refuses(fresh_db, monkeypatch):
 
 def test_timeout_keeps_the_turn_lock_until_the_abandoned_thread_ends(fresh_db, monkeypatch):
     """Releasing at the wall clock let a re-pended wake run a second turn
-    concurrently with the abandoned one — the lock's whole purpose."""
+    concurrently with the abandoned one - the lock's whole purpose."""
     import threading
     import time
 
@@ -607,7 +607,7 @@ def test_the_wake_names_the_per_run_limits(fresh_db, monkeypatch):
 
 
 def test_the_wake_names_the_remaining_budget_when_a_ceiling_is_set(fresh_db, monkeypatch):
-    """The ceiling refuses the NEXT run, never this one mid-turn — so the
+    """The ceiling refuses the NEXT run, never this one mid-turn - so the
     model must be told what remains and told to converge near the limit."""
     _delegated("research-agent")
     monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
@@ -632,7 +632,7 @@ def test_the_wake_names_the_remaining_budget_when_a_ceiling_is_set(fresh_db, mon
     assert "Token budget for today: 37,500 of 50,000" in seen[0]
     assert "do not explore" in seen[0]
 
-    # no ceiling: no budget sentence — a claim about a bound that is off
+    # no ceiling: no budget sentence - a claim about a bound that is off
     monkeypatch.setattr(config, "AGENT_DAILY_TOKENS", 0)
     fresh_db.execute("DELETE FROM job_runs WHERE job LIKE 'agent-run:%'")
     seen.clear()
@@ -694,7 +694,7 @@ def test_an_unattended_write_still_passes_the_gate(fresh_db, monkeypatch):
     strings were absent from the module, which passes on an empty file.
 
     The turn runs under the agent's own identity now, so a write it makes is
-    evaluated against that agent's authority row — at `review` it must QUEUE,
+    evaluated against that agent's authority row - at `review` it must QUEUE,
     not apply."""
     from app.services.users import ensure_user
 
@@ -727,7 +727,7 @@ def test_the_sweep_notifies_once_per_task_per_week(fresh_db, monkeypatch):
     monkeypatch.setattr(agent_runner, "_delegated_at", lambda _tid: "2000-01-01T00:00:00+00:00")
     """The threshold decides WHETHER a task is quiet; it does not bound the
     repeat. The sweep runs daily, so without a weekly claim a task quiet for a
-    month sends the same sponsor the same sentence twenty-eight times — which
+    month sends the same sponsor the same sentence twenty-eight times - which
     is how a team learns to filter the channel."""
     _delegated("research-agent")
     monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
@@ -756,7 +756,7 @@ def test_a_task_with_a_recent_note_is_not_quiet(fresh_db, monkeypatch):
 
 def test_a_missed_check_in_nags_the_sponsor_once_per_date(fresh_db, monkeypatch):
     """The contract's second promise: a check-in date that passed with the
-    task still open reaches the sponsor — even when the work is NOT quiet,
+    task still open reaches the sponsor - even when the work is NOT quiet,
     because notes every day with no verdict sought is its own failure. Once
     per (task, date): moving the date re-arms the nag."""
     from app.services.users import ensure_user
@@ -773,7 +773,7 @@ def test_a_missed_check_in_nags_the_sponsor_once_per_date(fresh_db, monkeypatch)
         actor="tester",
     )
     monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
-    # a note today keeps the task out of the QUIET nag — the check-in nag
+    # a note today keeps the task out of the QUIET nag - the check-in nag
     # must fire anyway
     delegation.claim_task(task["id"], actor="research-agent")
     delegation.report_progress(task["id"], "still chasing", actor="research-agent")
@@ -791,7 +791,7 @@ def test_a_missed_check_in_nags_the_sponsor_once_per_date(fresh_db, monkeypatch)
 
 def test_a_fresh_delegation_is_not_quiet(fresh_db, monkeypatch):
     """Delegated minutes ago with no note yet, the sweep claimed "no progress
-    note for 2 days" — false as stated, and the first thing a sponsor read
+    note for 2 days" - false as stated, and the first thing a sponsor read
     about their own fresh delegation was a nag. The quiet clock starts at the
     delegation, read from the ledger's own delegate_task row."""
     _delegated("research-agent")
@@ -847,7 +847,7 @@ def test_a_future_check_in_stays_silent(fresh_db, monkeypatch):
 def test_the_turn_runs_as_the_agent_it_woke(fresh_db, monkeypatch):
     """A ContextVar does NOT cross a bare threading.Thread.
 
-    Without copy_context the turn ran as "agent" — the chat identity — so its
+    Without copy_context the turn ran as "agent" - the chat identity - so its
     inbox came back empty, every report_progress was refused, and the gate
     resolved authority against a row that is often promoted to autonomous.
     Every other stub in this file returns a lambda that reads no identity,
@@ -898,14 +898,14 @@ def test_an_unattended_turn_keeps_one_team_model_snapshot(fresh_db, monkeypatch)
 
 def test_the_runs_own_spend_reaches_usage_log(fresh_db, monkeypatch):
     """Both bounds written for the runner read usage_log, and build_agent
-    returns a bare Agent that records nothing — so an unrecorded turn leaves
+    returns a bare Agent that records nothing - so an unrecorded turn leaves
     the daily ceiling and the runaway rule reading zero forever."""
     _delegated("research-agent")
     monkeypatch.setattr(config, "AGENT_RUNNER", ["research-agent"])
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
 
     class _Metrics:
-        # ClassVar, because ruff refuses a mutable class attribute — these
+        # ClassVar, because ruff refuses a mutable class attribute - these
         # stand in for the strands metrics object usage.row_from_agent reads
         accumulated_usage: ClassVar[dict] = {"inputTokens": 1234, "outputTokens": 56}
         accumulated_metrics: ClassVar[dict] = {"latencyMs": 10}
@@ -940,7 +940,7 @@ def test_a_hanging_turn_is_abandoned_not_awaited_forever(fresh_db, monkeypatch):
 
     The hang is an Event this test RELEASES, never a bare sleep. run_one
     deliberately abandons the worker, so a sleep leaves a live thread running
-    for the rest of its duration — and db.DB_PATH is read per connection
+    for the rest of its duration - and db.DB_PATH is read per connection
     (db.py::connect) while fresh_db repoints it per test, so a late write
     lands in whichever test's database is installed at that moment. Nothing
     in the CODE prevents that write: it is prevented only by this fake having
@@ -969,7 +969,7 @@ def test_a_hanging_turn_is_abandoned_not_awaited_forever(fresh_db, monkeypatch):
         assert out["ran"] is False
         assert "abandoned" in out["reason"]
 
-        # the thread is still alive, which is what "abandoned" MEANS — a
+        # the thread is still alive, which is what "abandoned" MEANS - a
         # future join() with no timeout would make this vanish and the test
         # above would still pass
         worker = next(
@@ -1015,7 +1015,7 @@ def test_the_run_is_recorded_under_the_scheduler_not_the_agent(fresh_db, monkeyp
     `scheduler` is in activity.SYSTEM_ACTORS, and visible_actor_filter shows a
     system actor's rows to EVERY viewer. An edit that "improves" this row by
     passing the agent name instead would put one agent's turn in front of the
-    whole team under that exemption — and the anti-surveillance rule is what
+    whole team under that exemption - and the anti-surveillance rule is what
     buys the team's honest data entry. Nothing else enforces the choice.
 
     The row is also the only feed entry saying an unattended turn happened at
@@ -1210,7 +1210,7 @@ def test_runner_sweep_serializes_policy_and_notification(fresh_db, monkeypatch):
             # is that the decision and the work it authorizes come from ONE
             # read: agent_runner._due resolves each task's policy attributes
             # once, at the top, and the run acts on those. (Not a read
-            # snapshot — sweep() wraps _due in db.transaction(), and
+            # snapshot - sweep() wraps _due in db.transaction(), and
             # read_transaction joins an ambient one rather than raising its
             # isolation.) `swept == 1` at the bottom is that guarantee; a
             # blocked writer was SQLite's mechanism for it, not the promise.

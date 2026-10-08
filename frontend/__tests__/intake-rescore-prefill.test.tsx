@@ -3,12 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 
 /** Re-scoring a request opened on the neutral 3/3/3/3 and discarded the four
  *  numbers already on record, so correcting ONE of them meant remembering and
- *  retyping the other three — against a score the requester can see. The
+ *  retyping the other three - against a score the requester can see. The
  *  stored values were on the wire the whole time (`reach`/`impact`/
  *  `confidence`/`effort` in the intake payload) and the panel dropped them.
  *
  *  An UNSCORED row is stored as 0/0/0/1 (migration 001), which the 1-5 inputs
- *  cannot represent — those still open on the 3s. */
+ *  cannot represent - those still open on the 3s. */
 
 const rows = [
   {

@@ -33,13 +33,13 @@ INACTIVE = "This roster entry is not active. Ask whoever runs the server to reac
 
 def agent_on_rest(owner: str) -> str:
     return (
-        f"'{owner}' is an agent identity — agents work through the gated"
+        f"'{owner}' is an agent identity - agents work through the gated"
         " tool surface (chat tools / MCP), not the REST API"
     )
 
 
 def agent_on_signin(name: str) -> str:
-    return f"'{name}' is an agent identity — agents authenticate with their API key, not a sign-in"
+    return f"'{name}' is an agent identity - agents authenticate with their API key, not a sign-in"
 
 
 def content_on_signin() -> str:
@@ -62,7 +62,7 @@ def _refuse_inactive(name: str) -> None:
     """services/users.py::set_active calls itself the offboarding switch and
     revokes every API key the person owns. It revoked keys and nothing else,
     so the oidc and header doors stayed open and an offboarded teammate kept
-    strong read AND write — including their own private notes — until someone
+    strong read AND write - including their own private notes - until someone
     separately disabled the IdP account. No roster row is not inactive: a
     first-ever sign-in has none, and a read must not refuse it.
 
@@ -96,7 +96,7 @@ def is_shared_token(authorization: str, request: Request | None = None) -> bool:
 
     Compared as BYTES: starlette decodes headers as latin-1 and
     compare_digest raises TypeError on a non-ASCII str, so one 0xFF byte in
-    an Authorization header turned a caller's mistake into a 500 — the same
+    an Authorization header turned a caller's mistake into a 500 - the same
     hazard verify_forge_signature below documents. main.py's perimeter calls
     this rather than restating the comparison, so the two doors cannot
     disagree about the same header.
@@ -118,7 +118,7 @@ def _cached(request: Request | None, attr: str):
     user dependency. Re-verifying here would charge every request twice:
     verify_key costs a hash and a lookup (plus a periodic last_used_at
     stamp), and an OIDC token costs a full signature check. None means "not
-    proved yet" — a direct call, or trusted-header mode, where the
+    proved yet" - a direct call, or trusted-header mode, where the
     middleware steps aside entirely."""
     return getattr(request.state, attr, None) if request is not None else None
 
@@ -171,8 +171,8 @@ def _resolve(
     which doors exist; this function is the single swap point.
 
     1. A per-teammate API key (Authorization: Bearer sk-skein-…) wins in
-       EVERY mode — attributed automation (CLI, MCP, hooks, scripts). A
-       PRESENTED key that is invalid or revoked is a hard 401 — never a
+       EVERY mode - attributed automation (CLI, MCP, hooks, scripts). A
+       PRESENTED key that is invalid or revoked is a hard 401 - never a
        silent fallback, or revocation would be a no-op for callers that also
        send X-User.
     2. oidc mode: any other bearer token is an IdP-issued JWT, validated
@@ -181,12 +181,12 @@ def _resolve(
        agent identity: agent rows carry trust scores and gate levels, and
        writes as them would sidestep the review gate entirely.
     3. trusted-header mode only: the X-User header from the frontend name
-       picker — weak, self-asserted (strong=False), same agent wall. Reads
-       don't mint roster rows — a typo'd or scripted GET must not grow the
+       picker - weak, self-asserted (strong=False), same agent wall. Reads
+       don't mint roster rows - a typo'd or scripted GET must not grow the
        roster. api-key and oidc modes never reach this door: those modes
        exist exactly because the header is self-asserted.
 
-    A broken auth config (config.AUTH_ERROR) refuses everything with a 503 —
+    A broken auth config (config.AUTH_ERROR) refuses everything with a 503 -
     fail closed, unlike the model-provider faults that degrade to mock,
     because "degrade" for auth means "open".
     """
@@ -214,7 +214,7 @@ def _resolve(
         if owner:
             # two write paths, one service layer: humans use REST, agents use
             # the gated tools/MCP. An agent-owned key on REST would reach every
-            # ungated human surface with origin=human — refuse the door entirely
+            # ungated human surface with origin=human - refuse the door entirely
             if is_agent(owner):
                 raise HTTPException(status_code=403, detail=agent_on_rest(owner))
             _refuse_ambiguous(owner)
@@ -295,7 +295,7 @@ def _resolve(
     if is_agent(name):
         raise HTTPException(
             status_code=403,
-            detail=f"'{name}' is an agent identity — agents authenticate with"
+            detail=f"'{name}' is an agent identity - agents authenticate with"
             " their API key, not the name picker",
         )
     if method in ("GET", "HEAD", "OPTIONS"):
@@ -327,7 +327,7 @@ def verify_forge_signature(body: bytes, signature: str) -> None:
     """The forge webhook's whole identity: HMAC-SHA256 over the raw body with
     a shared secret. It lives here because every other door in Skein is
     decided in this file, and a caller that proves possession of a secret is
-    a door — the ICS feed token is the same shape.
+    a door - the ICS feed token is the same shape.
 
     No secret configured means the endpoint is CLOSED, not open: it moves
     tasks, so an unsigned caller must never reach it. compare_digest, not
@@ -340,7 +340,7 @@ def verify_forge_signature(body: bytes, signature: str) -> None:
     expected = hmac.new(config.FORGE_WEBHOOK_SECRET.encode(), body, sha256).hexdigest()
     # Gitea sends the bare hex digest, and also GitHub's "sha256=" form.
     # Compare BYTES: starlette decodes headers as latin-1, and compare_digest
-    # raises TypeError on a non-ASCII str — an unsigned caller must not be
+    # raises TypeError on a non-ASCII str - an unsigned caller must not be
     # able to turn one 0xFF byte into a 500.
     sent = signature.strip().removeprefix("sha256=").encode("utf-8", "replace")
     if not hmac.compare_digest(expected.encode(), sent):
@@ -391,7 +391,7 @@ def _is_admin(user: str, groups: list[str], request: Request | None = None) -> b
 
     Names match case-insensitively, the way resolve_teammate matches the
     roster: SKEIN_ADMINS=Casey must not lock out the roster's `casey`. Group
-    names stay exact — those come from the IdP, not from a person typing."""
+    names stay exact - those come from the IdP, not from a person typing."""
     if is_named_admin(user, groups):
         return True
     return (
@@ -438,7 +438,7 @@ def is_named_admin(user: str, groups: list[str]) -> bool:
     that decides what a person READS: with it, any key holder could make
     themselves the steward of any crew and evict the one who was there
     (routes/api.py::_crew_steward). Membership is that boundary, so it takes
-    the strict test — and an operator who wants an administrator to repair a
+    the strict test - and an operator who wants an administrator to repair a
     crew names one in SKEIN_ADMINS.
     """
     if any(user.casefold() == admin.casefold() for admin in config.ADMINS):
@@ -447,7 +447,7 @@ def is_named_admin(user: str, groups: list[str]) -> bool:
 
 
 # Methods that read. adoption.record_use takes counts=False for these, so a
-# page load registers the person without inflating the action tally — see the
+# page load registers the person without inflating the action tally - see the
 # docstring there for what that protects.
 _READS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -465,7 +465,7 @@ def current_user(
     authorization: Annotated[str, Header()] = "",
 ) -> str:
     """Every resolved identity also counts toward adoption telemetry (day/
-    user/surface tallies — reach of the tool, never content or output)."""
+    user/surface tallies - reach of the tool, never content or output)."""
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
     _stash(request, user, strong, groups, authentication_source(request, authorization, strong))
     record_use(user, _surface(request, x_client), counts=request.method not in _READS)
@@ -511,7 +511,7 @@ def _stash(
     # scoped reads pays for one lookup.
     #
     # Built on EVERY request, including routes that read nothing scoped. It
-    # costs a crews_of query only for a STRONG caller — Viewer.__init__ blanks
+    # costs a crews_of query only for a STRONG caller - Viewer.__init__ blanks
     # a weak name and then skips the lookup, so in the default trusted-header
     # mode it costs nothing at all. Kept in the single door either way: making
     # it lazy moves construction out of the one place that builds a Viewer,
@@ -530,7 +530,7 @@ def strong_user(
     x_client: Annotated[str, Header()] = "",
     authorization: Annotated[str, Header()] = "",
 ) -> str:
-    """Strong identity ONLY — private records and self-scoped credentials.
+    """Strong identity ONLY - private records and self-scoped credentials.
     The self-asserted X-User header is never sufficient here. A personal API
     key or a validated OIDC sign-in both qualify: each one proves the caller
     is who the record says."""
@@ -548,7 +548,7 @@ def admin_user(
     authorization: Annotated[str, Header()] = "",
 ) -> str:
     """Administrator identity: strong AND named an administrator. Guards what
-    changes OTHER people's rows or the whole team's configuration — roster
+    changes OTHER people's rows or the whole team's configuration - roster
     changes, key visibility and the kill switch, agent authority, team theme,
     context strategy, backups, the full export. Self-scoped strong surfaces
     (own keys, private notes) stay on StrongUser: locking a person out of
@@ -571,7 +571,7 @@ def viewer(request: Request, _user: Annotated[str, Depends(current_user)]) -> "s
 
     The `getattr` default is unreachable while `_user` is here: _stash sets
     request.state.viewer unconditionally. It is the fail-closed landing if
-    somebody drops that parameter — which would also drop the ordering, so the
+    somebody drops that parameter - which would also drop the ordering, so the
     default going live is the SYMPTOM of that edit, not a case to design for.
     """
     return getattr(request.state, "viewer", scope.NOBODY)

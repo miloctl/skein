@@ -1,4 +1,4 @@
-"""Browser sign-in (authorization code + PKCE) — /api/auth/config and
+"""Browser sign-in (authorization code + PKCE) - /api/auth/config and
 /api/auth/token. Both answer before the caller holds any credential, so what
 they refuse matters as much as what they return."""
 
@@ -100,7 +100,7 @@ def _discovery(monkeypatch, doc=None, calls=None):
 
 def test_config_names_the_mode_in_every_mode(client):
     # the frontend has no other way to learn that the name picker is not the
-    # identity model — this answers even in trusted-header mode
+    # identity model - this answers even in trusted-header mode
     body = client.get("/api/auth/config").json()
     assert body["mode"] == "trusted-header"
     assert body["error"] == ""
@@ -402,7 +402,7 @@ def test_token_exchange_cannot_claim_pending_content_identity(
 
 def test_token_refuses_a_token_it_cannot_validate(client, monkeypatch, fresh_db):
     """Answering 200 here would leave the browser holding a token that every
-    later request rejects — a signed-in UI that 401s on everything."""
+    later request rejects - a signed-in UI that 401s on everything."""
     _as_oidc(monkeypatch)
     _discovery(monkeypatch)
     monkeypatch.setattr(oidc, "exchange", lambda form: {"access_token": "bad"})
@@ -612,7 +612,7 @@ def test_a_non_web_endpoint_from_operator_config_is_refused(monkeypatch):
         "https://localhost%3a8443/token",
         "https://idp.example%3a0/token",
         "https://localhost。/token",
-        "https://ｌｏｃａｌｈｏｓｔ/token",  # noqa: RUF001 — intentional IDNA-confusable host
+        "https://ｌｏｃａｌｈｏｓｔ/token",  # noqa: RUF001 - intentional IDNA-confusable host
         "https://foo.localhost/token",
     ),
 )

@@ -432,7 +432,7 @@ function MintCommand({ name }: { name: string }) {
       <p className="mt-2 text-xs text-ink-3">
         Docker:{" "}
         <code>docker compose exec backend python -m app.bootstrap_key {word}</code>{" "}
-        — the key prints once.
+        - the key prints once.
       </p>
     </>
   );
@@ -444,7 +444,7 @@ function CopyLine({ text, label }: { text: string; label: string }) {
     <div className="flex items-center gap-2">
       {/* wraps, never scrolls. overflow-x-auto made this a scroll container
           with no way to reach it by keyboard (axe: scrollable-region-focusable),
-          and the fix is not a tabindex — the copy button beside it already
+          and the fix is not a tabindex - the copy button beside it already
           gives a keyboard user the whole string. Wrapping shows it instead of
           merely making it reachable, and adds no tab stop. */}
       <code className="min-w-0 flex-1 [overflow-wrap:anywhere] rounded bg-raised px-2 py-1 text-xs">
@@ -477,7 +477,7 @@ type KeyRow = {
 };
 
 /** The reader's own keys, with revoke. Minting had a button and revoking did
- *  not — a leaked or lost key was a hand-made API call to kill, in the one
+ *  not - a leaked or lost key was a hand-made API call to kill, in the one
  *  place the page said "revoke old ones from the CLI". Strong identity only:
  *  GET /api/keys is a StrongUser route, because under trusted-header a bare
  *  name would hand out anyone's key metadata. */
@@ -688,7 +688,7 @@ export default function SettingsPage() {
 
   // `settled` is the knob that was just written, and ONLY its draft is
   // dropped. Clearing the whole map threw away half-typed values on every
-  // other knob in the list, with nothing said — a save on knob A silently
+  // other knob in the list, with nothing said - a save on knob A silently
   // reverted the reader's unsaved edit to knob B.
   const loadTunables = useCallback((settled?: string) => {
     const current = adminGeneration.current;
@@ -710,7 +710,7 @@ export default function SettingsPage() {
         // the same helper the long-chat section uses, so a refusal the server
         // answered never reads as an unreachable backend. A non-administrator
         // lands here too, and the server's own 403 sentence already tells
-        // them what they need — this must not re-word it (CLAUDE.md)
+        // them what they need - this must not re-word it (CLAUDE.md)
         setTuneLoadError(loadError(e));
       })
       .finally(() => {
@@ -719,7 +719,7 @@ export default function SettingsPage() {
   }, []);
   useEffect(() => {
     // prefill: a write-only field can neither be reviewed nor cleared. If
-    // the GET fails, the field must NOT be saveable — any save replaces the
+    // the GET fails, the field must NOT be saveable - any save replaces the
     // stored value, which the reader never saw.
     api<{ interests: string; shared: boolean }>("/api/users/growth-interests")
       .then((r) => {
@@ -762,7 +762,7 @@ export default function SettingsPage() {
           return;
         setCtx(null);
         // a 401 behind SKEIN_API_TOKEN, or a 500 from a locked database, is a
-        // server that answered — calling it unreachable sends the reader to
+        // server that answered - calling it unreachable sends the reader to
         // check something that is running
         setCtxLoadError(loadError(e)); // routes to backendUnreachable itself
       })
@@ -1386,7 +1386,7 @@ export default function SettingsPage() {
         </Link>
       </div>
       <p className="mt-1 text-sm text-ink-3">
-        Everything you need to set up lives here — nothing requires reading the
+        Everything you need to set up lives here - nothing requires reading the
         docs first.
       </p>
 
@@ -1547,7 +1547,7 @@ export default function SettingsPage() {
                         </button>
                         <details>
                           <summary className="cursor-pointer text-xs text-ink-3 hover:text-ink-2">
-                            I run the server — show me the command
+                            I run the server - show me the command
                           </summary>
                           <div className="mt-2">
                             <MintCommand name={currentUser} />
@@ -1720,8 +1720,8 @@ export default function SettingsPage() {
               <Section title="Appearance" headingLevel={3}>
                 <p className="mb-3 text-sm text-ink-3">
                   {currentUser === "anonymous"
-                    ? "Saved in this browser — pick your name and it follows you everywhere."
-                    : "Saved to your profile — the whole theme, custom colors included, follows you to any browser."}
+                    ? "Saved in this browser - pick your name and it follows you everywhere."
+                    : "Saved to your profile - the whole theme, custom colors included, follows you to any browser."}
                 </p>
                 <div className="mb-4 flex items-center gap-2">
                   <span className="w-24 text-sm text-ink-2">Mode</span>
@@ -1732,7 +1732,7 @@ export default function SettingsPage() {
                         onClick={() => setAppearance(a.id, { fade: false })}
                         aria-pressed={appearance === a.id}
                         // the wrapper's overflow-hidden rounds these buttons' corners
-                        // and clipped their focus ring with them — globals.css draws
+                        // and clipped their focus ring with them - globals.css draws
                         // it inside instead
                         data-ring="inset"
                         className={
@@ -1891,7 +1891,7 @@ export default function SettingsPage() {
                     {colorway === "custom" && (
                       <>
                         <p className="text-xs text-ink-3">
-                          Pick any hue — every combination stays readable.
+                          Pick any hue - every combination stays readable.
                         </p>
                         {(
                           [
@@ -1934,7 +1934,7 @@ export default function SettingsPage() {
                     )}
                     <div className="mt-4 border-t border-line pt-3">
                       <p className="mb-1.5 text-xs font-medium text-ink-2">
-                        Theme code — copy to share this exact look, paste to
+                        Theme code - copy to share this exact look, paste to
                         apply one
                       </p>
                       <CopyLine text={themeCode()} label="theme code" />
@@ -1955,7 +1955,7 @@ export default function SettingsPage() {
                             setCodeStatus(
                               ok
                                 ? "Applied."
-                                : "That is not a valid theme code — check the paste.",
+                                : "That is not a valid theme code - check the paste.",
                             );
                             if (ok) setCodeDraft("");
                           }}
@@ -1981,7 +1981,7 @@ export default function SettingsPage() {
                                 body: JSON.stringify({ theme: themeCode() }),
                               });
                               setCodeStatus(
-                                "Saved as the team default — fresh browsers and anonymous visitors start here.",
+                                "Saved as the team default - fresh browsers and anonymous visitors start here.",
                               );
                             } catch (e) {
                               setCodeStatus(actionError(e));
@@ -1992,7 +1992,7 @@ export default function SettingsPage() {
                           Make this the team default
                         </button>
                         <p className="mt-1 text-xs text-ink-3">
-                          A default, never an override — anyone&apos;s personal
+                          A default, never an override - anyone&apos;s personal
                           choice beats it.{" "}
                           {canAdminister
                             ? "Fresh browsers and anonymous visitors start here."
@@ -2047,7 +2047,7 @@ export default function SettingsPage() {
                   </button>
                 </div>
                 <div className="mt-4 border-t border-line pt-4">
-                {/* While whoami is unresolved the flag is unreadable — claiming
+                {/* While whoami is unresolved the flag is unreadable - claiming
             "nothing is dismissed" there is a false sentence during every
             load, and a lie whenever the request failed outright. */}
                 {!checklistUser ? (
@@ -2059,7 +2059,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm text-ink-2">
                       The <b>first-week checklist</b> on My Day is hidden in
-                      this browser. Your progress was never lost — it hides
+                      this browser. Your progress was never lost - it hides
                       itself for good once every step is done.
                     </p>
                     <button
@@ -2077,7 +2077,7 @@ export default function SettingsPage() {
                   </p>
                 )}
                 <p className="mt-2 text-xs text-ink-3">
-                  Dismissed NOTICE items are just markers — the proposals,
+                  Dismissed NOTICE items are just markers - the proposals,
                   blockers, and reviews they point to stay visible in{" "}
                   <a href="/review" className="underline">
                     Inbox → Approvals
@@ -2110,12 +2110,12 @@ export default function SettingsPage() {
                 headingLevel={3}
               >
                 <p className="mb-2 text-sm text-ink-3">
-                  Skein is an MCP server — Claude Code or any MCP client can
+                  Skein is an MCP server - Claude Code or any MCP client can
                   read and write the platform natively. New agents start at{" "}
                   <b>needs-approval</b> authority.{" "}
                   {gateOn === null ? (
                     <>
-                      What that holds back depends on the review gate —{" "}
+                      What that holds back depends on the review gate - {" "}
                       <a href="/agents" className="underline">
                         /agents
                       </a>{" "}
@@ -2164,7 +2164,7 @@ export default function SettingsPage() {
                   label="Claude Code registration over stdio"
                 />
                 <p className="mb-1 mt-3 text-xs font-medium text-ink-3">
-                  Team context pack (org-brain for any agent — also an MCP
+                  Team context pack (org-brain for any agent - also an MCP
                   resource):
                 </p>
                 <CopyLine text={`${API_URL}/api/context-pack`} label="team context pack URL" />
@@ -2201,7 +2201,7 @@ export default function SettingsPage() {
                   or merge request merges, the task finishes. If the branch name
                   has no task number, put a <code>Closes-Task: #42</code> line in
                   the description. <code>skein pr-body</code> writes it. A merge
-                  never closes a delegated task — the sponsor accepts that work.
+                  never closes a delegated task - the sponsor accepts that work.
                 </p>
                 <p className="mb-1 mt-3 text-xs font-medium text-ink-3">Gitea</p>
                 <CopyLine text={`${API_URL}/api/webhooks/forge`} label="Gitea webhook URL" />
@@ -2354,7 +2354,7 @@ export default function SettingsPage() {
                         </p>
                       )}
                       {/* no radio is checked when the model in force is outside the
-                menu — without this line the section renders choices under
+                menu - without this line the section renders choices under
                 "the model every chat runs on" while naming that model
                 nowhere */}
                       {pick.applies &&
@@ -2518,7 +2518,7 @@ export default function SettingsPage() {
                 </p>
                 {/* role=status on an always-mounted node: the refusal arrives after
             first paint, and a live region inserted with its own text is not
-            announced. The final branch is not dead — a load that returns
+            announced. The final branch is not dead - a load that returns
             nothing with no error must still say why the section is empty. */}
                 <p role="status" className="text-sm text-ink-3 empty:hidden">
                   {!canAdminister
@@ -2535,7 +2535,7 @@ export default function SettingsPage() {
                       const parsed = Number(draft);
                       // a draft is only submittable when it is a whole number inside
                       // the bounds AND different from what is in force. The server
-                      // range-checks it again — this is not the guard, it is the
+                      // range-checks it again - this is not the guard, it is the
                       // reason the reader is not made to press a button that fails.
                       const valid =
                         draft.trim() !== "" &&
@@ -2567,7 +2567,7 @@ export default function SettingsPage() {
                                 // here: the bounds, the out-of-range notice, and the
                                 // validation line all render BELOW two buttons, so a
                                 // screen reader never reaches them from the input.
-                                // aria-invalid carries the state itself — the range
+                                // aria-invalid carries the state itself - the range
                                 // of a number input is not reliably announced.
                                 aria-describedby={
                                   `tune-${t.name}-help` +
@@ -2613,7 +2613,7 @@ export default function SettingsPage() {
                               aria-label={`Save ${t.label}`}
                               // busy, not only unchanged: `changed` stays true for the
                               // whole flight (t.value updates after the reload), so a
-                              // double press sent two writes — and each one appends to
+                              // double press sent two writes - and each one appends to
                               // the activity ledger, which is never pruned
                               disabled={!changed || tuneBusy === t.name}
                               onClick={async () => {
@@ -2701,7 +2701,7 @@ export default function SettingsPage() {
                 )}
                 {/* Outside the {tunables} branch and never conditional on its own
             text: a live region inserted in the same paint as its content is
-            not announced, and this is the ONLY feedback for a save — the
+            not announced, and this is the ONLY feedback for a save - the
             long-chat panel above holds the same shape. */}
                 <p
                   role="status"
@@ -2786,11 +2786,11 @@ export default function SettingsPage() {
                           Agent identities
                         </h4>
                         <p className="mb-2 text-xs text-ink-3">
-                          Created automatically the first time an agent writes — the
+                          Created automatically the first time an agent writes - the
                           Chief-of-Staff and any bench persona someone has called
-                          with <code>/as</code>. Not teammates — they exist so every
+                          with <code>/as</code>. Not teammates - they exist so every
                           write stays attributed. Deactivate one to take the name
-                          out of use — its history stays.
+                          out of use - its history stays.
                         </p>
                         <ul className="space-y-1">
                           {rosterRows(roster.filter((user) => user.kind === "agent"))}

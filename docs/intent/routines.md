@@ -236,7 +236,7 @@ running instance (CLAUDE.md conventions): every fixture below comes from `create
 and `fire_due`, never from an UPDATE of `routine_id`. That is why `fire_due` lands in
 slice 1, where the owner placed the trust split: it needs a code path that emits the column.
 
-### Slice 1 — Schema, service core, one firing, and the trust counts
+### Slice 1 - Schema, service core, one firing, and the trust counts
 
 Migration `0NN_routines.sql`, the next free number when the branch merges (044 is the
 calendar's). After the first production deploy it keeps its name for good. No semicolon
@@ -410,7 +410,7 @@ one agent give `trust_scores` `proposed` 1 and `routine_approved` 1 (today `prop
 2). Five strong routine approvals give `recent_streak` 0. Deleting the routine keeps its
 acceptance in `routine_approved`.
 
-### Slice 2 — The tick
+### Slice 2 - The tick
 
 - `routines.tick(now=None)` selects due ids (`status = 'active' AND next_at <= now ORDER
   BY next_at LIMIT DUE_BATCH`) and calls `fire_due` for each. A failure is logged and
@@ -435,7 +435,7 @@ raises leaves the others fired and the outcome `partial`. A startup catch-up
 (`jobs.run_job` on the spec) with `next_at` 20 minutes past creates one task with
 `last_outcome = 'late'`. After a tick, `job_outcomes.detail` holds no routine title.
 
-### Slice 3 — REST
+### Slice 3 - REST
 
 | Route | Caller | Cap | Notes |
 |---|---|---|---|
@@ -463,7 +463,7 @@ until `routines` joins `no_project_literals` (no route reads a project row). A
 trusted-header caller cannot create a routine. A non-owner PATCH gets the sentence above,
 a hidden id the absent text. A denying policy refuses `POST /api/routines`.
 
-### Slice 4 — UI, the season readout split, the knot, docs. The feature ships here
+### Slice 4 - UI, the season readout split, the knot, docs. The feature ships here
 
 `frontend/components/routines-card.tsx` mounts in `frontend/app/planning/page.tsx` as
 `SupportingSection id="planning-routines" title="Routines"`, after the "This week"

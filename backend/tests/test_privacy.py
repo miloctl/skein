@@ -96,7 +96,7 @@ def test_private_notes_are_author_scoped(client, fresh_db):
 def test_fb_capture_routes_private_and_requires_strong_identity(client, fresh_db):
     headers = _write_private(client, fresh_db)
     # without strong identity: refused, nothing stored anywhere
-    r = client.post("/api/capture", json={"text": f"fb: dana — {CANARY}"}, headers={"X-User": "m"})
+    r = client.post("/api/capture", json={"text": f"fb: dana - {CANARY}"}, headers={"X-User": "m"})
     assert r.status_code == 400
     assert r.json()["detail"] == (
         "Private feedback requires strong identity. If deployment sign-in is available, use it."
@@ -104,7 +104,7 @@ def test_fb_capture_routes_private_and_requires_strong_identity(client, fresh_db
     )
     assert CANARY not in r.text
     # with a key: lands as private feedback, not a note
-    r = client.post("/api/capture", json={"text": f"fb: dana — {CANARY} two"}, headers=headers)
+    r = client.post("/api/capture", json={"text": f"fb: dana - {CANARY} two"}, headers=headers)
     assert r.status_code == 200
     assert r.json()["kind"] == "feedback"
     assert fresh_db.query("SELECT * FROM notes") == []
@@ -116,40 +116,40 @@ def test_fb_capture_refuses_agents(fresh_db):
     from app.services.capture import capture
 
     with pytest.raises(ValueError, match="human-only"):
-        capture("fb: dana — sneaky agent note", actor="agent-x", origin="agent", strong_auth=True)
+        capture("fb: dana - sneaky agent note", actor="agent-x", origin="agent", strong_auth=True)
 
 
 def _spray_canary(client, headers):
     """Every write path an fb: line could plausibly transit."""
-    client.post("/api/capture", json={"text": f"fb: dana — {CANARY} extra"}, headers=headers)
+    client.post("/api/capture", json={"text": f"fb: dana - {CANARY} extra"}, headers=headers)
     # multi-line capture containing an fb: line must be REFUSED whole
     r = client.post(
         "/api/capture",
-        json={"text": f"todo: ship the thing\nfb: dana — {CANARY} sneaky"},
+        json={"text": f"todo: ship the thing\nfb: dana - {CANARY} sneaky"},
         headers=headers,
     )
     assert r.status_code == 400 and "alone" in r.json()["detail"]
     # ingest skips fb: lines
     ing = client.post(
         "/api/ingest",
-        json={"text": f"todo: real work\nfb: dana — {CANARY} in transcript"},
+        json={"text": f"todo: real work\nfb: dana - {CANARY} in transcript"},
         headers={"X-User": "m"},
     ).json()
     assert ing["skipped_private"] == 1
     # chat refuses fb: before the agent ever sees it
     with client.stream(
-        "POST", "/api/chat", json={"thread_id": "t", "message": f"fb: dana — {CANARY} via chat"}
+        "POST", "/api/chat", json={"thread_id": "t", "message": f"fb: dana - {CANARY} via chat"}
     ) as resp:
         chat_out = resp.read().decode()
     assert "private" in chat_out
     assert CANARY not in chat_out
     assert CANARY not in json.dumps([r["title"] for r in client.get("/api/tasks").json()])
-    # a slash prefix must not smuggle fb: past the gate — the transcript and
+    # a slash prefix must not smuggle fb: past the gate - the transcript and
     # the session bridge are both downstream of it
     with client.stream(
         "POST",
         "/api/chat",
-        json={"thread_id": "t", "message": f"/remember fb: dana — {CANARY} wrapped"},
+        json={"thread_id": "t", "message": f"/remember fb: dana - {CANARY} wrapped"},
     ) as resp:
         wrapped_out = resp.read().decode()
     assert "private" in wrapped_out
@@ -157,14 +157,14 @@ def _spray_canary(client, headers):
 
 
 def test_canary_absent_from_every_platform_table(client, fresh_db):
-    """Exhaustive: scan EVERY table in platform.db, not an enumerated list —
+    """Exhaustive: scan EVERY table in platform.db, not an enumerated list -
     a leak into any new table fails this without anyone remembering to add it."""
     headers = _write_private(client, fresh_db)
     _spray_canary(client, headers)
     for t in fresh_db.query(
         "SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
     ):
-        rows = fresh_db.query(f"SELECT * FROM {t['name']}")  # noqa: S608 — names from the catalog
+        rows = fresh_db.query(f"SELECT * FROM {t['name']}")  # noqa: S608 - names from the catalog
         assert CANARY not in json.dumps(rows, default=str), f"canary leaked into {t['name']}"
 
 
@@ -187,7 +187,7 @@ def test_canary_absent_from_every_disk_file(client, fresh_db):
     # /ask reads the same FTS: the echo of the question is fine, citations must be empty
     assert client.get(f"/api/ask?q={CANARY}").json()["citations"] == []
     # the on-demand engagement pack is the one context surface never written
-    # to disk — scan its output directly
+    # to disk - scan its output directly
     client.post("/api/engagements", json={"name": "Canary Pack Probe"})
     eng = client.get("/api/engagements").json()[0]
     assert CANARY not in client.get(f"/api/context-pack?engagement={eng['id']}").text
@@ -221,14 +221,14 @@ def test_private_schema_is_local_but_absent_from_the_platform_mirror(
     fresh_db.execute("INSERT INTO forgotten_extension.secrets VALUES ('must stay local')")
 
     out = admin.backup()
-    local = subprocess.run(  # noqa: S603 — fixed argv, no shell
+    local = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [_pg_restore(), "--list", out["database_path"]],
         env=admin._pg_env(),
         check=True,
         capture_output=True,
         text=True,
     ).stdout
-    mirrored = subprocess.run(  # noqa: S603 — fixed argv, no shell
+    mirrored = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [_pg_restore(), "--list", out["mirrored_platform_path"]],
         env=admin._pg_env(),
         check=True,
@@ -270,7 +270,7 @@ def test_key_minting_requires_strong_identity(client, fresh_db):
 def test_feedback_parses_hyphenated_names():
     from app.services.private_notes import parse_feedback
 
-    assert parse_feedback("fb: mary-jane — crushed the demo") == ("mary-jane", "crushed the demo")
+    assert parse_feedback("fb: mary-jane - crushed the demo") == ("mary-jane", "crushed the demo")
     assert parse_feedback("fb: dana - solid week") == ("dana", "solid week")
     assert parse_feedback("fb: chen: good pushback") == ("chen", "good pushback")
 
@@ -326,14 +326,14 @@ def test_private_note_delete_and_audit(client, fresh_db):
         "/api/private/notes", json={"person": "x", "body": "mine"}, headers=headers
     ).json()
     # 404, not 400: someone else's note must be indistinguishable from a
-    # missing one — no existence leak
+    # missing one - no existence leak
     assert client.delete(f"/api/private/notes/{note2['id']}", headers=other).status_code == 404
     assert client.get("/api/private/audit", headers=other).json() == []
 
 
 def test_mcp_capture_refuses_private_feedback(fresh_db, monkeypatch):
     """Routing MCP capture through the review gate made capture.plan() run
-    BEFORE the fb: guard, and the proposal path never calls capture() — so a
+    BEFORE the fb: guard, and the proposal path never calls capture() - so a
     private feedback line became a note proposal in the TEAM-VISIBLE review
     queue, and approving it wrote an FTS-indexed public note."""
     from app import config, mcp_server
@@ -344,7 +344,7 @@ def test_mcp_capture_refuses_private_feedback(fresh_db, monkeypatch):
     users.ensure_user(mcp_server.ACTOR, kind="agent")
 
     fn = getattr(mcp_server.capture, "fn", mcp_server.capture)
-    out = fn("fb: mira — candid private assessment")
+    out = fn("fb: mira - candid private assessment")
 
     assert json.loads(out)["error"] == wording.private_feedback_agent_refusal()
     assert "candid private assessment" not in out
@@ -357,7 +357,7 @@ def test_mcp_capture_refuses_private_feedback(fresh_db, monkeypatch):
 def test_a_third_party_rename_still_moves_notes_ABOUT_the_person(fresh_db):
     """The refusal guard checks whether the renamed person AUTHORS notes. It
     says nothing about notes others keep ABOUT them, and that column carries
-    no ownership — so it must follow the rename. Freezing it stranded every
+    no ownership - so it must follow the rename. Freezing it stranded every
     teammate's 1:1 journal under a name with no roster row."""
     from app.services import private_notes, users
 
@@ -375,7 +375,7 @@ def test_a_third_party_rename_still_moves_notes_ABOUT_the_person(fresh_db):
 
 
 def test_both_list_branches_keep_the_200_cap(fresh_db):
-    """The person branch shipped without the unfiltered branch's LIMIT — a
+    """The person branch shipped without the unfiltered branch's LIMIT - a
     long 1:1 history came back whole. Self-scoped, so the cost is a slow
     render rather than a leak, but unbounded is unbounded."""
     from app.services import private_notes
@@ -388,7 +388,7 @@ def test_both_list_branches_keep_the_200_cap(fresh_db):
 
 def test_mcp_reads_answer_only_for_its_own_identity(fresh_db, monkeypatch):
     """get_my_day took a model-controlled `user`, and briefing.my_day answers
-    for whatever name it is handed — assigned questions, owned blockers,
+    for whatever name it is handed - assigned questions, owned blockers,
     tasks, and the BODIES of unread notifications. One argument enumerated
     any teammate's inbox over a surface whose whole identity is an env var."""
     import inspect
@@ -407,7 +407,7 @@ def test_mcp_reads_answer_only_for_its_own_identity(fresh_db, monkeypatch):
 
 def test_a_persona_turn_reads_the_inbox_with_the_humans_eyes(fresh_db):
     """`viewer=None` on agent_inbox means "the agent is the caller" and leaves
-    the rows unfiltered — right for MCP and the scheduler. `/as <persona>`
+    the rows unfiltered - right for MCP and the scheduler. `/as <persona>`
     breaks that assumption: a HUMAN takes the persona's identity, every shipped
     persona holds my_agent_inbox, and the persona is in no crew. The REST twin
     refuses the same read, so the chat door was the way around it."""
@@ -445,7 +445,7 @@ def test_a_persona_turn_reads_the_inbox_with_the_humans_eyes(fresh_db):
 def test_the_agent_inbox_tool_takes_no_name():
     """The MCP twin has had this test since the same exploit closed there.
     This one did not, while its comment said "Pinned by tests/test_privacy.py"
-    — so the parameter could come back with the whole suite green, and the
+    - so the parameter could come back with the whole suite green, and the
     next author reading that line would not add the test either.
 
     `my_agent_inbox` answers for whatever roster row it is handed: delegated
@@ -459,14 +459,14 @@ def test_the_agent_inbox_tool_takes_no_name():
 
     fn = getattr(portfolio.my_agent_inbox, "fn", portfolio.my_agent_inbox)
     assert list(inspect.signature(fn).parameters) == [], (
-        "my_agent_inbox must take no parameters — it reads its own identity"
+        "my_agent_inbox must take no parameters - it reads its own identity"
         " from agent_identity() and the caller's viewer from requester_viewer()"
     )
 
 
 def test_health_reports_a_superuser_database_role(fresh_db, monkeypatch):
     """A superuser connection is a standing privilege fault, and /health is
-    where it has to show — a deployment that skipped the NOSUPERUSER role has
+    where it has to show - a deployment that skipped the NOSUPERUSER role has
     no other signal, and the cost is that any SQL bug can run shell commands
     on the database host."""
     from app import db
@@ -487,10 +487,10 @@ def test_public_health_carries_no_deployment_topology(client, fresh_db):
     """The open /health answers anonymous callers on a public route.
 
     Exactly three keys: enough for a probe (ok), a sign-in flow (auth_mode),
-    and the one fault that locks every authenticated surface (auth_error —
+    and the one fault that locks every authenticated surface (auth_error -
     with auth broken, an open endpoint is the only place an operator can
-    read why). Everything else — provider, model, error strings, the job
-    schedule, chain state, database warnings — is deployment topology and
+    read why). Everything else - provider, model, error strings, the job
+    schedule, chain state, database warnings - is deployment topology and
     lives on /api/health behind identity. A new field added here reaches
     anonymous readers, so this assertion is exact, not a subset check."""
     for path in ("/health", "/ready"):

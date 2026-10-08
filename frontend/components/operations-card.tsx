@@ -264,12 +264,12 @@ export function OperationsCard({
                 >
                   {j.last_status === "error"
                     ? j.last_attempt
-                      ? `failed — last attempt ${timeAgo(j.last_attempt)}. Check the server log.`
+                      ? `failed - last attempt ${timeAgo(j.last_attempt)}. Check the server log.`
                       : "failed. Check the server log."
                     : j.stale
                       ? j.last_success
-                        ? `stale — last success ${timeAgo(j.last_success)}`
-                        : "stale — no success recorded"
+                        ? `stale - last success ${timeAgo(j.last_success)}`
+                        : "stale - no success recorded"
                       : j.last_success
                         ? `last success ${timeAgo(j.last_success)}`
                         : "no run recorded yet"}
@@ -282,8 +282,8 @@ export function OperationsCard({
             {h.activity_chain.latest}
             {h.activity_chain.unverified > 0
               ? h.activity_chain.unverified === 1
-                ? " — 1 newer row awaits the next verify run"
-                : ` — ${h.activity_chain.unverified} newer rows await the next verify run`
+                ? " - 1 newer row awaits the next verify run"
+                : ` - ${h.activity_chain.unverified} newer rows await the next verify run`
               : ""}
             . Timezone: {h.timezone}.
           </p>

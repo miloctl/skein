@@ -2,7 +2,7 @@
 #
 # The 1:1 notes used to be a 0600 file inside the backend pod's own volume.
 # They are a schema on a network service now, listening on 5432 with one
-# credential — so without this, any workload in the namespace (a sidecar, a
+# credential - so without this, any workload in the namespace (a sidecar, a
 # debug pod, a CI runner, a compromised unrelated container) can connect and
 # read `private.notes`. The schema boundary is structural, not privileged:
 # one role reaches everything, and this policy is what keeps that role's
@@ -10,7 +10,7 @@
 #
 # OpenShift enforces NetworkPolicy through its SDN by default. On a cluster
 # with no network plugin enforcing it, this object is inert and the
-# confidentiality claim above is not true — check before relying on it.
+# confidentiality claim above is not true - check before relying on it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

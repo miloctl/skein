@@ -39,7 +39,7 @@ def create_key(owner: str, label: str = "", *, at_server: bool = False) -> dict:
         # as theirs alone, a key someone else issued read as one they made.
         where = " (minted at the server)" if at_server else ""
         db.log_activity(owner, "create_api_key", f"#{kid} {label}{where}")
-    return {"id": kid, "key": key, "label": label, "note": "store this now — it is not shown again"}
+    return {"id": kid, "key": key, "label": label, "note": "store this now - it is not shown again"}
 
 
 # "@" and "+" for sign-in names, which are often email addresses. After the
@@ -51,12 +51,12 @@ _SAFE_NAME = re.compile(r"\w[\w .@+\-]{0,63}")
 
 def request_key(user: str, *, strong: bool = False) -> dict:
     """Self-serve ask: a key can only be minted at the server, but requesting
-    one must not require finding the operator — this files a nudge with the
+    one must not require finding the operator - this files a nudge with the
     exact command to the named administrators (SKEIN_ADMINS), or to the team
     when none are named: who asked for a key is nobody else's business.
     Idempotent per requester while one is still
     unread. The name is validated and quoted because the message is designed
-    to be copy-pasted into a root shell — the one place spoofable X-User text
+    to be copy-pasted into a root shell - the one place spoofable X-User text
     must never smuggle shell metacharacters."""
     if not user or user == "anonymous":
         # the same words as Settings shows for this condition
@@ -74,11 +74,11 @@ def request_key(user: str, *, strong: bool = False) -> dict:
     check = (
         "a key or a sign-in proved the name"
         if strong
-        else "self-asserted name — check that the request really comes from them"
+        else "self-asserted name - check that the request really comes from them"
     )
     message = (
         f"{prefix} ({check}, then deliver the key out-of-band)"
-        f" — mint: python -m app.bootstrap_key {shlex.quote(user)}"
+        f" - mint: python -m app.bootstrap_key {shlex.quote(user)}"
     )
     from .. import config
 
@@ -102,15 +102,15 @@ def request_key(user: str, *, strong: bool = False) -> dict:
     with db.transaction():
         db.name_lock(db.LOCK_KEY_REQUEST, user)
         # "Unread by ANYONE", not notifications.UNREAD_FOR. This nudge asks a
-        # question about the world — has whoever runs the server minted the key
-        # — so one operator dismissing it means the ask was seen and the
+        # question about the world - has whoever runs the server minted the key
+        # - so one operator dismissing it means the ask was seen and the
         # requester may ask again. The per-person read (009) governs whose FEED
         # shows it; this governs whether a second request is a duplicate.
         # starts_with, not LIKE: "_" is a wildcard there, so "a_b" would
         # match an earlier request from "axb" and its own request would never
         # be sent
         pending = db.query_one(
-            f'SELECT id FROM notifications WHERE "user" IN ({marks}) AND starts_with(message, ?)'  # noqa: S608 — marks built above
+            f'SELECT id FROM notifications WHERE "user" IN ({marks}) AND starts_with(message, ?)'  # noqa: S608 - marks built above
             " AND read_at IS NULL"
             " AND id NOT IN (SELECT notification_id FROM notification_reads)",
             (*recipients, prefix),
@@ -138,7 +138,7 @@ def verify_key(key: str) -> str | None:
     )
     if not row:
         return None
-    # last_used_at is display telemetry (the key list's "last used" column) —
+    # last_used_at is display telemetry (the key list's "last used" column) -
     # stamped per call, every keyed request pays a write-lock acquisition
     # for it. Under 60 seconds since the stored stamp, skip the write.
     # A negative age (a clock step wrote a future stamp) rewrites too, else
@@ -155,7 +155,7 @@ def verify_key(key: str) -> str | None:
 
 
 # ACTIVE first in both lists below, so the cap can only drop rows that are
-# already revoked until a caller passes LIST_LIMIT *live* keys — past that the
+# already revoked until a caller passes LIST_LIMIT *live* keys - past that the
 # oldest live one falls off, which is exactly the long-lived key an
 # administrator hunting a spoofed mint is looking for. Neither list is a count:
 # use active_key_count for that.
@@ -195,9 +195,9 @@ def revoke_key(key_id: int, owner: str) -> dict:
 
 
 def list_all_keys() -> list[dict]:
-    """Team-wide key visibility for admins (the route is AdminUser — one
+    """Team-wide key visibility for admins (the route is AdminUser - one
     teammate must not enumerate another's credentials). Makes hidden keys
-    minted under a spoofed identity discoverable and revocable — up to
+    minted under a spoofed identity discoverable and revocable - up to
     LIST_LIMIT. The constant records what falls off the end, and it is the
     long-lived key such a hunt is looking for."""
     return db.query(
@@ -226,7 +226,7 @@ def revoke_all_keys(*, actor: str) -> dict:
 
 
 def revoke_keys_for(owner: str, *, actor: str = "system") -> int:
-    """Revoke every active key an owner holds — the offboarding half of
+    """Revoke every active key an owner holds - the offboarding half of
     users.set_active(False)."""
     n = db.execute_rowcount(
         "UPDATE api_keys SET active = 0 WHERE owner = ? AND active = 1", (owner,)

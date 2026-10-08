@@ -1,6 +1,6 @@
 /** The receipt actor: rendered only when the server sent it (chat.py::
  *  _attributed decides once, server-side), and rendered the same way the
- *  stored transcript renders it — the pairing this file exists to pin.
+ *  stored transcript renders it - the pairing this file exists to pin.
  *  backend/tests/test_specialist_consult.py pins the Python half. */
 import { describe, expect, it } from "vitest";
 import { receiptLine } from "../app/runtime-provider";
@@ -15,7 +15,7 @@ describe("receiptLine actor attribution", () => {
       actor: "code-reviewer",
     });
     // the stored transcript says "queued for review: note #7 (code-reviewer)"
-    // — the chip must carry the same ref-then-actor order or history and the
+    // - the chip must carry the same ref-then-actor order or history and the
     // live view disagree about one fact
     expect(line).toContain("note #7 (code-reviewer) needs a human verdict");
     expect(line).not.toMatch(/[🕓✅⛔📭🔕⚠]/u);
@@ -55,6 +55,6 @@ describe("receiptLine actor attribution", () => {
       ref: 0,
       actor: "code-reviewer",
     });
-    expect(line).toContain("**Not written** — note (code-reviewer)");
+    expect(line).toContain("**Not written** - note (code-reviewer)");
   });
 });

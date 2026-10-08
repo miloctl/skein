@@ -48,7 +48,7 @@ def _ask_question_locked(
     if not question.strip():
         raise ValueError("the question text is required")
     # one transaction, because scope.resolve_write checks crew membership and
-    # the check has to hold until the row lands — bare, it opens its own
+    # the check has to hold until the row lands - bare, it opens its own
     # connection and a person removed in between still scopes the row
     with db.transaction():
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or asked_by)
@@ -129,7 +129,7 @@ def _assign_question_locked(
         raise ValueError(f"question #{question_id} is already {row['status']}")
     assigned_to = assigned_to.strip()
     if assigned_to:
-        # a typo'd assignee looks handled but notifies nobody — refuse it
+        # a typo'd assignee looks handled but notifies nobody - refuse it
         from .users import list_users
 
         known = {u["name"].lower(): u["name"] for u in list_users()}
@@ -188,7 +188,7 @@ def _answer_question_locked(
     scope.assert_editable("questions", row, actor or answered_by, verb="answer")
     if row["status"] == "answered" and row["answer"] and row["answer"] != answer:
         raise ValueError(
-            f"question #{question_id} already has an answer — read it first,"
+            f"question #{question_id} already has an answer - read it first,"
             " then ask a follow-up question. Do not overwrite it"
         )
     db.execute(
@@ -233,12 +233,12 @@ def list_questions(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> lis
     frag, vp = scope.visible_filter(viewer, "questions")
     if status:
         return db.query(
-            f"SELECT * FROM questions WHERE status = ? AND {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM questions WHERE status = ? AND {frag}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " ORDER BY id DESC LIMIT 200",
             (status, *vp),
         )
     return db.query(
-        f"SELECT * FROM questions WHERE {frag}"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM questions WHERE {frag}"  # noqa: S608 - scope.visible_filter emits only bound marks
         " ORDER BY status = 'answered', id DESC LIMIT 200",
         tuple(vp),
     )
@@ -312,14 +312,14 @@ def _record_decision_locked(
         raise ValueError(f"category must be one of {DECISION_CATEGORIES}")
     if category == "charter" and not review_by:
         raise ValueError(
-            "charter entries need a review_by date — the whole point is that"
+            "charter entries need a review_by date - the whole point is that"
             " they get reconfirmed instead of silently rotting"
         )
     with db.transaction():
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or decided_by)
         # decided_by is checked as a READER, the same way work.py checks an
         # assignee and blockers.py checks an owner. sweep_stale_decisions says
-        # it follows the blocker sweep's rule — that rule holds only because
+        # it follows the blocker sweep's rule - that rule holds only because
         # raise_blocker ran this check, and without it here the sweep quoted a
         # crew decision's title to somebody who cannot open it.
         scope.assert_readable_by(tier, cid, decided_by, label="decider", author=actor or decided_by)
@@ -385,14 +385,14 @@ def supersede_decision(
     # run leaves the old decision superseded-by-nothing: supersede then
     # refuses it as already superseded, reconfirm redirects to a successor
     # that does not exist, and the decision leaves the charter with no way
-    # back. Do not pre-validate here instead — record_decision's checks grow,
+    # back. Do not pre-validate here instead - record_decision's checks grow,
     # and a copy of them drifts.
     with db.transaction():
         old = db.query_one("SELECT * FROM decisions WHERE id = ?", (decision_id,))
         if not old:
             raise scope.missing("decisions", decision_id)
         scope.assert_editable("decisions", old, actor or decided_by, verb="supersede")
-        # CAS-claim the old decision BEFORE creating the successor — two racing
+        # CAS-claim the old decision BEFORE creating the successor - two racing
         # supersedes must not leave two active contradicting decisions
         claimed = db.execute_rowcount(
             "UPDATE decisions SET status = 'superseded' WHERE id = ? AND status != 'superseded'",
@@ -406,7 +406,7 @@ def supersede_decision(
                 f"decision #{decision_id} already superseded by #{current['superseded_by']}"
             )
         if old["category"] == "charter" and not review_by:
-            # charter replacements keep riding the sweep — default the 90-day push
+            # charter replacements keep riding the sweep - default the 90-day push
             from datetime import timedelta
 
             review_by = (db.today() + timedelta(days=90)).isoformat()
@@ -441,7 +441,7 @@ def sweep_stale_decisions() -> list[dict]:
 
 
 def _sweep_stale_decisions_locked() -> list[dict]:
-    """Flip active decisions past their review_by date to stale (once — the
+    """Flip active decisions past their review_by date to stale (once - the
     status flip is the claim). Scheduled daily; stale ≠ wrong, it means
     'reconfirm or supersede me'."""
     swept = []
@@ -482,7 +482,7 @@ def _sweep_stale_decisions_locked() -> list[dict]:
 
 
 def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "system") -> dict:
-    """Reconfirming without a new date pushes review_by out 90 days — it must
+    """Reconfirming without a new date pushes review_by out 90 days - it must
     never silently remove the half-life (that would defeat the sweep)."""
     from datetime import date, timedelta
 
@@ -491,7 +491,7 @@ def reconfirm_decision(decision_id: int, review_by: str = "", *, actor: str = "s
         raise scope.missing("decisions", decision_id)
     scope.assert_editable("decisions", row, actor, verb="reconfirm")
     if row["status"] == "superseded":
-        raise ValueError(f"decision #{decision_id} was superseded — reconfirm the successor")
+        raise ValueError(f"decision #{decision_id} was superseded - reconfirm the successor")
     if review_by:
         from datetime import date
 
@@ -526,7 +526,7 @@ def list_decisions(
         where.append("category = ?")
         params.append(category)
     return db.query(
-        f"SELECT * FROM decisions WHERE {' AND '.join(where)}"  # noqa: S608 — clauses hardcoded, and scope.visible_filter emits only bound marks
+        f"SELECT * FROM decisions WHERE {' AND '.join(where)}"  # noqa: S608 - clauses hardcoded, and scope.visible_filter emits only bound marks
         " ORDER BY id DESC LIMIT ?",
         (*params, limit),
     )
@@ -572,7 +572,7 @@ def post_standup(
 
             # the child takes the standup's tier. Without it a crew standup's
             # blocker text lands at workspace and goes on to the digest, the
-            # exec readout and the FTS index — the standup is scoped and the
+            # exec readout and the FTS index - the standup is scoped and the
             # sentence lifted out of it is not.
             raise_blocker(
                 title=blockers.strip()[:120],
@@ -590,7 +590,7 @@ def post_standup(
 def list_standups(limit: int = 30, viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     frag, vp = scope.visible_filter(viewer, "standups")
     return db.query(
-        f"SELECT * FROM standups WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM standups WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 - scope.visible_filter emits only bound marks
         (*vp, limit),
     )
 
@@ -670,14 +670,14 @@ def _save_note_locked(
 
 def get_note(note_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict | None:
     # Filtered, defaulting to NOBODY: a note's own text reaches the review
-    # queue two ways — tools/collab.py::delete_note puts the topic and the
+    # queue two ways - tools/collab.py::delete_note puts the topic and the
     # first 80 characters into the summary (scope.detail drops that half for a
     # scoped row), and save_note puts the whole content in the PAYLOAD, which
     # review.list_changes returns. The reviewer who reads that card is not
     # necessarily in the note's crew.
     frag, vp = scope.visible_filter(viewer, "notes")
     return db.query_one(
-        f"SELECT * FROM notes WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM notes WHERE id = ? AND {frag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (note_id, *vp),
     )
 
@@ -687,7 +687,7 @@ def update_note(
 ) -> dict:
     # What stops a deleted note's body from being re-indexed here is the
     # RE-READ before index_record below (`new = ...; if new:`), not this
-    # transaction and not a lock — the existence check is a plain SELECT and
+    # transaction and not a lock - the existence check is a plain SELECT and
     # takes nothing. Delete that re-read and this reads a live note,
     # delete_note removes it and clears its index, and index_record puts the
     # deleted body back, searchable forever.
@@ -701,7 +701,7 @@ def update_note(
             raise ValueError("nothing to update")
         sets = ", ".join(f"{k} = ?" for k in fields)
         db.execute(
-            f"UPDATE notes SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
+            f"UPDATE notes SET {sets} WHERE id = ?",  # noqa: S608 - keys hardcoded
             (*fields.values(), note_id),
         )
         # the id and the field names, never the text: the ledger can never
@@ -746,7 +746,7 @@ def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict
 
 def recent_activity(viewer: str, limit: int = 50) -> list[dict]:
     """Raw ledger rows, SCOPED like the feed: the viewer's own strand plus
-    agents and system processes — another human's rows do not appear here
+    agents and system processes - another human's rows do not appear here
     either, or the raw endpoint would be the one-curl bypass of the rule the
     feed enforces. Includes pre-036 unchained rows (the feed cannot; its
     cursor is seq).
@@ -758,7 +758,7 @@ def recent_activity(viewer: str, limit: int = 50) -> list[dict]:
 
     actor_sql, params = visible_actor_filter(viewer)
     return db.query(
-        f"SELECT * FROM activity WHERE {actor_sql}"  # noqa: S608 — placeholders built above
+        f"SELECT * FROM activity WHERE {actor_sql}"  # noqa: S608 - placeholders built above
         " ORDER BY COALESCE(seq, 0) DESC, id DESC LIMIT ?",
         (*params, limit),
     )
@@ -780,20 +780,20 @@ def search_notes(
         like = f"%{literal}%"
         # the keyword OR is PARENTHESIZED. Left bare, `a LIKE ? OR b LIKE ? AND
         # {frag}` binds AND tighter than OR, so every row matching the topic
-        # came back whatever its tier — the exact shape visible_filter's
+        # came back whatever its tier - the exact shape visible_filter's
         # docstring names as failing silently.
         return db.query(
             # ILIKE, not LIKE: this keyword is typed by a person, and LIKE is
-            # case-sensitive — searching "postgres" for a note titled
+            # case-sensitive - searching "postgres" for a note titled
             # "PostgreSQL" returns nothing, and an empty result reads as "no
             # such note", not as "wrong case". The LIKEs that match
             # code-generated markers (fieldguide, chat_threads) stay
             # case-exact on purpose.
-            f"SELECT * FROM notes WHERE (topic ILIKE ? OR content ILIKE ?)"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM notes WHERE (topic ILIKE ? OR content ILIKE ?)"  # noqa: S608 - scope.visible_filter emits only bound marks
             f" AND {frag} ORDER BY id DESC LIMIT ?",
             (like, like, *vp, limit),
         )
     return db.query(
-        f"SELECT * FROM notes WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM notes WHERE {frag} ORDER BY id DESC LIMIT ?",  # noqa: S608 - scope.visible_filter emits only bound marks
         (*vp, limit),
     )

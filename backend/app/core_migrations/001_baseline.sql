@@ -3,13 +3,13 @@
 -- Squashed from the 21 SQLite migrations that preceded the engine change. The
 -- squash was legal exactly once: it happened before the first production
 -- deploy, while every live database was still disposable. From here the
--- append-only rule in CLAUDE.md applies again — a new numbered file per
+-- append-only rule in CLAUDE.md applies again - a new numbered file per
 -- change, and this file never changes name (db.py records applied migrations
 -- by filename, so a rename re-runs it on every existing database).
 --
 -- Timestamps are TEXT holding UTC ISO-8601, written by db.now(). NOT
 -- timestamptz: every comparison in the service layer is lexicographic on that
--- shape, and the activity ledger HASHES the stored string — a type change
+-- shape, and the activity ledger HASHES the stored string - a type change
 -- would rewrite the preimage of every chained row and break verification
 -- permanently.
 
@@ -739,7 +739,7 @@ CREATE UNIQUE INDEX ux_engagements_name_nocase ON engagements (lower(name));
 -- gone and search.py addresses rows by (entity, entity_id) directly.
 --
 -- tsv is STORED and generated, so it can never disagree with the text beside
--- it — the FTS5 index had to be written by hand on every index_record call.
+-- it - the FTS5 index had to be written by hand on every index_record call.
 -- Title outranks body (setweight A over B), which bm25 over equally-weighted
 -- columns did not do.
 CREATE TABLE search_index (

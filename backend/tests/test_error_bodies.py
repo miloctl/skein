@@ -1,8 +1,8 @@
 """A 4xx body never echoes the rejected value (CLAUDE.md, "Input errors
 are 4xx").
 
-The boundary these pin: an error may name server-held state — a roster row,
-a registry entry, our own constants — but never a value that matched
+The boundary these pin: an error may name server-held state - a roster row,
+a registry entry, our own constants - but never a value that matched
 NOTHING, because that is the caller's unvalidated input reflected back.
 The marker is 10 characters, sized to slip under the tightest field cap
 (review_by) and still reach the parse."""
@@ -11,7 +11,7 @@ import pytest
 
 MARKER = "ZZMARKERZZ"
 # date fields check the SHAPE before the calendar, so a naked marker never
-# reaches the echoing line — a well-formed unreal date does
+# reaches the echoing line - a well-formed unreal date does
 DATE_MARKER = "9999-99-99"
 
 

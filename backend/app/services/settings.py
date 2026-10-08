@@ -26,10 +26,10 @@ CONTEXT_STRATEGY = "context_strategy"
 def _validate_strategy(value: str) -> str:
     value = (value or "").strip().lower()
     if not value:
-        return ""  # the clear sentinel — fall back to the env default
+        return ""  # the clear sentinel - fall back to the env default
     if value not in config.CONTEXT_STRATEGIES:
         raise ValueError(
-            f"unknown strategy {value!r} — expected one of: {', '.join(config.CONTEXT_STRATEGIES)}"
+            f"unknown strategy {value!r} - expected one of: {', '.join(config.CONTEXT_STRATEGIES)}"
         )
     return value
 
@@ -55,7 +55,7 @@ def context_strategy_override() -> str:
     row = db.query_one("SELECT value FROM app_settings WHERE key = ?", (CONTEXT_STRATEGY,))
     stored = (row["value"] if row else "") or ""
     # a value that stopped being valid (a strategy retired between releases)
-    # must not silently pick something else — ignore it and use the env default
+    # must not silently pick something else - ignore it and use the env default
     return stored if stored in config.CONTEXT_STRATEGIES else ""
 
 
@@ -67,7 +67,7 @@ AGENT_AUTOMATION = "agent_automation"
 
 
 def agent_automation_enabled() -> bool:
-    """One switch over every unattended turn — the 05:30 runner and the wake
+    """One switch over every unattended turn - the 05:30 runner and the wake
     worker read it through agent_runner.run_one, and the wake worker also
     checks it before claiming so queued wakes stay pending across a pause.
     It stops AUTOMATION, never authority: no policy or review decision is
@@ -93,7 +93,7 @@ def set_agent_automation(enabled: bool, *, actor: str) -> dict:
 
     if enabled:
         agent_runner.automation_resumed()
-        # queued wakes waited out the pause as pending rows — drain them now
+        # queued wakes waited out the pause as pending rows - drain them now
         agent_wakeups.kick()
     else:
         agent_runner.automation_paused()
@@ -108,21 +108,21 @@ def check_menu_model(model_id: str) -> None:
     the per-chat /model pick: agents/team_agent.py::_model passes an unknown
     id to the provider untouched, so this is the only refusal there is."""
     if config.EFFECTIVE_PROVIDER == "mock":
-        raise ValueError("the mock provider runs no real model — configure a model provider first")
+        raise ValueError("the mock provider runs no real model - configure a model provider first")
     if config.MODELS_ERROR:
-        raise ValueError("SKEIN_MODELS is unusable — fix the registry first (/health says why)")
+        raise ValueError("SKEIN_MODELS is unusable - fix the registry first (/health says why)")
     if not config.MODELS:
-        raise ValueError("no model menu is configured — set SKEIN_MODELS")
+        raise ValueError("no model menu is configured - set SKEIN_MODELS")
     if model_id not in config.MODELS:
-        # never echo the submitted id back — list the menu instead
-        raise ValueError(f"unknown model — expected one of: {', '.join(sorted(config.MODELS))}")
+        # never echo the submitted id back - list the menu instead
+        raise ValueError(f"unknown model - expected one of: {', '.join(sorted(config.MODELS))}")
 
 
 def set_model_pick(model_id: str, *, actor: str) -> dict:
     """Empty clears the pick and returns the deployment to SKEIN_MODEL_ID.
 
     Refused rather than hidden: the picker UI disappears on mock and on a
-    faulted registry, but hiding a form is not enforcement — this check is.
+    faulted registry, but hiding a form is not enforcement - this check is.
     """
     model_id = (model_id or "").strip()
     if model_id:
@@ -152,7 +152,7 @@ def set_model_pick(model_id: str, *, actor: str) -> dict:
 
 def _stored_pick() -> dict | None:
     """The raw stored pick with its timestamp, or None. Validity against the
-    CURRENT provider and registry is the reader's problem — see
+    CURRENT provider and registry is the reader's problem - see
     model_pick_state, which is what keeps an invalid pick visible instead of
     silently absent."""
     row = db.query_one("SELECT value, updated_at FROM app_settings WHERE key = ?", (MODEL_PICK,))
@@ -174,7 +174,7 @@ def _stored_pick() -> dict | None:
 
 def model_pick_state() -> dict:
     """The pick as the GET and the Settings section render it: the stored
-    override WITH the reason it is ignored when it is — an override the
+    override WITH the reason it is ignored when it is - an override the
     deployment no longer honors is reported, never hidden (the tuning.py
     `ignored` rule)."""
     stored = _stored_pick()
@@ -518,7 +518,7 @@ def reasoning_level_state(model_id: str | None = None) -> dict:
 def turn_reasoning(model_id: str, chat_level: str = "") -> tuple[str, str]:
     """The level one chat turn on `model_id` runs with, and whose choice it is:
     the chat's, then the team's. A level the model does not declare defers to
-    the next layer — a chat level picked on another model must not silently
+    the next layer - a chat level picked on another model must not silently
     switch reasoning off."""
     levels = reasoning_levels(model_id)
     for level, source in ((chat_level, "chat"), (_stored_reasoning_level(), "team")):
@@ -535,7 +535,7 @@ def picked_model() -> str:
     During a rolling deploy two replicas can briefly hold different
     registries (env) against this one shared row: the replica whose registry
     lacks the id falls back to the env default, the other applies the pick.
-    Transient and safe — both honor ignored-never-guessed — but it is the one
+    Transient and safe - both honor ignored-never-guessed - but it is the one
     new interaction between an env-resident menu and a DB-resident pick.
     """
     stored = _stored_pick()

@@ -18,7 +18,7 @@ type EngagementRow = { id: number; name: string; status: string };
 
 type StoredMessage = { role: "user" | "assistant"; content: string };
 
-// one open panel at a time — dual menus are impossible by construction
+// one open panel at a time - dual menus are impossible by construction
 type Menu =
   | { kind: "sidebar" }
   | { kind: "thread" | "move" | "rename" | "link"; id: string }
@@ -88,7 +88,7 @@ export function ChatSidebar({
   const folderPending = useRef(false);
 
   const load = useCallback(() => {
-    // shared single-flight list (lib/chat-threads.ts) — ThreadTitle reads
+    // shared single-flight list (lib/chat-threads.ts) - ThreadTitle reads
     // the same fetch, so each activity event costs one request, not two
     chatThreads()
       .then((rows) => {
@@ -108,7 +108,7 @@ export function ChatSidebar({
         setEngagementsError("");
       })
       .catch((e) => {
-        // a served 4xx/5xx is not an unreachable backend — loadError says
+        // a served 4xx/5xx is not an unreachable backend - loadError says
         // which, instead of sending the reader to check a running server
         setEngagements(null);
         setEngagementsError(describeLoadError(e));
@@ -123,7 +123,7 @@ export function ChatSidebar({
 
   // after a mutation, announce rather than call load(): the event drops the
   // shared chatThreads() promise (lib/chat-threads.ts) before any listener
-  // runs — a bare load() would re-read the pre-mutation list — and it also
+  // runs - a bare load() would re-read the pre-mutation list - and it also
   // refreshes ThreadTitle's h1, which load() alone never did
   const announce = () => window.dispatchEvent(new Event("skein-chat-activity"));
 
@@ -202,7 +202,7 @@ export function ChatSidebar({
   };
 
   const createAndLink = async (id: string, name: string) => {
-    // snap to an existing open engagement first — the backend refuses
+    // snap to an existing open engagement first - the backend refuses
     // duplicate names, and retyping one should link, not error
     const existing = (engagements ?? []).find(
       (e) => e.name.toLowerCase() === name.toLowerCase(),
@@ -249,7 +249,7 @@ export function ChatSidebar({
         msgs
           .map((m) => `**${m.role === "user" ? me : "Skein"}:**\n\n${m.content}`)
           .join("\n\n---\n\n");
-      if (!(await copyText(md))) throw new Error("cannot copy here — select the text and copy manually");
+      if (!(await copyText(md))) throw new Error("cannot copy here - select the text and copy manually");
       setCopied(t.id);
       setTimeout(() => {
         // identity-guarded: the 1200ms timer must never clobber a newer menu/toast
@@ -342,7 +342,7 @@ export function ChatSidebar({
   };
 
   // union with the threads' own folder fields: rendering only the fetched
-  // list made every filed chat vanish when the folders fetch failed — the
+  // list made every filed chat vanish when the folders fetch failed - the
   // t.folder === folder filter below matched no group. Deriving from the
   // threads means that failure costs only EMPTY folders.
   const filed = [...new Set(threads.map((t) => t.folder).filter(Boolean))]
@@ -511,7 +511,7 @@ export function ChatSidebar({
         <input
           autoFocus
           name="new-folder"
-          placeholder="Folder name — ↵ to create, esc to cancel"
+          placeholder="Folder name - ↵ to create, esc to cancel"
           onKeyDown={(e) => {
             if (e.key === "Enter") createFolder(e.currentTarget.value);
             if (e.key === "Escape") {
@@ -537,13 +537,13 @@ export function ChatSidebar({
         <div className="mb-2 truncate rounded-lg bg-thread/10 px-2 py-1.5 text-sm font-medium text-ink">
           New chat
           <span className="ml-1.5 text-xs font-normal text-ink-3">
-            — saved after your first message
+            - saved after your first message
           </span>
         </div>
       )}
       {threads.length === 0 && !loadError && (
         <p className="px-1 text-xs text-ink-3">
-          Your chats appear here after the first message — rename them or file
+          Your chats appear here after the first message - rename them or file
           them into folders to keep threads you return to.
         </p>
       )}
@@ -756,7 +756,7 @@ export function ChatSidebar({
                           this conversation recalls (services/memory.py) */}
                       <p className="mb-1.5 px-1 text-[10px] text-ink-3">
                         A linked chat also recalls that engagement&apos;s own
-                        memories. To file one back, use /remember in the chat —
+                        memories. To file one back, use /remember in the chat -
                         it becomes a proposal a person approves.
                       </p>
                       {t.engagement_id != null && (
@@ -782,7 +782,7 @@ export function ChatSidebar({
                         <input
                           autoFocus={engagements.length === 0}
                           name="link-new-engagement"
-                          placeholder="New engagement — ↵ to create & link"
+                          placeholder="New engagement - ↵ to create & link"
                           aria-label="Create an engagement and link this chat to it"
                           maxLength={120}
                           onKeyDown={(e) => {
@@ -838,7 +838,7 @@ export function ChatSidebar({
                       <input
                         autoFocus={folders.length === 0 && !t.folder}
                         name="move-to-new-folder"
-                        placeholder="New folder — ↵ to move"
+                        placeholder="New folder - ↵ to move"
                         aria-label="Move to a new folder"
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && e.currentTarget.value.trim())

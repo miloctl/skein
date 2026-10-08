@@ -1,4 +1,4 @@
-# Live product study — proposals
+# Live product study - proposals
 
 **Closed.** The P-numbered proposals the study produced, with the evidence
 standard each had to meet and the reason each deferral was deferred. Kept for
@@ -10,7 +10,7 @@ product study (2026-08-15)". P25 (`void` task state) is item 8 under
 "Self-serve UX" and was not duplicated. One statement here is now false:
 P11's "restrict proposer-level review statistics to agent identities" shipped
 as "exclude human proposers", which keeps system actors so the scheduler's
-authority proposals still count — P11's own check, "a human proposer never
+authority proposals still count - P11's own check, "a human proposer never
 appears in `by_proposer`", still holds. P10's last delivery bullet (reviewer
 name, time and identity strength on rejected inbox rows) did not ship and is
 on the ROADMAP.
@@ -23,7 +23,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 ## Candidate proposals
 
-### P1 — Project delegation eligibility
+### P1 - Project delegation eligibility
 
 **Evidence:** The Agent teammate and reviewer journeys exposed `mcp-agent` and service identities as delegation choices. The service then refused them.
 
@@ -38,7 +38,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Small.
 
-### P2 — Make Mission control actionable
+### P2 - Make Mission control actionable
 
 **Evidence:** Dana saw 19 identities, mostly idle. The selected inbox appeared below Authority, Trust, and Team memory.
 
@@ -54,7 +54,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Small.
 
-### P3 — Return human capture to My Day
+### P3 - Return human capture to My Day
 
 **Evidence:** My Day tells a person to capture a task. Human quick capture creates an unassigned task, and My Day reads assigned tasks only.
 
@@ -69,7 +69,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Small.
 
-### P4 — Restore My Day focus
+### P4 - Restore My Day focus
 
 **Evidence:** Historical extension activity pushed the field-guide suggestion below the daily loop. The empty-task text also displayed the search key beside quick capture.
 
@@ -83,7 +83,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Extra small.
 
-### P5 — Preserve audience in `/briefing`
+### P5 - Preserve audience in `/briefing`
 
 **Evidence:** The web page separates personal work from team queues. The deterministic command labels shared reviews and intake as personal My Day counts.
 
@@ -97,7 +97,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Extra small.
 
-### P6 — Make write receipts accessible and current
+### P6 - Make write receipts accessible and current
 
 **Evidence:** The shared status region mounts only after it already contains text. The study missed transient standup and verdict results.
 
@@ -113,7 +113,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Small.
 
-### P7 — Show the verdict reason limit
+### P7 - Show the verdict reason limit
 
 **Evidence:** The review reason has a 1,000-character server limit. The input gives no counter or inline guidance.
 
@@ -127,7 +127,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Extra small.
 
-### P8 — Refresh field-guide progress
+### P8 - Refresh field-guide progress
 
 **Evidence:** The identity menu held a cached `5/39` value while the guide page returned `5 of 40 tied`.
 
@@ -141,7 +141,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Extra small.
 
-### P9 — Restore the Planning page heading
+### P9 - Restore the Planning page heading
 
 **Evidence:** The Planning route has no level-one heading. Next.js route announcements use the title, then the `h1`, then the path.
 
@@ -151,7 +151,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Extra small.
 
-### P10 — Make trust evidence truthful
+### P10 - Make trust evidence truthful
 
 **Evidence:** The Trust card can show `1/1 approved` and `last verdict was not an approval`. These statements use different verdict populations.
 
@@ -166,7 +166,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Small to medium.
 
-### P11 — Keep review statistics outside human performance scoring
+### P11 - Keep review statistics outside human performance scoring
 
 **Evidence:** Review statistics group proposals by proposer. Meeting-note ingestion can create proposals under a human name.
 
@@ -180,7 +180,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Extra small.
 
-### P12 — State the Authority identity requirement
+### P12 - State the Authority identity requirement
 
 **Evidence:** The Authority form looked active without a personal key. Its endpoint refused the write, but the controls did not explain why.
 
@@ -195,7 +195,7 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 **Size:** Extra small.
 
-### P13 — Link proposal notifications to pending changes
+### P13 - Link proposal notifications to pending changes
 
 **Evidence:** My Day showed a proposal and its review notification as two rows for one pending change.
 
@@ -212,37 +212,37 @@ The study was one seeded scenario on one day. It supports usability and contract
 
 ## Proposals to defer
 
-### D1 — Full task editing in the task panel
+### D1 - Full task editing in the task panel
 
 The workflow cost is credible, but the field set needs product decisions. Visibility changes also need a backend transition policy.
 
 Revisit after the smaller capture, audience, and task-context fixes ship.
 
-### D3 — Settings information architecture
+### D3 - Settings information architecture
 
 Personal setup competes with operator and administrator sections. A complete restructure touches many permissions and deep links.
 
 Start with section anchors and usage evidence before new routes or tabs.
 
-### D4 — Browse filters and task pagination
+### D4 - Browse filters and task pagination
 
 The seeded page was dense. The study did not measure task-finding time or missed work.
 
 Measure those outcomes before adding several filter dimensions.
 
-### D5 — Planning action placement
+### D5 - Planning action placement
 
 Direct links from evidence to existing controls are valuable. The correct targets and return paths need one focused manager study.
 
 Do not copy write forms into Planning or the engagement brief.
 
-### D6 — Automatic agent execution
+### D6 - Automatic agent execution
 
 The empty runner allowlist is an intentional safety default. It prevents unexpected model spend and unattended writes.
 
 Deployment operators can enable named agents through `SKEIN_AGENT_RUNNER`.
 
-### D7 — New growth, meeting, PTO, or leadership systems
+### D7 - New growth, meeting, PTO, or leadership systems
 
 The live study showed clear current boundaries. It did not show demand for larger systems.
 
@@ -260,23 +260,23 @@ The Whimsy Injector required literal text for identity, security, trust, limits,
 
 ### Selected for delivery
 
-1. **P3** — Return human capture to My Day.
-2. **P5** — Preserve audience in `/briefing`.
-3. **P4** — Restore My Day focus and correct the capture instruction.
-4. **P6** — Keep live regions mounted. Add write receipts, verdict focus recovery, and immediate badge refresh.
-5. **P7** — Show and associate the 1,000-character verdict limit.
-6. **P9** — Add the Planning `h1`.
-7. **P1** — Project the canonical delegation eligibility into the task panel.
-8. **P2, first part** — Move and focus the selected inbox. Project existing task context.
-9. **P10, narrow** — Stop inferring a last verdict from a zero verified streak. Defer the larger trust evidence redesign.
-10. **P11** — Remove human proposers from proposer-level review statistics.
-11. **P8** — Refresh field-guide progress each time the identity menu opens.
+1. **P3** - Return human capture to My Day.
+2. **P5** - Preserve audience in `/briefing`.
+3. **P4** - Restore My Day focus and correct the capture instruction.
+4. **P6** - Keep live regions mounted. Add write receipts, verdict focus recovery, and immediate badge refresh.
+5. **P7** - Show and associate the 1,000-character verdict limit.
+6. **P9** - Add the Planning `h1`.
+7. **P1** - Project the canonical delegation eligibility into the task panel.
+8. **P2, first part** - Move and focus the selected inbox. Project existing task context.
+9. **P10, narrow** - Stop inferring a last verdict from a zero verified streak. Defer the larger trust evidence redesign.
+10. **P11** - Remove human proposers from proposer-level review statistics.
+11. **P8** - Refresh field-guide progress each time the identity menu opens.
 
 ### Selected for follow-up delivery
 
-12. **P2, remaining part** — Add `Has work` and `All agents` controls.
-13. **P12** — State the strong administrator identity requirement beside Authority controls.
-14. **P13** — Link proposal notifications to pending changes and show one My Day row.
+12. **P2, remaining part** - Add `Has work` and `All agents` controls.
+13. **P12** - State the strong administrator identity requirement beside Authority controls.
+14. **P13** - Link proposal notifications to pending changes and show one My Day row.
 
 ### Deferred after final review
 
@@ -293,7 +293,7 @@ The follow-up adds one nullable notification relation and its index. It adds no 
 
 The second pass starts from commit `9a1502a`. It uses new live evidence from the updated product.
 
-### P14 — Make native agent writes durable
+### P14 - Make native agent writes durable
 
 **Evidence:** The built-in agent displayed successful claim, progress, and acceptance-submission receipts for task `#29`. Fresh task, worklog, review, Mission control, and inbox reads showed no durable write. A claim-only request repeated the false success.
 
@@ -309,7 +309,7 @@ The second pass starts from commit `9a1502a`. It uses new live evidence from the
 
 **Size:** Medium.
 
-### P15 — Recover from a stale chat thread
+### P15 - Recover from a stale chat thread
 
 **Evidence:** Two identities sent a message from a stale local thread. The backend returned `404`, but the optimistic user message stayed visible without a readable recovery. Selecting `+ New chat` fixed the flow.
 
@@ -325,7 +325,7 @@ The second pass starts from commit `9a1502a`. It uses new live evidence from the
 
 **Size:** Small.
 
-### P16 — Refresh My Day after Quick capture
+### P16 - Refresh My Day after Quick capture
 
 **Evidence:** Quick capture created assigned task `#27` and closed. The current My Day list stayed unchanged until a manual reload. Task completion already refreshes the list immediately.
 
@@ -340,7 +340,7 @@ The second pass starts from commit `9a1502a`. It uses new live evidence from the
 
 **Size:** Extra small.
 
-### P17 — Keep mobile search inside the viewport
+### P17 - Keep mobile search inside the viewport
 
 **Evidence:** At 360 pixels, the 320-pixel result panel started 107 pixels left of the viewport. Every result began mid-word.
 
@@ -355,7 +355,7 @@ The second pass starts from commit `9a1502a`. It uses new live evidence from the
 
 **Size:** Extra small.
 
-### P18 — Preserve finding severity and ownership on conversion
+### P18 - Preserve finding severity and ownership on conversion
 
 **Evidence:** Dana converted a `high` ledger-integrity finding. Task `#28` became an unassigned `medium` task, and the conversion state gave no direct task link.
 
@@ -371,7 +371,7 @@ The second pass starts from commit `9a1502a`. It uses new live evidence from the
 
 **Size:** Small.
 
-### P19 — Reconcile review notifications
+### P19 - Reconcile review notifications
 
 **Evidence:** Proposals `#4` and `#5` still appeared beside pre-migration notification rows. A meeting-ingest summary also claimed one pending proposal after its only proposal was rejected.
 
@@ -387,7 +387,7 @@ The second pass starts from commit `9a1502a`. It uses new live evidence from the
 
 **Size:** Medium.
 
-### P20 — Use one incoming-promise term
+### P20 - Use one incoming-promise term
 
 **Evidence:** Quick capture labels one chip `promise (to us)` and tells the reader to use `awaiting:`.
 
@@ -401,7 +401,7 @@ The second pass starts from commit `9a1502a`. It uses new live evidence from the
 
 **Size:** Extra small.
 
-### P21 — Put outcome recording beside the missing outcome
+### P21 - Put outcome recording beside the missing outcome
 
 **Evidence:** Two engagement pages tell a manager to use Chat when the intended outcome is absent.
 
@@ -431,12 +431,12 @@ The final panel used a Product Manager, Backend Architect, Accessibility Auditor
 
 ### Selected for second-pass delivery
 
-1. **P14** — Make native agent writes durable.
-2. **P15** — Recover from a stale chat thread.
-3. **P18** — Preserve finding severity and ownership on conversion.
-4. **P16** — Refresh My Day after Quick capture.
-5. **P17** — Keep mobile search inside the viewport.
-6. **P20** — Use one incoming-promise term.
+1. **P14** - Make native agent writes durable.
+2. **P15** - Recover from a stale chat thread.
+3. **P18** - Preserve finding severity and ownership on conversion.
+4. **P16** - Refresh My Day after Quick capture.
+5. **P17** - Keep mobile search inside the viewport.
+6. **P20** - Use one incoming-promise term.
 
 P17 stays in this delivery because the defect blocks result text at phone width and already has a precise roadmap contract.
 
@@ -487,7 +487,7 @@ The delivered work adds no dependency, migration, page, table, model call, provi
 
 The third pass studies daily use for three to six months. It separates verified bounds from projected arrival dates.
 
-### P22 — Make every stored report reachable
+### P22 - Make every stored report reachable
 
 **Evidence:** Reports returns only the newest 50 artifacts. Scheduled output creates nine reports each week, so the visible window fills in about five and a half weeks.
 
@@ -503,7 +503,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Small.
 
-### P23 — Show the result of an idempotent ritual
+### P23 - Show the result of an idempotent ritual
 
 **Evidence:** The scheduler had already run Friday close-out. The manual control returned `skipped`, but the page showed no result or report link.
 
@@ -519,7 +519,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Extra small.
 
-### P24 — Filter task state before collection limits
+### P24 - Filter task state before collection limits
 
 **Evidence:** The task service returns at most 500 rows before Browse and the CLI remove completed tasks.
 
@@ -535,7 +535,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Small.
 
-### P25 — Give invalid tasks a truthful terminal state
+### P25 - Give invalid tasks a truthful terminal state
 
 **Evidence:** A mistaken or validation task must remain active or become done. Done places it in Recently shipped and flow metrics.
 
@@ -551,7 +551,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Medium.
 
-### P26 — Use one My Day projection in web and CLI
+### P26 - Use one My Day projection in web and CLI
 
 **Evidence:** The web renders the shared `attention` list. The CLI rebuilds rows from raw briefing sections and restores linked proposal-notification duplicates.
 
@@ -565,7 +565,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Extra small.
 
-### P27 — Remove resolved rework from the active agent inbox
+### P27 - Remove resolved rework from the active agent inbox
 
 **Evidence:** Proposal `#10` remained in the rejected inbox after approved proposal `#11` completed the same task.
 
@@ -581,7 +581,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Extra small.
 
-### P28 — Make every unread notification reachable
+### P28 - Make every unread notification reachable
 
 **Evidence:** My Day reads 20 unread rows and renders at most five groups. Older unread rows remain stored without a count or route.
 
@@ -597,7 +597,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Medium.
 
-### P29 — Use one reachable pending-review queue
+### P29 - Use one reachable pending-review queue
 
 **Evidence:** Approvals returns the newest 200 pending proposals. My Day reads the oldest 50, and one ingest can create 500.
 
@@ -613,7 +613,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Medium.
 
-### P30 — Enforce the authority half-life at the policy gate
+### P30 - Enforce the authority half-life at the policy gate
 
 **Evidence:** Elevated authority receives a 90-day review date. The shared policy gate ignores that date, while the feature reference calls it an authority half-life.
 
@@ -630,7 +630,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Medium.
 
-### P31 — Put outcome recording beside the missing outcome
+### P31 - Put outcome recording beside the missing outcome
 
 **Evidence:** An engagement with no intended outcome directs the manager to Chat. The page provides no direct action or prefilled route.
 
@@ -645,7 +645,7 @@ The third pass studies daily use for three to six months. It separates verified 
 
 **Size:** Small.
 
-### P32 — Disclose the My Day task window
+### P32 - Disclose the My Day task window
 
 **Evidence:** My Day returns at most 200 active tasks and gives no overflow count. Equal-ranked rows have no final task-ID key.
 
@@ -684,13 +684,13 @@ The Whimsy Injector required literal text for authority, review, counts, notific
 
 ### Selected for third-pass delivery
 
-1. **P30** — Enforce the authority half-life at the policy gate.
-2. **P22** — Make every stored report reachable.
-3. **P24** — Filter task state before collection limits.
-4. **P29** — Use one reachable pending-review queue.
-5. **P23** — Show the result of an idempotent ritual.
-6. **P27** — Remove resolved rework from the active agent inbox.
-7. **P26** — Use one My Day projection in web and CLI.
+1. **P30** - Enforce the authority half-life at the policy gate.
+2. **P22** - Make every stored report reachable.
+3. **P24** - Filter task state before collection limits.
+4. **P29** - Use one reachable pending-review queue.
+5. **P23** - Show the result of an idempotent ritual.
+6. **P27** - Remove resolved rework from the active agent inbox.
+7. **P26** - Use one My Day projection in web and CLI.
 
 ### Deferred after third-pass final review
 

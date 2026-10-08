@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
 
 /** The reports the scheduler files were being dumped into a <pre> or not shown
- *  at all. This renders the grammar our own generators emit — and only that.
+ *  at all. This renders the grammar our own generators emit - and only that.
  *
  *  The body is assembled from rows PEOPLE wrote (task titles, decision text,
  *  promise wording), so the one thing it must never do is treat that text as
@@ -26,7 +26,7 @@ describe("ArtifactMarkdown", () => {
   });
 
   /** readout.py indents each engagement's receipts two spaces under it.
-   *  Flattened, three receipts read as three more engagements — and the exec
+   *  Flattened, three receipts read as three more engagements - and the exec
    *  readout is the generator with the most structure to lose. */
   it("nests an indented bullet under the one above it", () => {
     render(
@@ -42,13 +42,13 @@ describe("ArtifactMarkdown", () => {
   });
 
   it("renders bold and inline code from the generators' own grammar", () => {
-    render(<ArtifactMarkdown markdown={"- **Ship it** — run `skein week`"} />);
+    render(<ArtifactMarkdown markdown={"- **Ship it** - run `skein week`"} />);
     expect(screen.getByText("Ship it").tagName).toBe("STRONG");
     expect(screen.getByText("skein week").tagName).toBe("CODE");
   });
 
   /** An artifact body quotes text people typed. Rendered as HTML, every
-   *  generator becomes an injection sink — the reason nav-search parses FTS5's
+   *  generator becomes an injection sink - the reason nav-search parses FTS5's
    *  <b> into runs instead of setting innerHTML. */
   it("shows markup in the source as text, never as elements", () => {
     const { container } = render(
@@ -77,7 +77,7 @@ describe("ArtifactMarkdown", () => {
 describe("the constructs the generators actually emit", () => {
   it("renders italics rather than showing the asterisks", () => {
     // digest.py:64 emits *(n=1, 7d)*; handoff.py and context_pack.py emit
-    // *Class: …* — all three showed a reader their own markup
+    // *Class: …* - all three showed a reader their own markup
     render(<ArtifactMarkdown markdown={"a finding *(n=1, 7d)*"} />);
     expect(screen.getByText("(n=1, 7d)").tagName).toBe("EM");
     expect(screen.queryByText(/\*\(n=1/)).toBeNull();

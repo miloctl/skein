@@ -10,7 +10,7 @@
 #   ./scripts/skein.sh dev            # both in the foreground, Ctrl-C stops them
 #
 # Ports: SKEIN_BACKEND_PORT (default 8000), SKEIN_FRONTEND_PORT (default 3000).
-# Note SKEIN_BACKEND_PORT is local to this script — docker-compose hardcodes
+# Note SKEIN_BACKEND_PORT is local to this script - docker-compose hardcodes
 # 8000:8000 and only honours SKEIN_FRONTEND_PORT.
 #
 # Linux/WSL2 only: needs setsid for process groups and /proc for the pid-reuse
@@ -26,7 +26,7 @@ SERVICES=(backend frontend)
 # Local dev runs the X-User name picker. The shipped default is api-key
 # (fail closed), so an unset mode here would refuse every request from the
 # frontend. The caller's environment and backend/.env both win over this
-# line — an exported variable beats it here, and load_dotenv never
+# line - an exported variable beats it here, and load_dotenv never
 # overrides a set variable, so exporting over a backend/.env value would
 # silently reverse the mode that file chose.
 if [ -z "${SKEIN_AUTH_MODE:-}" ] && ! grep -qs '^SKEIN_AUTH_MODE=' backend/.env; then
@@ -40,7 +40,7 @@ die() { printf '%serror:%s %s\n' "$c_bad" "$c_off" "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-skein — run the app for local dev
+skein - run the app for local dev
 
   ./scripts/skein.sh start          detached; survives closing the terminal
   ./scripts/skein.sh stop
@@ -73,7 +73,7 @@ port_busy() {
 
 # Field 22 of /proc/PID/stat: process start time in clock ticks since boot.
 # Unique per pid *instance*, so it distinguishes our service from whatever
-# inherited the number after a reboot. The sub() is load-bearing — comm can
+# inherited the number after a reboot. The sub() is load-bearing - comm can
 # contain spaces ("npm run dev --p"), which breaks naive field indexing.
 starttime() { awk '{ sub(/^[0-9]+ \(.*\) /, ""); print $20 }' "/proc/$1/stat" 2>/dev/null; }
 
@@ -101,13 +101,13 @@ read_pid() {
 }
 
 # `kill -0 -1` is the POSIX broadcast to every process the user owns, not a
-# lookup of group 1 — so it always succeeds and would make a pid-1 pidfile look
+# lookup of group 1 - so it always succeeds and would make a pid-1 pidfile look
 # like a live group. start_one never writes a pid that low, but the guard costs
 # one line and the alternative is a `kill -TERM -1`.
 group_alive() { [ "$1" -gt 1 ] 2>/dev/null && kill -0 -"$1" 2>/dev/null; }
 
 # Pidfiles written before the reuse guard hold a bare pid with no start time.
-# Adopt them once — if the pid is alive and its group still looks like ours —
+# Adopt them once - if the pid is alive and its group still looks like ours -
 # rather than reporting a running service as orphaned.
 adopt_legacy() {
   local name=$1 f p rest
@@ -122,7 +122,7 @@ adopt_legacy() {
 
 # Does this process group still look like one of ours? Used only when the
 # leader has died and the children outlived it, where starttime can no longer
-# vouch for identity — without this the orphan path could group-kill a
+# vouch for identity - without this the orphan path could group-kill a
 # recycled pid.
 group_is_ours() {
   pgrep -g "$1" -f 'uvicorn|next-server|next dev|npm run dev' >/dev/null 2>&1
@@ -134,8 +134,8 @@ preflight() {
   command -v ss >/dev/null 2>&1 || command -v lsof >/dev/null 2>&1 ||
     die "needs ss or lsof to check ports"
   [ -x backend/.venv/bin/uvicorn ] ||
-    die "backend venv missing — cd backend && uv venv .venv && uv pip install -e '.[dev]' --python .venv/bin/python"
-  [ -d frontend/node_modules ] || die "frontend deps missing — cd frontend && npm ci"
+    die "backend venv missing - cd backend && uv venv .venv && uv pip install -e '.[dev]' --python .venv/bin/python"
+  [ -d frontend/node_modules ] || die "frontend deps missing - cd frontend && npm ci"
   for p in "$BACKEND_PORT" "$FRONTEND_PORT"; do
     case $p in ''|*[!0-9]*) die "port must be numeric, got '$p'" ;; esac
   done
@@ -150,12 +150,12 @@ preflight() {
 db_reachable() {
   local url="${SKEIN_DATABASE_URL:-}"
   [ -n "$url" ] || [ ! -f backend/.env ] || url=$(grep -m1 '^SKEIN_DATABASE_URL=' backend/.env | cut -d= -f2-)
-  [ -n "$url" ] || die "SKEIN_DATABASE_URL is not set — copy backend/.env.example to backend/.env"
+  [ -n "$url" ] || die "SKEIN_DATABASE_URL is not set - copy backend/.env.example to backend/.env"
   # host:port out of postgresql://user:pass@host:port/db
   local hostport="${url##*@}"; hostport="${hostport%%/*}"
   local host="${hostport%%:*}" port="${hostport##*:}"
   [ "$port" = "$host" ] && port=5432
-  port_busy "$port" || die "no PostgreSQL on $host:$port — start one with:
+  port_busy "$port" || die "no PostgreSQL on $host:$port - start one with:
   docker run -d --stop-timeout 1200 --name skein-db -p 127.0.0.1:${port}:5432 \\
     -e POSTGRES_USER=skein -e POSTGRES_PASSWORD=skein -e POSTGRES_DB=skein \\
     postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168"
@@ -169,7 +169,7 @@ start_one() {
     printf '  %s already running (pid %s)\n' "$name" "$existing"
     return 0
   fi
-  # a stale pidfile is fine, but something else on the port is not — starting
+  # a stale pidfile is fine, but something else on the port is not - starting
   # anyway would leave a service that looks up but is not ours
   if port_busy "$port"; then
     die "port $port is already in use by something else (wanted for $name)"
@@ -204,7 +204,7 @@ stop_one() {
     local stale; stale=$(raw_pid "$name" 2>/dev/null || true)
     rm -f "$(pidfile "$name")"
     if [ -n "$stale" ]; then
-      printf '  %s not running (pid %s is not ours — stale pidfile cleared)\n' "$name" "$stale"
+      printf '  %s not running (pid %s is not ours - stale pidfile cleared)\n' "$name" "$stale"
     else
       printf '  %s not running\n' "$name"
     fi
@@ -241,7 +241,7 @@ wait_healthy() {
     for s in "${SERVICES[@]}"; do
       read_pid "$s" >/dev/null || {
         printf '\n'
-        die "$s exited during startup (other services left running) — ./scripts/skein.sh logs $s"
+        die "$s exited during startup (other services left running) - ./scripts/skein.sh logs $s"
       }
     done
     printf '.'
@@ -249,7 +249,7 @@ wait_healthy() {
     waited=$((waited + 1))
   done
   printf '\n'
-  die "not healthy after ${waited}s (services left running) — ./scripts/skein.sh logs"
+  die "not healthy after ${waited}s (services left running) - ./scripts/skein.sh logs"
 }
 
 cmd_start() {
@@ -277,7 +277,7 @@ cmd_status() {
       printf '  %sup%s    %-9s pid %-8s http://localhost:%s\n' "$c_ok" "$c_off" "$s" "$pid" "$port"
     elif pid=$(raw_pid "$s" 2>/dev/null) && group_alive "$pid" && group_is_ours "$pid"; then
       down=1
-      printf '  %s??%s    %-9s leader gone, orphaned group %s still up — run stop\n' \
+      printf '  %s??%s    %-9s leader gone, orphaned group %s still up - run stop\n' \
         "$c_bad" "$c_off" "$s" "$pid"
     elif port_busy "$port"; then
       down=1

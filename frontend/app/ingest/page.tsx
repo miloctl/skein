@@ -54,7 +54,7 @@ export default function IngestPage() {
     JSON.stringify(eventId ? { ...body, event_id: eventId } : body);
 
   // an unmatched line gets filed by re-running it through the same
-  // proposals-only pipeline with the chosen prefix — never a direct write
+  // proposals-only pipeline with the chosen prefix - never a direct write
   const fileLine = async (key: string, line: string, prefix: string) => {
     try {
       const r = await api<IngestResult>("/api/ingest", {
@@ -154,11 +154,11 @@ export default function IngestPage() {
         <div className="mt-6 space-y-4 text-sm">
           <p>
             {result.proposals.length === 0 ? (
-              "No proposals — nothing in the notes matched a known line type."
+              "No proposals - nothing in the notes matched a known line type."
             ) : (
               <>
                 ✅ {result.proposals.length} proposal
-                {result.proposals.length === 1 ? "" : "s"} created —{" "}
+                {result.proposals.length === 1 ? "" : "s"} created - {" "}
                 <Link href="/review" className="font-medium underline">
                   review them
                 </Link>
@@ -167,7 +167,7 @@ export default function IngestPage() {
             {result.skipped_private > 0 && (
               <span className="ml-2 text-weld">
                 · {result.skipped_private} fb: line
-                {result.skipped_private === 1 ? "" : "s"} skipped (private —
+                {result.skipped_private === 1 ? "" : "s"} skipped (private -
                 use quick capture with your key)
               </span>
             )}
@@ -185,7 +185,7 @@ export default function IngestPage() {
           {result.unclassified.length > 0 && (
             <div>
               <p className="mb-1 font-medium text-ink-3">
-                Not captured ({result.unclassified.length}) — file any that
+                Not captured ({result.unclassified.length}) - file any that
                 matter, right here:
               </p>
               <ul className="space-y-1 text-ink-3">

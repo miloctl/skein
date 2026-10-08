@@ -79,7 +79,7 @@ def test_intake_disposition_notifies_requester(fresh_db):
 
 def test_stall_rule_windows_on_disposition_time_not_creation(fresh_db):
     """The stall rule's 6-week sample. A request created 50 days ago (outside
-    6 weeks) but dispositioned TODAY (inside it) is the slowest kind — exactly
+    6 weeks) but dispositioned TODAY (inside it) is the slowest kind - exactly
     what the rule watches for. created_at windowing dropped every one of them;
     updated_at (which intake rows freeze at disposition) keeps them."""
     from app.services import insights, intake
@@ -104,7 +104,7 @@ def test_stall_rule_windows_on_disposition_time_not_creation(fresh_db):
 def test_accept_degrades_when_the_engagement_name_collides_in_a_race(fresh_db, monkeypatch):
     """create_engagement pre-checks the name NOCASE, so the normal
     collision is a ValueError. Two accepts landing together both pass that
-    read and the loser hits ux_engagements_name_nocase instead — uncaught
+    read and the loser hits ux_engagements_name_nocase instead - uncaught
     that is a 500 for a caller-supplied name. Accept must degrade the same
     way either route."""
     from app import db
@@ -120,7 +120,7 @@ def test_accept_degrades_when_the_engagement_name_collides_in_a_race(fresh_db, m
     out = intake.disposition_request(r["id"], "accepted", "worth doing", actor="mgr")
     assert out["engagement_created"] is False
     assert "no new engagement" in out["note"]
-    # the request itself still settled — the verdict is not lost
+    # the request itself still settled - the verdict is not lost
     assert intake.list_requests()[0]["status"] == "accepted"
 
 

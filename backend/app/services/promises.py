@@ -1,5 +1,5 @@
 """The promise ledger: promises made to people outside the team.
-The exec readout reads from here — a promise that isn't recorded is a
+The exec readout reads from here - a promise that isn't recorded is a
 promise the team can't keep on purpose."""
 
 from datetime import UTC, datetime, timedelta
@@ -11,7 +11,7 @@ from .users import is_agent
 
 STATUSES = ("open", "kept", "missed", "withdrawn")
 # 'external': promises to people outside the team (exec readout material).
-# 'team': the manager's own promises TO the team — visible so they get kept.
+# 'team': the manager's own promises TO the team - visible so they get kept.
 AUDIENCES = ("external", "team")
 # who owes whom. `to_whom` is the OTHER PARTY either way (migration 007).
 DIRECTIONS = ("given", "received")
@@ -63,7 +63,7 @@ def add_promise(
         raise ValueError(f"direction must be one of {DIRECTIONS}")
     efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
     if engagement_id and not db.query_one(
-        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (engagement_id, *ep),
     ):
         raise ValueError(scope.missing_text("engagements", engagement_id))
@@ -182,7 +182,7 @@ def _edit_promise_locked(
     origin: str = "human",
 ) -> dict:
     """The row change, its receipt, and its event are one unit."""
-    """Correct the wording/date of an OPEN promise — old→new logged; settled
+    """Correct the wording/date of an OPEN promise - old→new logged; settled
     promises stay as history."""
     db.validate_date("due_date", due_date)
     row = db.query_one("SELECT * FROM promises WHERE id = ? FOR UPDATE", (promise_id,))
@@ -190,7 +190,7 @@ def _edit_promise_locked(
         raise scope.missing("promises", promise_id)
     scope.assert_editable("promises", row, actor, verb="edit")
     if row["status"] != "open":
-        raise ValueError(f"promise #{promise_id} is {row['status']} — history stays put")
+        raise ValueError(f"promise #{promise_id} is {row['status']} - history stays put")
     fields = {
         k: v for k, v in [("promise", promise), ("due_date", due_date), ("to_whom", to_whom)] if v
     }
@@ -212,7 +212,7 @@ def _edit_promise_locked(
     renegotiated = "due_date" in fields and fields["due_date"] != row["due_date"]
     reset = ", nudge_count = 0, last_nudged_at = NULL" if renegotiated else ""
     db.execute(
-        f"UPDATE promises SET {sets}{reset}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
+        f"UPDATE promises SET {sets}{reset}, updated_at = ? WHERE id = ?",  # noqa: S608 - keys hardcoded
         (*fields.values(), db.now(), promise_id),
     )
     # the id and the field names, never the text (collab.update_note)
@@ -256,14 +256,14 @@ def list_promises(
         where.append("direction = ?")
         params.append(direction)
     return db.query(
-        f"SELECT * FROM promises WHERE {' AND '.join(where)}"  # noqa: S608 — clauses hardcoded, and scope.visible_filter emits only bound marks
+        f"SELECT * FROM promises WHERE {' AND '.join(where)}"  # noqa: S608 - clauses hardcoded, and scope.visible_filter emits only bound marks
         " ORDER BY status != 'open', due_date IS NULL, due_date, id DESC LIMIT 100",
         tuple(params),
     )
 
 
 # The chaser's cadence. A received promise that is overdue gets one nudge per
-# CYCLE, not per hourly run — the job fires every hour and a nudge every hour
+# CYCLE, not per hourly run - the job fires every hour and a nudge every hour
 # is a nudge nobody reads. Two silent cycles is the point where the person
 # waiting has chased twice and nothing moved, which is when it stops being
 # their problem alone.
@@ -289,7 +289,7 @@ def _chase_received_locked(*, actor: str) -> dict:
     to the team when two cycles have passed with no settlement.
 
     The escalation is the whole point. A promise made TO the team goes quiet
-    in exactly one way — nobody chases it — and the person waiting is usually
+    in exactly one way - nobody chases it - and the person waiting is usually
     the person least able to escalate it. After two silent cycles the fact
     becomes team-visible whether or not they raise it.
     """
@@ -300,7 +300,7 @@ def _chase_received_locked(*, actor: str) -> dict:
     nudged, escalated, unroutable = [], [], []
     # No viewer filter, deliberately: a job has no viewer, and this reads
     # every tier so a crew-scoped promise is still chased for the person who
-    # recorded it. What LEAVES is the guard — see the escalation below.
+    # recorded it. What LEAVES is the guard - see the escalation below.
     rows = db.query(
         "SELECT * FROM promises WHERE direction = 'received' AND status = 'open'"
         " AND due_date IS NOT NULL AND due_date < ?",
@@ -322,7 +322,7 @@ def _chase_received_locked(*, actor: str) -> dict:
         target = row["created_by"] or "team"
         # users.is_agent, not a local SELECT on `name`: that column is BINARY
         # collation, so an exact match let "Scout" past the check and the
-        # nudge was addressed to an identity that reads no notifications —
+        # nudge was addressed to an identity that reads no notifications -
         # landing nowhere, silently, forever. routes/deps.py documents the
         # same defect.
         if is_agent(target):
@@ -383,7 +383,7 @@ def _chase_received_locked(*, actor: str) -> dict:
     return {
         "nudged": len(nudged),
         "escalated": len(escalated),
-        # a scoped row whose only routable target was "team" — reported, not
+        # a scoped row whose only routable target was "team" - reported, not
         # dropped silently, or the job's own log would read as "nothing due"
         "unroutable": len(unroutable),
         "ids": nudged,

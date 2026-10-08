@@ -1,7 +1,7 @@
 """What a playbook said would happen, against what did.
 
 Playbooks never learned. The template said six weeks, every engagement ran
-nine, and nothing carried that back to the YAML — because by the time an
+nine, and nothing carried that back to the YAML - because by the time an
 engagement closes the plan it started with is gone. Milestones have moved,
 tasks have been added and deleted, and a cancelled ritual leaves no row at
 all.
@@ -17,7 +17,7 @@ from app.services import artifact_files, engagements, playbooks, review, schedul
 
 
 def _born(name: str = "Alpha rollout", slug: str = "incident") -> dict:
-    """Named, not "whichever sorts first" — adding a playbook must not quietly
+    """Named, not "whichever sorts first" - adding a playbook must not quietly
     re-point fifteen tests at a different plan."""
     return playbooks.instantiate(slug, name, lead="ava", actor="ava")
 
@@ -74,7 +74,7 @@ def test_the_diff_sees_a_slipped_milestone(client):
 
 
 def test_the_diff_sees_work_the_playbook_never_named(client):
-    """`milestone_id=`, NOT `engagement_id=` — that is how _instantiate and the
+    """`milestone_id=`, NOT `engagement_id=` - that is how _instantiate and the
     UI both attach a task, and `work.create_task` stores `engagement_id or
     None`. An engagement_id-only query matched nothing, so this clause (the
     only one that names titles to add to the YAML) silently never fired."""
@@ -105,7 +105,7 @@ def test_the_diff_sees_a_ritual_that_never_happened(client):
     """A cancelled event is DELETED (services/schedule.py::cancel_event), so a
     missing id is the only evidence the ceremony did not happen."""
     made = _born()
-    assert made["events"], "the incident playbook lost its rituals — this test pins nothing"
+    assert made["events"], "the incident playbook lost its rituals - this test pins nothing"
     evt = made["events"][0]
     schedule.cancel_event(evt["id"], actor="ava")
     diff = playbooks.close_out_diff(made["engagement"]["id"])
@@ -201,7 +201,7 @@ def test_a_draft_with_no_action_in_it_is_not_filed(client):
 def test_slip_is_measured_from_what_HAPPENED_not_from_replanning(client):
     """The motivating case: a team that never re-dates a milestone and lands
     weeks late. Comparing the due date now against the due date at kickoff
-    sees nothing there — it rewards good date hygiene with a lesson and bad
+    sees nothing there - it rewards good date hygiene with a lesson and bad
     date hygiene with silence."""
     made = _born()
     mil = made["milestones"][0]
@@ -209,7 +209,7 @@ def test_slip_is_measured_from_what_HAPPENED_not_from_replanning(client):
     late = (date.fromisoformat(planned) + timedelta(days=30)).isoformat()
     # done, late, and the due date never touched
     work.update_milestone(mil["id"], status="done", actor="ava")
-    # a full timestamp, which is what db.now() stores — a bare date passes only
+    # a full timestamp, which is what db.now() stores - a bare date passes only
     # because of the [:10] slice and would not catch a change to that slice
     db.execute(
         "UPDATE milestones SET completed_at = ? WHERE id = ?", (f"{late}T14:03:00+00:00", mil["id"])
@@ -259,7 +259,7 @@ def test_the_drafted_lesson_computes_its_own_agreement(client):
     work.create_task("second extra", engagement_id=eid, actor="ava")
     two = playbooks._variance_lesson(playbooks.close_out_diff(eid), "Alpha")[0]
     assert "2 tasks outside the playbook were added" in two
-    # sentences, not a semicolon chain — the wording standard bans the semicolon
+    # sentences, not a semicolon chain - the wording standard bans the semicolon
     assert ";" not in two
 
 
@@ -294,7 +294,7 @@ def test_the_snapshot_is_not_a_report(client):
     eid = made["engagement"]["id"]
     assert db.query_one(
         "SELECT id FROM artifacts WHERE engagement_id = ? AND kind = 'plan-snapshot'", (eid,)
-    ), "the snapshot row must still exist — close_out_diff reads it"
+    ), "the snapshot row must still exist - close_out_diff reads it"
     assert not [a for a in handoff.list_artifacts() if a["kind"] == "plan-snapshot"]
     assert not [
         a for a in handoff.list_artifacts(engagement_id=eid) if a["kind"] == "plan-snapshot"
@@ -316,7 +316,7 @@ def test_a_plan_the_caller_cannot_fully_read_yields_no_diff(client):
 def test_a_hidden_task_or_ritual_refuses_the_whole_diff(client):
     """The titles in a diff come from the SNAPSHOT, which passed through no
     filter. Reporting a hidden row as dropped both publishes it and says the
-    opposite of the truth — the task exists, the meeting happened."""
+    opposite of the truth - the task exists, the meeting happened."""
     made = _born()
     eid = made["engagement"]["id"]
     other = scope.Viewer("someone-else", True)
@@ -431,7 +431,7 @@ def test_a_truncated_list_never_contradicts_the_count_beside_it(client):
 
 def test_a_milestone_delivered_early_is_not_slip(client):
     """A finish date settles the question either way. Reported as slip, the
-    drafted lesson pads the playbook for work that came in ahead — the
+    drafted lesson pads the playbook for work that came in ahead - the
     headline feature teaching the template the opposite of what happened."""
     made = _born()
     mil = made["milestones"][0]
@@ -460,7 +460,7 @@ def test_the_panel_does_not_promise_a_lesson_it_will_not_file(client):
     variance, filed nothing, and sent the reader to an empty queue."""
     made = _born()
     eid = made["engagement"]["id"]
-    # unfinished work only — real variance, but nothing to change in the YAML
+    # unfinished work only - real variance, but nothing to change in the YAML
     assert playbooks.close_out_diff(eid)["drafts_lesson"] is False
     engagements.update_engagement(eid, status="closed", conclusion="partial", actor="ava")
     assert not [p for p in review.list_changes("pending") if p["entity"] == "lesson"]

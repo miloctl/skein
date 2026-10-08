@@ -5,8 +5,8 @@
 # The trigger used to be "the marker file changed in this push". That is a fact
 # about an event payload, not about a commit: a release whose gates failed could
 # never be published from the fixed commit, because the fix did not touch the
-# marker (2026-08-30). The predicate here is a fact about the commit instead —
-# its marker NAMES this version — so any green commit carrying that marker is
+# marker (2026-08-30). The predicate here is a fact about the commit instead -
+# its marker NAMES this version - so any green commit carrying that marker is
 # publishable, and protected main supplies the review guarantee.
 #
 # A tag forbids, it never permits: an existing vX.Y.Z means finalize-release
@@ -123,7 +123,7 @@ jobs:
           # artifact-ids selects the action's multi-artifact path even for one
           # ID. Without merge-multiple it extracts under
           # dist/release-packages/, while the publishers intentionally match
-          # dist/*.whl and dist/*.tgz — the first dispatch failed with an
+          # dist/*.whl and dist/*.tgz - the first dispatch failed with an
           # unexpanded *.tgz glob (2026-08-31).
           merge-multiple: true
       - name: Select the tested wheel
@@ -157,7 +157,7 @@ jobs:
           # artifact-ids selects the action's multi-artifact path even for one
           # ID. Without merge-multiple it extracts under
           # dist/release-packages/, while the publishers intentionally match
-          # dist/*.whl and dist/*.tgz — the first dispatch failed with an
+          # dist/*.whl and dist/*.tgz - the first dispatch failed with an
           # unexpanded *.tgz glob (2026-08-31).
           merge-multiple: true
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

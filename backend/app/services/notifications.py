@@ -117,7 +117,7 @@ def _insert_notification(
 
 # Unread, for ONE reader. A personal row is unread while its own `read_at` is
 # NULL. A 'team' row is a single shared record, so "read" is per person and
-# lives in `notification_reads` (009) — without that table the first teammate
+# lives in `notification_reads` (009) - without that table the first teammate
 # to press dismiss cleared the announcement for everybody else.
 UNREAD_FOR = (
     "\"user\" IN (?, 'team') AND read_at IS NULL"
@@ -128,10 +128,10 @@ UNREAD_FOR = (
 def list_notifications(
     user: str, unread_only: bool = True, *, limit: int = 50, offset: int = 0
 ) -> list[dict]:
-    # 'team' notifications are addressed to everyone — same rule as briefing
+    # 'team' notifications are addressed to everyone - same rule as briefing
     if unread_only:
         return db.query(
-            f"SELECT * FROM notifications WHERE {UNREAD_FOR}"  # noqa: S608 — UNREAD_FOR is a module constant with bound marks
+            f"SELECT * FROM notifications WHERE {UNREAD_FOR}"  # noqa: S608 - UNREAD_FOR is a module constant with bound marks
             " ORDER BY id DESC LIMIT ? OFFSET ?",
             (user, user, limit, offset),
         )
@@ -207,7 +207,7 @@ def policy_filter(
             visible_shared = {
                 int(row["id"])
                 for row in db.query(
-                    f"SELECT message.id FROM chat_messages message"  # noqa: S608 — controlled marks
+                    f"SELECT message.id FROM chat_messages message"  # noqa: S608 - controlled marks
                     " JOIN chat_members member ON member.thread_id = message.thread_id"
                     f" WHERE message.id IN ({marks}) AND member.person = ?"
                     " AND member.left_at IS NULL",
@@ -292,7 +292,7 @@ def mark_pending_change_read(change_id: int) -> int:
 
 
 def mark_read_matching(prefix: str) -> int:
-    """Clear unread notifications whose message starts with `prefix` —
+    """Clear unread notifications whose message starts with `prefix` -
     used when the thing they point at (a review, a blocker) is resolved."""
     return db.execute_rowcount(
         "UPDATE notifications SET read_at = ? WHERE read_at IS NULL AND message LIKE ?",
@@ -310,7 +310,7 @@ def mark_read(
 
     A row addressed to the reader by name clears its own `read_at`. A 'team'
     row is one shared record, so dismissing it records a per-person read in
-    `notification_reads` (009) and leaves the row unread for everybody else —
+    `notification_reads` (009) and leaves the row unread for everybody else -
     before that table the first reader silently dismissed the team's
     announcement for the whole roster.
 

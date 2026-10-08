@@ -7,7 +7,7 @@
 # The image tag pins a MAJOR version and must match the pg_dump the backend
 # image installs (backend/Dockerfile, PG_MAJOR). pg_dump refuses a server
 # newer than itself, and the failure lands in the nightly backup job rather
-# than at boot — the daily copy just stops being written.
+# than at boot - the daily copy just stops being written.
 #
 # A StatefulSet, not a Deployment: it gives the volume a stable identity and
 # refuses to run two pods against one data directory, which is exactly the
@@ -101,7 +101,7 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
-          # Starting sizes, not measured ones — same honesty as the backend's.
+          # Starting sizes, not measured ones - same honesty as the backend's.
           # shared_buffers defaults to 128MB, so the limit must clear that
           # plus per-connection work_mem or the OOM killer takes the cluster.
           resources:
@@ -158,7 +158,7 @@ spec:
 #
 # The application must NOT be a superuser. A superuser can COPY ... FROM
 # PROGRAM, which executes shell commands on this pod as the postgres OS user,
-# and pg_read_file, which reads its filesystem — so every SQL bug, and every
+# and pg_read_file, which reads its filesystem - so every SQL bug, and every
 # buggy extension (ExtensionStore takes raw SQL), escalates from "reads some
 # rows" to running commands on the database container. SQLite had no
 # SQL-reachable exec primitive at all; this restores the bound.

@@ -2,7 +2,7 @@
 
 scan() runs inside the prose-writing services (task descriptions, notes,
 questions and answers, decisions) after their own write. It adds no mutating
-surface of its own — no tool, no gate row, no separate activity row: the
+surface of its own - no tool, no gate row, no separate activity row: the
 parent write carries the provenance, mention_log carries the mention's.
 The primary key (entity, entity_id, person) is the dedupe: every edit
 re-parses the full text, and a typo fix must not notify twice.
@@ -16,7 +16,7 @@ from . import crews, scope
 # a roster name is matched whole and case-insensitively; a name with a space
 # cannot be written as one @token and is therefore not mentionable.
 # The lookbehind keeps an email localpart or ssh target (root@scout) from
-# pinging scout — a mention starts a token, it never continues one.
+# pinging scout - a mention starts a token, it never continues one.
 _MENTION = re.compile(r"(?<![a-z0-9])@([a-z0-9][a-z0-9._-]*)", re.ASCII | re.IGNORECASE)
 
 
@@ -24,7 +24,7 @@ def _roster() -> dict[str, tuple[str, str]]:
     """@token (lowercased) -> (roster name, kind). Personas share this table
     with people: /as and /flock mint `kind='agent'` rows on demand
     (services/users.py::ensure_user), which also refuses a human name that
-    collides with a bench slug — so one token never means two identities."""
+    collides with a bench slug - so one token never means two identities."""
     return {
         u["name"].lower(): (u["name"], u["kind"])
         for u in db.query("SELECT name, kind FROM users WHERE active = 1 AND name != 'anonymous'")
@@ -33,7 +33,7 @@ def _roster() -> dict[str, tuple[str, str]]:
 
 # fenced and inline code, dropped before any token is read. Chat is where
 # people paste shell and YAML, and `curl -H "X-User: @mira"` is not a mention
-# — it notified mira, and the chat guard then told the author it had not.
+# - it notified mira, and the chat guard then told the author it had not.
 _CODE = re.compile(r"```.*?```|`[^`]*`", re.S)
 
 
@@ -44,7 +44,7 @@ def _tokens(text: str) -> list[str]:
 
 def _match(roster: dict[str, tuple[str, str]], token: str) -> tuple[str, str] | None:
     # "thanks @mira." binds the sentence-final punctuation into the token
-    # (._- are legal name characters) — retry stripped, or the most common
+    # (._- are legal name characters) - retry stripped, or the most common
     # mention position never matches
     return roster.get(token) or roster.get(token.rstrip("._-"))
 
@@ -55,7 +55,7 @@ def names_in(text: str, actor: str = "") -> tuple[list[str], list[str]]:
     Shares _tokens and _match with scan() on purpose: a surface that reports
     what a mention WILL do must not use a second parser, or it names people
     scan never matches and stays silent about ones it does. `actor` is dropped
-    for the same reason scan drops it — a self-mention is not directed
+    for the same reason scan drops it - a self-mention is not directed
     attention, and reporting one tells the author to file something that would
     notify nobody.
     """
@@ -76,7 +76,7 @@ def slugs_in(text: str, known: set[str]) -> list[str]:
     """@tokens naming something in `known`, WITHOUT consulting the roster.
 
     names_in above needs a users row, and a bench specialist only gets one
-    after its first /as or consult (services/users.py::ensure_user) — so it
+    after its first /as or consult (services/users.py::ensure_user) - so it
     cannot see a specialist nobody has called yet, which is exactly the first
     consult. Shares _tokens with scan() for the reason names_in does: a second
     parser matches names the first one does not.
@@ -96,7 +96,7 @@ def _reaches(tier: tuple[str, int | None] | None, person: str) -> bool:
     makes and for the same reason: seven callers write prose, and a tier
     threaded through all seven is a tier one of them forgets. The notify below
     names the entity, its id and the author, so without this a `@bo` inside
-    Ava's private note told Bo that note #7 exists and who wrote it — and
+    Ava's private note told Bo that note #7 exists and who wrote it - and
     opening it 404s. That is the one fact scope.missing exists to withhold.
 
     A PRIVATE row reaches nobody: its only reader is the author, and the
@@ -152,7 +152,7 @@ def _scan_locked(
     parent: tuple[str, int] | None = None,
 ) -> list[str]:
     """Returns the names notified. `exclude` names people the parent write
-    already pinged (the assignee on a question, the asker on an answer) —
+    already pinged (the assignee on a question, the asker on an answer) -
     a mention must not double-ping. The actor is always excluded: a
     self-mention is not directed attention."""
     if not text or "@" not in text:

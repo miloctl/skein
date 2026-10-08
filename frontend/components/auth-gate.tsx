@@ -11,7 +11,7 @@ import { setGated } from "@/lib/gated";
 import { signedOutLine } from "@/lib/whimsy";
 
 /** Segment endpoints along the centerline of SkeinMark's band, on the same
- *  32-unit grid — the formation the strands settle into is the mark the nav
+ *  32-unit grid - the formation the strands settle into is the mark the nav
  *  shows once inside (components/mark.tsx).
  *
  *  STROKES at fractional coordinates, which mark.tsx refuses for itself: a
@@ -99,7 +99,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const panel = useRef<HTMLElement>(null);
 
   // /auth/callback completes the sign-in this gate starts, and Settings is
-  // where a personal key gets pasted — gating either locks the door shut.
+  // where a personal key gets pasted - gating either locks the door shut.
   // The trailing slash keeps a future /authority page out of the exemption.
   const exempt = pathname.startsWith("/auth/") || pathname.startsWith("/settings");
   const locked = useSyncExternalStore(subscribeSession, sessionLocked, () => false);
@@ -107,7 +107,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   // The nav shell around this component and the two overlays beside it are
   // not its children, so they keep rendering while the gate stands. lib/gated.ts is how they
-  // learn to stand down — see the reasoning there.
+  // learn to stand down - see the reasoning there.
   useEffect(() => {
     setGated(gating);
     return () => setGated(false);
@@ -115,7 +115,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   // Focus the panel, never the button: the button is LAST in the reading
   // order, so focusing it skips the one sentence that says why the workspace
-  // was replaced — which on an expired session is the whole message. Landing
+  // was replaced - which on an expired session is the whole message. Landing
   // on the panel makes a screen reader read the heading and the explanation,
   // then reach the control. This is also the only announcement the swap gets:
   // the gate is client state inside one component, so Next's route announcer
@@ -126,7 +126,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!gating) return <>{children}</>;
 
-  // signIn resolves to a message only when it could not start — an
+  // signIn resolves to a message only when it could not start - an
   // unconfigured deployment, or a config it could not read. Never a success
   // path: on success the browser has already left for the identity provider.
   const start = () => {

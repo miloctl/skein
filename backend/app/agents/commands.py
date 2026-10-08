@@ -6,7 +6,7 @@ provider is mock or a live model. Its output is not kept from one: on a live
 provider, agents/session_log.py bridges the exchange into the chat's model
 session, and the next agent turn sends it to the provider, including the
 private and crew rows `/briefing`, `/delta` and `/search` read for the caller. The same registry feeds
-GET /api/chat/commands, which drives the composer autocomplete — the UI can
+GET /api/chat/commands, which drives the composer autocomplete - the UI can
 never drift from what the backend actually accepts.
 """
 
@@ -41,7 +41,7 @@ from ..services import (
 # Handlers below call services through run_in_threadpool, never inline: these
 # async generators run on the event loop the chat route shares with every open
 # SSE stream. Concrete case: with SKEIN_EMBEDDINGS=1 a hung embedding endpoint
-# inside search.search blocks the loop for up to 5s — every concurrent chat
+# inside search.search blocks the loop for up to 5s - every concurrent chat
 # stream freezes with it. main.py's perimeter middleware documents the same
 # rule for auth lookups.
 
@@ -55,7 +55,7 @@ class CommandAccess:
     policy: PolicyEngine
     subject: PolicySubject
     origin: str
-    # the CLAIMED thread this command ran in ("" outside a chat turn — the
+    # the CLAIMED thread this command ran in ("" outside a chat turn - the
     # mock agent's direct dispatch, tests). /remember reads it to file
     # against the thread's linked engagement; the route claims the id before
     # dispatching, so it is proved to be the caller's.
@@ -133,7 +133,7 @@ async def _delta(
             )
         }
         return
-    lines = [f"**Recent changes — {out['window_start']} to {out['window_end']}**", ""]
+    lines = [f"**Recent changes - {out['window_start']} to {out['window_end']}**", ""]
     if out["truncated"]:
         lines.append("This summary is incomplete. More findings are available in Insights.")
     for item in out["items"]:
@@ -176,7 +176,7 @@ async def _briefing(
 
     b = await run_in_threadpool(read_briefing)
     n = b["needs_you"]
-    lines = [f"**My Day — {b['user']}, {b['date']}**", ""]
+    lines = [f"**My Day - {b['user']}, {b['date']}**", ""]
     personal_reviews = sum(
         1 for item in b["attention"] if item["kind"] == "proposal" and item["audience"] == "you"
     )
@@ -185,8 +185,8 @@ async def _briefing(
     lines.append(f"- Reviews waiting on you: {personal_reviews}")
     lines.append(f"- Your unresolved blockers: {len(n['your_blockers'])}")
     lines.append(f"- Your active tasks: {len(b['your_work']['tasks'])}")
-    lines.append(f"- Team queue — pending reviews: {team_reviews}")
-    lines.append(f"- Team queue — intake awaiting triage: {len(n['intake_to_triage'])}")
+    lines.append(f"- Team queue - pending reviews: {team_reviews}")
+    lines.append(f"- Team queue - intake awaiting triage: {len(n['intake_to_triage'])}")
     esc = b["team"]["escalated_blockers"]
     if esc:
         lines.append("- Team escalations: " + ", ".join(f"#{e['id']} {e['title']}" for e in esc))
@@ -235,7 +235,7 @@ async def _search(
     else:
         # FTS marks hits with <b>…</b>; chat renders markdown, not raw HTML
         body = "\n".join(
-            "- [{entity} #{id}] **{title}** — {snippet}".format(
+            "- [{entity} #{id}] **{title}** - {snippet}".format(
                 entity=h["entity"],
                 id=h["entity_id"],
                 title=h["title"],
@@ -307,7 +307,7 @@ async def _playbooks(
     yield _tool_event("list_playbooks")
     rows = await run_in_threadpool(playbooks.list_playbooks)
     body = (
-        "\n".join(f"- **{p['slug']}** — {p['name']}: {p['description'].strip()}" for p in rows)
+        "\n".join(f"- **{p['slug']}** - {p['name']}: {p['description'].strip()}" for p in rows)
         or "No playbooks found."
     )
     yield {"data": f"Available playbooks:\n\n{body}"}
@@ -320,14 +320,14 @@ async def _personas(
     rows = await run_in_threadpool(personas.list_personas)
     body = (
         "\n".join(
-            f"- {p['emoji']} **{p['slug']}** — {p['description']}"
+            f"- {p['emoji']} **{p['slug']}** - {p['description']}"
             + (f" *({p['vibe']})*" if p["vibe"] else "")
             for p in rows
         )
         or "No personas installed."
     )
     yield {
-        "data": f"The bench — specialists you can call in with `/as <persona> <message>`:\n\n{body}"
+        "data": f"The bench - specialists you can call in with `/as <persona> <message>`:\n\n{body}"
     }
 
 
@@ -378,7 +378,7 @@ async def _model(
     in_force = current or team
     lines = [
         f"- {'**' if m['id'] == in_force else ''}{m['id']}{'**' if m['id'] == in_force else ''}"
-        + (f" — {m['label']}" if m.get("label") and m["label"] != m["id"] else "")
+        + (f" - {m['label']}" if m.get("label") and m["label"] != m["id"] else "")
         + (f": {m['detail']}" if m.get("detail") else "")
         for m in menu
     ]
@@ -392,7 +392,7 @@ async def _model(
     if state.get("ignored"):
         head += f" The team pick is ignored: {state['ignored']}"
     if config.MODELS_ERROR:
-        body = "SKEIN_MODELS is unusable — fix the registry first (/health says why)."
+        body = "SKEIN_MODELS is unusable - fix the registry first (/health says why)."
     else:
         body = "\n".join(lines) or "The menu is empty. Set SKEIN_MODELS."
     yield {"data": f"{head}\n\nPick one with `/model <id>`, or `/model default`:\n\n{body}"}
@@ -468,10 +468,10 @@ async def _flocks(
     lines = []
     for f in rows:
         heads = " ".join(f"{m['emoji']} {m['name']}" for m in f["members"])
-        lines.append(f"- {f['emoji']} **{f['slug']}** — {f['description']}\n  {heads}")
+        lines.append(f"- {f['emoji']} **{f['slug']}** - {f['description']}\n  {heads}")
     body = "\n".join(lines) or "No flocks installed."
     yield {
-        "data": "Flocks — call several personas at one time with"
+        "data": "Flocks - call several personas at one time with"
         f" `/flock <flock> <message>`:\n\n{body}"
     }
 
@@ -639,7 +639,7 @@ COMMANDS: list[dict] = [
     {
         "name": "flocks",
         "args": "",
-        "description": "List the flocks — groups of personas you can call at one time",
+        "description": "List the flocks - groups of personas you can call at one time",
         "handler": _flocks,
     },
     {
@@ -666,7 +666,7 @@ COMMANDS: list[dict] = [
     },
     # registered even though the route runs it: dispatch() answers any
     # UNKNOWN /word with a did-you-mean line, and get_close_matches would
-    # match this one to /flocks — the fan-out would never run
+    # match this one to /flocks - the fan-out would never run
     {
         "name": "flock",
         "args": "<flock> <message>",
@@ -691,11 +691,11 @@ def help_text() -> str:
         # (bad name, missing key, bad SKEIN_MAX_TOKENS). Claiming "no API
         # key" for the second sends the operator to fix the wrong thing.
         why = (
-            "the configured model provider is unavailable — /health names the fault"
+            "the configured model provider is unavailable - /health names the fault"
             if config.MODEL_PROVIDER_ERROR
             else "no model provider configured"
         )
-        head = f"**Mock agent** ({why}) — everything still works, deterministically. Chat capture only creates — to fix or delete a record, use its edit control in the UI:"
+        head = f"**Mock agent** ({why}) - everything still works, deterministically. Chat capture only creates - to fix or delete a record, use its edit control in the UI:"
         rows.append(
             "| *anything else* | Smart-captured as a task, question, note, decision, or blocker |"
         )
@@ -703,12 +703,12 @@ def help_text() -> str:
             "Freeform examples: `todo: ship the API`, `why is staging down?`, "
             "`decision: we're using SQLite`, `blocked on vendor contract`.\n\n"
             "Set `SKEIN_MODEL_PROVIDER` in backend/.env for the full conversational "
-            f"agent — one of: {', '.join(sorted(p for p in config.PROVIDERS if p != 'mock'))}. "
+            f"agent - one of: {', '.join(sorted(p for p in config.PROVIDERS if p != 'mock'))}. "
             "`ollama` needs no key (free with a signed-in daemon). `openai_compatible` "
             "points at any OpenAI-shaped endpoint via `SKEIN_MODEL_BASE_URL`."
         )
     else:
-        head = "**Commands** run instantly — no model call, same answer every time:"
+        head = "**Commands** run instantly - no model call, same answer every time:"
         rows.append("| *anything else* | Goes to the Chief of Staff agent |")
         tail = "Commands work in chat and the CLI."
     return f"{head}\n\n| Command | Effect |\n|---|---|\n" + "\n".join(rows) + f"\n\n{tail}"
@@ -726,7 +726,7 @@ def dispatch(
     viewer: "scope.Viewer | None" = None,
     access: CommandAccess | None = None,
 ) -> AsyncIterator[Event] | None:
-    """Event stream for slash-command text; None means 'not a command —
+    """Event stream for slash-command text; None means 'not a command -
     give it to the agent'. Command-shaped tokens that match nothing get a
     did-you-mean reply instead of a silent (and costly) trip to the model.
 

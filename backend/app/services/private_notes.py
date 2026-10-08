@@ -11,7 +11,7 @@ private (a deliberate, documented narrowing of the provenance norm).
 
 Access rules enforced at the route layer (StrongUser) and re-checked here:
 author-scoped reads only, human-only writes. The 1:1 brief is the one
-function that reads the PLATFORM tables — team-visible data only, assembled
+function that reads the PLATFORM tables - team-visible data only, assembled
 for 1:1 prep; it never writes.
 """
 
@@ -121,7 +121,7 @@ def list_notes(author: str, person: str = "") -> list[dict]:
 
 def feedback_gap_days(author: str, person: str) -> int | None:
     """Days since the author's last feedback note for person; None if never.
-    Computed at read time for the author's own page — never stored, never
+    Computed at read time for the author's own page - never stored, never
     notified, never aggregated (anti-surveillance rule)."""
     _ready()
     with db.transaction():
@@ -138,7 +138,7 @@ def feedback_gap_days(author: str, person: str) -> int | None:
 
 def delete_note(author: str, note_id: int) -> dict:
     """Author-only delete with a tombstone audit row: proves note #N existed
-    and was destroyed (deliberately NOT whom it concerned — less residue)."""
+    and was destroyed (deliberately NOT whom it concerned - less residue)."""
     _ready()
     with db.transaction():
         deleted = db.execute_rowcount(
@@ -152,7 +152,7 @@ def delete_note(author: str, note_id: int) -> dict:
 
 def author_has_notes(author: str) -> bool:
     """Does this author hold private rows? Callers outside this module need
-    this to REFUSE an operation, never to read one — it returns a boolean and
+    this to REFUSE an operation, never to read one - it returns a boolean and
     no content, so it leaks nothing the caller could not already infer."""
     _ready()
     with db.transaction():
@@ -195,7 +195,7 @@ def erase_author(author: str) -> int:
 
 def rename_author(old: str, new: str) -> None:
     """Move OWNERSHIP: the author's own notes and audit trail. Access is keyed
-    by author name, so only the author may trigger this — see the guard in
+    by author name, so only the author may trigger this - see the guard in
     users.rename_user."""
     _ready()
     with db.transaction():
@@ -207,7 +207,7 @@ def rename_subject(old: str, new: str) -> None:
     """Move the SUBJECT reference: notes other people keep ABOUT this person.
 
     Safe for any actor to trigger, and it must run on every rename. It changes
-    no ownership — each author still reads only their own rows — so it leaks
+    no ownership - each author still reads only their own rows - so it leaks
     nothing. Skipping it stranded every teammate's 1:1 journal about the
     renamed person under a name with no roster row: their brief rendered empty
     and their feedback-gap nudge reset to 'never'."""
@@ -263,7 +263,7 @@ def list_audit(author: str, limit: int = 100) -> list[dict]:
 
 def audit_brief(author: str, person: str) -> None:
     """Record that author pulled person's 1:1 brief (the audit stays in the
-    private schema — the fact a brief was pulled is itself private)."""
+    private schema - the fact a brief was pulled is itself private)."""
     _ready()
     with db.transaction():
         _audit(author, f"brief:{person.strip()}", None)
@@ -273,7 +273,7 @@ def one_on_one_brief(
     person: str, days: int = 14, viewer: scope.Viewer = scope.NOBODY, policy=None
 ) -> dict:
     """Deterministic "since last time" brief, filtered to what the READER may
-    see — not to what the subject wrote.
+    see - not to what the subject wrote.
 
     `person` is a free path parameter and there is no manager relation in this
     schema, so every StrongUser can name every teammate. Unfiltered, the six
@@ -298,33 +298,33 @@ def one_on_one_brief(
         "person": person,
         "since": since,
         "standups": db.query(
-            f"SELECT * FROM standups WHERE author = ? AND created_at >= ? AND {f['standups'][0]}"  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM standups WHERE author = ? AND created_at >= ? AND {f['standups'][0]}"  # noqa: S608 - scope.visible_filter emits only bound marks
             " ORDER BY id DESC LIMIT 5",
             (person, since, *f["standups"][1]),
         ),
         "open_blockers": db.query(
-            f"SELECT * FROM blockers WHERE owner = ? AND status != 'resolved' AND {f['blockers'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
+            f"SELECT * FROM blockers WHERE owner = ? AND status != 'resolved' AND {f['blockers'][0]}"  # noqa: S608 - `scoped` is a module-local literal with one bound mark
             " ORDER BY id DESC",
             (person, *f["blockers"][1]),
         ),
         "open_questions": db.query(
-            f"SELECT * FROM questions WHERE assigned_to = ? AND status = 'open' AND {f['questions'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
+            f"SELECT * FROM questions WHERE assigned_to = ? AND status = 'open' AND {f['questions'][0]}"  # noqa: S608 - `scoped` is a module-local literal with one bound mark
             " ORDER BY id",
             (person, *f["questions"][1]),
         ),
         "in_progress": db.query(
-            f"SELECT id, title, updated_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
+            f"SELECT id, title, updated_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 - `scoped` is a module-local literal with one bound mark
             " AND status = 'in_progress' ORDER BY updated_at",
             (person, *f["tasks"][1]),
         ),
         "recently_done": db.query(
-            f"SELECT id, title, completed_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 — `scoped` is a module-local literal with one bound mark
+            f"SELECT id, title, completed_at FROM tasks WHERE assignee = ? AND {f['tasks'][0]}"  # noqa: S608 - `scoped` is a module-local literal with one bound mark
             " AND completed_at >= ? ORDER BY completed_at DESC LIMIT 10",
             (person, *f["tasks"][1], since),
         ),
         "promises_made": db.query(
             # direction = 'given': the heading says "promises they made"
-            f"SELECT * FROM promises WHERE created_by = ? AND created_at >= ?"  # noqa: S608 — scope filters emit only bound marks
+            f"SELECT * FROM promises WHERE created_by = ? AND created_at >= ?"  # noqa: S608 - scope filters emit only bound marks
             f" AND direction = 'given' AND {f['promises'][0]}"
             " ORDER BY id DESC",
             (person, since, *f["promises"][1]),
@@ -342,7 +342,7 @@ def one_on_one_brief(
 
 
 # a bare '-' only separates when whitespace-surrounded, so hyphenated names
-# (mary-jane) never get split into person="mary", body="jane — …"
+# (mary-jane) never get split into person="mary", body="jane - …"
 #
 # The guard also matches the command-wrapped shape ("/remember fb: …"). Every
 # surface that sinks text to disk, a model provider, or a team-visible record
@@ -351,13 +351,13 @@ def one_on_one_brief(
 # capture route skips domain policy for exactly what this matches
 # (tests/test_extension_policy.py pins the wrapped multi-line capture).
 FB_GUARD = re.compile(r"^\s*(?:/[a-z]+\s+)?fb:", re.I)
-_FB = re.compile(r"^\s*fb:\s*(?P<person>.+?)\s*(?:—|:|\s-\s)\s*(?P<body>.+)$", re.I | re.S)
+_FB = re.compile(r"^\s*fb:\s*(?P<person>.+?)\s*(?:\u2014|:|\s-\s)\s*(?P<body>.+)$", re.I | re.S)
 
 
 def parse_feedback(text: str) -> tuple[str, str]:
-    """Parse 'fb: <person> — <note>' (also ':' or spaced '-' separators).
+    """Parse 'fb: <person> - <note>' (also ':' or spaced '-' separators).
     Only call on FB_GUARD-matching text; raises on malformed input."""
     m = _FB.match(text)
     if not m:
-        raise ValueError("feedback format: fb: <person> — <note>")
+        raise ValueError("feedback format: fb: <person> - <note>")
     return m.group("person").strip(), m.group("body").strip()

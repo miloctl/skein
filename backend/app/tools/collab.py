@@ -1,4 +1,4 @@
-"""Collaboration tools — thin wrappers over app.services.collab."""
+"""Collaboration tools - thin wrappers over app.services.collab."""
 
 import json
 from typing import Any
@@ -108,7 +108,7 @@ def record_decision(
     Args:
         title: Short name of the decision.
         decision: What was decided.
-        context: Why — the options considered and reasoning.
+        context: Why - the options considered and reasoning.
         decided_by: Who made or ratified the decision.
         review_by: YYYY-MM-DD date when the decision should be revisited.
         category: '' for normal decisions, 'charter' for team charter /
@@ -277,7 +277,7 @@ def edit_note(note_id: int, topic: str = "", content: str = "") -> str:
     """
     payload: dict[str, Any] = {k: v for k, v in {"topic": topic, "content": content}.items() if v}
     if not payload:
-        return json.dumps({"error": "nothing to change — pass topic and/or content"})
+        return json.dumps({"error": "nothing to change - pass topic and/or content"})
     return gated_write(
         "note_edit",
         "update",
@@ -308,7 +308,7 @@ def delete_note(note_id: int) -> str:
         {},
         lambda: collab.delete_note(note_id, actor=agent_identity(), origin="agent"),
         entity_id=note_id,
-        # the reviewer must see what would be destroyed, right on the card —
+        # the reviewer must see what would be destroyed, right on the card -
         # but only a reviewer who can already read it. scope.detail drops the
         # body for a scoped row: GET /api/review serves this summary to every
         # CurrentUser and propose_change quotes it into a `team` notification,

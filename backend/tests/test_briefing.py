@@ -58,7 +58,7 @@ def test_ellipsize_cuts_at_word_boundary():
 def test_ellipsize_strips_dangling_separators():
     from app.services.briefing import _ellipsize
 
-    text = "x" * 95 + " — trailing tail"
+    text = "x" * 95 + " - trailing tail"
     assert _ellipsize(text, 100) == "x" * 95 + "…"
 
 
@@ -94,7 +94,7 @@ def test_briefing_coalesces_and_resurfaces_on_dismiss(client):
     items = _notice_items(client)
     assert len(items) == 1
     assert items[0]["label"].endswith("(+2 similar)")
-    assert items[0]["reason"] == "for you — dismiss when read"
+    assert items[0]["reason"] == "for you - dismiss when read"
 
     client.post("/api/notifications/read", json={"notification_id": items[0]["ref_id"]})
     items = _notice_items(client)
@@ -121,7 +121,7 @@ def test_briefing_team_notification_reason_label(client):
 
     notifications.notify("team", "all hands moved to Friday", link="/")
     items = _notice_items(client)
-    assert items[0]["reason"] == "for the whole team — dismiss when read"
+    assert items[0]["reason"] == "for the whole team - dismiss when read"
 
 
 def test_briefing_shows_a_pending_proposal_without_its_linked_notification(client, fresh_db):
@@ -190,7 +190,7 @@ def test_your_work_lists_are_capped(fresh_db):
 def test_due_soon_reads_the_assignee_index(fresh_db):
     """Migration 044 exists for this query shape; without the index the plan
     is SCAN tasks, measured live. The SQL here
-    mirrors briefing.my_day's due_soon — if that query drifts, this still
+    mirrors briefing.my_day's due_soon - if that query drifts, this still
     holds the index to its purpose."""
     plan = " ".join(
         # EXPLAIN returns one text column named "QUERY PLAN"; sqlite's
@@ -210,7 +210,7 @@ def test_due_soon_reads_the_assignee_index(fresh_db):
 def test_an_owned_blockers_escalation_is_said_once(client, fresh_db):
     """A blocker the reader owns is already an attention row carrying the
     resolve control. Before the dedupe its escalation notice restated that row
-    one section down and Team today restated it again — the same blocker
+    one section down and Team today restated it again - the same blocker
     rendered three times on one page."""
     from app import db
     from app.services import notifications
@@ -247,7 +247,7 @@ def test_someone_elses_escalated_blocker_stays_in_team_today(client, fresh_db):
 
 def test_two_notices_about_one_source_row_show_as_one(client, fresh_db):
     """Delegation writes "you sponsor task #N" and the agent's claim writes
-    "agent started on task #N" minutes later — one task, two notices, and the
+    "agent started on task #N" minutes later - one task, two notices, and the
     prefix-based coalesce cannot stack them. Newest wins; dismissing it
     surfaces the older one, like the coalesce resurface above."""
     from app.services import notifications, work

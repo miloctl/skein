@@ -1,6 +1,6 @@
 """Field guide: first-use feature discovery ("knots"). Predicates DETECT use
 from data the platform already has; feature_unlocks HOLDS the state (activity
-gets pruned, unlocks survive). A person's unlock rows are self-visible only —
+gets pruned, unlocks survive). A person's unlock rows are self-visible only -
 the anti-surveillance rule outranks the provenance convention here, so like
 tool_usage these writes never touch the team-visible activity feed. Spec and
 the non-negotiables: docs/FIELD-GUIDE.md."""
@@ -56,7 +56,7 @@ def _guided_first_week_predates(user: str, since: str) -> bool:
 
 # id -> first-use test. None = tied only via mark() (read-only features write
 # nothing to detect against). Detail-string predicates are pinned by tests in
-# test_fieldguide.py — if a service changes its activity wording, the test
+# test_fieldguide.py - if a service changes its activity wording, the test
 # breaks loudly instead of the knot silently going untieable.
 PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "capture": lambda u: _act(u, "capture"),
@@ -104,7 +104,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # not tie it for the person who asked
     "meeting_links": lambda u: _has(
         " UNION ALL ".join(
-            f"SELECT 1 FROM {table} WHERE created_by = ? AND event_id IS NOT NULL"  # noqa: S608 — tables from schedule.LINKED
+            f"SELECT 1 FROM {table} WHERE created_by = ? AND event_id IS NOT NULL"  # noqa: S608 - tables from schedule.LINKED
             for table, _title in LINKED.values()
         ),
         (u,) * len(LINKED),
@@ -121,7 +121,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "promise": lambda u: _has("SELECT 1 FROM promises WHERE created_by = ?", (u,)),
     "growth": lambda u: _act(u, "set_growth_interests"),
     # a chat_threads row means a message reached POST /api/chat, which claims
-    # the id before anything else runs (chat_threads.claim_thread) — so a turn
+    # the id before anything else runs (chat_threads.claim_thread) - so a turn
     # that dies after the claim ties this too. Still the right probe:
     # tool_usage's 'chat' surface would tie on merely opening the page.
     "chat": lambda u: _has("SELECT 1 FROM chat_threads WHERE owner = ?", (u,)),
@@ -138,17 +138,17 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # record can distinguish opening page help or speaking to this persona.
     "page_help": None,
     "bosun": None,
-    # one row per flock turn, written when the turn closes — a cancelled turn
+    # one row per flock turn, written when the turn closes - a cancelled turn
     # ties it too, which is right: the person called a flock and it flew
     "flocks": lambda u: _has('SELECT 1 FROM flock_traces WHERE "user" = ?', (u,)),
-    # tied by the chat route when a capture-prefixed turn actually writes —
+    # tied by the chat route when a capture-prefixed turn actually writes -
     # the write lands under the AGENT's name, so no actor predicate can find it
     "chat_capture": None,
     # tied by the chat route when a consulted specialist actually spoke. No
     # query works: a consult's spend is a usage_log row under the specialist's
     # slug, and `/as` writes exactly the same row
     "consult": None,
-    "activity_feed": None,  # read-only page — tied by mark() on the feed route
+    "activity_feed": None,  # read-only page - tied by mark() on the feed route
     "recent_summary_review": lambda u: _has(
         "SELECT 1 FROM app_settings WHERE key = ?", (f"delta_reviewed:{u}",)
     ),
@@ -163,15 +163,15 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "delegate": lambda u: _act(u, "delegate_task"),
     "mention": lambda u: _has("SELECT 1 FROM mention_log WHERE mentioned_by = ?", (u,)),
     # never ties, and says so in knots.yaml (`ties: never`). A team-wide query
-    # would tie this card for people who never used it — the opposite of first
-    # use — and services/forge.py deliberately keeps the pusher out of the
+    # would tie this card for people who never used it - the opposite of first
+    # use - and services/forge.py deliberately keeps the pusher out of the
     # ledger, so there is no honest per-person signal to key on either.
     "forge": None,
     "remote-tools": lambda u: _has(
         "SELECT 1 FROM mcp_servers WHERE scope = 'personal' AND owner = ?", (u,)
     ),
     # reviewed_override=0 on a task_completion verdict means the reviewer WAS
-    # the sponsor at verdict time — the loop closed the designed way
+    # the sponsor at verdict time - the loop closed the designed way
     "sponsor_verdict": lambda u: _has(
         "SELECT 1 FROM pending_changes WHERE entity = 'task_completion' AND reviewed_by = ?"
         " AND status IN ('approved', 'rejected') AND reviewed_override = 0",
@@ -181,7 +181,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         "SELECT 1 FROM standups WHERE author = ? AND TRIM(blockers) != ''", (u,)
     ),
     "finding_converted": lambda u: _act(u, "disposition_finding", "% converted"),
-    # terminal statuses only — update_promise also logs an open→open no-op
+    # terminal statuses only - update_promise also logs an open→open no-op
     "settle": lambda u: any(
         _act(u, "update_promise", f"#% {s}") for s in ("kept", "missed", "withdrawn")
     ),
@@ -193,7 +193,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         "SELECT 1 FROM blockers WHERE created_by = ? AND task_id IS NOT NULL", (u,)
     ),
     "close_engagement": lambda u: _act(u, "update_engagement", "#% closed"),
-    # the brief is a READ, and reads leave no ledger row — but the reader who
+    # the brief is a READ, and reads leave no ledger row - but the reader who
     # got there followed a link somebody had to make, so the honest signal is
     # the engagement existing at all under their name
     "engagement_brief": lambda u: _has(
@@ -206,7 +206,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
         or _act(u, "reconfirm_decision")
         or _act(u, "resolve_blocker")
     ),
-    # a read with no write at all, and no honest per-person signal — the panel
+    # a read with no write at all, and no honest per-person signal - the panel
     # records nothing. Named here rather than omitted, because an absent key
     # fails the registry test and a None says the decision was made.
     "provenance": None,
@@ -246,7 +246,7 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     "reasoning_level": lambda u: _act(u, "set_reasoning_level"),
     "agent_pause": lambda u: _act(u, "set_agent_automation"),
     "playbook_closeout": lambda u: _act(u, "playbook_closeout"),
-    # only the MANUAL backup logs an actor (services/admin.py::backup) —
+    # only the MANUAL backup logs an actor (services/admin.py::backup) -
     # the 03:00 scheduled run must not tie this for anybody
     "backup": lambda u: _act(u, "backup"),
     # the ledger row, not the allocations table: a deleted allocation takes
@@ -308,7 +308,7 @@ def registry() -> list[dict]:
         ):
             raise ValueError(f"knot '{kid}' link must be an in-app path")
         db.validate_date("since", str(k["since"]), allow_clear=False)
-        # suggestion exclusion keys on role, grouping keys on set — a card
+        # suggestion exclusion keys on role, grouping keys on set - a card
         # with one but not the other would be pushed as a weekly suggestion
         # despite sitting behind the manager toggle
         if (k["set"] == "manager") != (k.get("role") == "manager"):
@@ -387,7 +387,7 @@ def _tied(person: str) -> dict[str, dict]:
 
 
 # hint() rides My Day and the nav menu, so detect() would otherwise run on
-# nearly every page load — 1-2 queries per untied knot, some LIKE scans over
+# nearly every page load - 1-2 queries per untied knot, some LIKE scans over
 # activity. Within the TTL, hint() reuses the last sweep's rows; guide() and
 # unadopted() always sweep, so the guide page itself is never stale.
 # Process-local like ratelimit; the conftest autouse reset clears it so a
@@ -437,11 +437,11 @@ def detect(person: str) -> int:
 
 
 def mark(person: str, knot: str) -> None:
-    """Direct tie for read-only features (search, /ask) — fire-and-forget,
+    """Direct tie for read-only features (search, /ask) - fire-and-forget,
     must never break the request it rides on."""
     # savepoint INSIDE the suppress: mark() runs within a caller's ambient
     # transaction (routes/api.py marks during a read_transaction), and a failed
-    # statement aborts the whole transaction — suppressing the error without
+    # statement aborts the whole transaction - suppressing the error without
     # rolling back to a savepoint kills every statement the caller runs after
     # this one (CLAUDE.md).
     with contextlib.suppress(Exception), db.savepoint():
@@ -481,9 +481,9 @@ def dismiss(person: str, knot: str) -> dict:
     """Permanently drop a knot from this person's suggestions. The card stays
     on their guide page; only the unprompted nudge goes quiet."""
     if knot not in PREDICATES:
-        raise ValueError("unknown knot — the guide page lists every valid name")
+        raise ValueError("unknown knot - the guide page lists every valid name")
     if not _is_active_human(person):
-        raise ValueError("pick a name first — the guide is per-person")
+        raise ValueError("pick a name first - the guide is per-person")
     db.execute(
         "INSERT INTO feature_unlocks (person, knot, kind, seen, first_at)"
         " VALUES (?, ?, 'dismissed', 1, ?)"
@@ -494,7 +494,7 @@ def dismiss(person: str, knot: str) -> dict:
 
 
 def _state(person: str, *, throttled: bool = False) -> tuple[dict[str, dict], set[str]]:
-    """detect + tied rows + dismissed set — the choreography hint() and
+    """detect + tied rows + dismissed set - the choreography hint() and
     guide() share. Caller must have verified _is_active_human. throttled=True
     (hint's lightweight read) skips detect within DETECT_TTL_SECONDS of the
     last sweep; the tied/dismissed rows below are read fresh either way."""
@@ -514,7 +514,7 @@ def _state(person: str, *, throttled: bool = False) -> tuple[dict[str, dict], se
 
 def _suggestion(cards: list[dict], tied: set[str], dismissed: set[str]) -> dict | None:
     """One untied card, rotating weekly (deterministic within a week for a
-    given untied set — tying or dismissing mid-week may reshuffle the pick).
+    given untied set - tying or dismissing mid-week may reshuffle the pick).
     Manager-tagged cards are never pushed; they wait on the page."""
     candidates = [
         k
@@ -534,14 +534,14 @@ def _suggestion(cards: list[dict], tied: set[str], dismissed: set[str]) -> dict 
 
 def _tieable(cards: list[dict]) -> int:
     """The denominator of "N of M tied". A card that never ties is not a card
-    you missed — counting it caps everyone below M forever, on a number the
+    you missed - counting it caps everyone below M forever, on a number the
     UI presents as completable."""
     return sum(1 for k in cards if k.get("ties") != "never")
 
 
 def hint(person: str) -> dict:
     """The lightweight read (My Day one-liner, nav menu count): suggestion +
-    counts, NO side effects on seen state — landing on My Day must never
+    counts, NO side effects on seen state - landing on My Day must never
     consume the guide page's 'newly tied' strip."""
     cards = registry()
     if not _is_active_human(person):
@@ -550,7 +550,7 @@ def hint(person: str) -> dict:
     ids = {k["id"] for k in cards}
     return {
         "suggestion": _suggestion(cards, set(tied), dismissed),
-        # intersect with the registry — a retired card must not leave a
+        # intersect with the registry - a retired card must not leave a
         # veteran at "27 of 26 tied"
         "tied_count": len(set(tied) & ids),
         "total": _tieable(cards),
@@ -558,7 +558,7 @@ def hint(person: str) -> dict:
 
 
 def guide(person: str) -> dict:
-    """The person's own guide — and ONLY their own; there is deliberately no
+    """The person's own guide - and ONLY their own; there is deliberately no
     way to read anyone else's (docs/FIELD-GUIDE.md, self-scoped forever)."""
     named = _is_active_human(person)
     tied, dismissed = _state(person) if named else ({}, set())
@@ -578,7 +578,7 @@ def guide(person: str) -> dict:
             "role": k.get("role", ""),
             "tied": t is not None,
             # local_day: first_at is a UTC timestamp, and this date is read
-            # by the person who earned it. The last [:10] in the backend —
+            # by the person who earned it. The last [:10] in the backend -
             # leaving one behind makes the slice look sometimes-acceptable,
             # and the next reader cannot tell which sites were considered.
             "tied_on": db.local_day(t["first_at"]) if t else "",
@@ -586,7 +586,7 @@ def guide(person: str) -> dict:
         cards.append(card)
         if t and not t["seen"]:
             newly.append({"id": k["id"], "feature": k["feature"], "knot": k["knot"]})
-    # scoped to the rows just shown — an unlock landing mid-request (a
+    # scoped to the rows just shown - an unlock landing mid-request (a
     # concurrent mark() or the findings sweep) must not be swallowed unseen
     for n in newly:
         db.execute(
@@ -597,11 +597,11 @@ def guide(person: str) -> dict:
         "cards": cards,
         "newly_tied": newly,
         "suggestion": _suggestion(registry_cards, set(tied), dismissed) if named else None,
-        # registry intersection — a retired card must not yield "27 of 26"
+        # registry intersection - a retired card must not yield "27 of 26"
         "tied_count": len(set(tied) & {c["id"] for c in cards}),
         "total": _tieable(registry_cards),
         # false = the roster hasn't met this name yet (or it's anonymous/agent)
-        # — the UI can explain the all-untied page instead of implying deficit
+        # - the UI can explain the all-untied page instead of implying deficit
         "known": named,
     }
 
@@ -609,7 +609,7 @@ def guide(person: str) -> dict:
 def unadopted(grace_days: int = UNADOPTED_GRACE_DAYS) -> list[dict]:
     """Feature-keyed, nameless: cards past their grace window that NOBODY has
     tied. Sweeps detection for all active humans first so the findings rule
-    never fires on stale lazy state. Zero-adoption only — when the count is
+    never fires on stale lazy state. Zero-adoption only - when the count is
     zero no individual can be singled out, which is what keeps this on the
     right side of the anti-surveillance rule."""
     humans = db.query(
@@ -622,7 +622,7 @@ def unadopted(grace_days: int = UNADOPTED_GRACE_DAYS) -> list[dict]:
     for k in registry():
         if str(k["since"]) >= cutoff:
             continue
-        # a card that never ties has no adoption signal to report — listing it
+        # a card that never ties has no adoption signal to report - listing it
         # would print a zero-adoption nag every day that nobody can satisfy
         if k.get("ties") == "never":
             continue

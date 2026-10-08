@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 /** Two structural rules with the same shape: a surface must not invent its
  *  own copy of something the design owns elsewhere. Source-level sweeps, like
- *  no-handrolled-errors.test.ts — they pin the rule, not today's sites. */
+ *  no-handrolled-errors.test.ts - they pin the rule, not today's sites. */
 
 const ROOT = join(__dirname, "..");
 
@@ -42,7 +42,7 @@ describe("colors come from the theme, not the Tailwind palette", () => {
 describe("one condition, one wording across surfaces", () => {
   it("keeps the key-request reply identical on Settings and 1:1s", () => {
     // both pages POST /api/keys/request; the People page said "Asked" on
-    // every click, ignoring already_pending — two behaviors for one
+    // every click, ignoring already_pending - two behaviors for one
     // condition, then two wordings for one outcome
     const strings = [
       "Already asked. The request is still waiting for whoever runs the server.",
@@ -71,7 +71,7 @@ describe("one condition, one wording across surfaces", () => {
     // NEED_KEY accepts browser sessions and automation keys. The gate must
     // share its Settings remedy, not claim that browser requests send keys.
     // The gate drops the env-var prefix and the Authorization clause on
-    // purpose — a browser reader sets no headers.
+    // purpose - a browser reader sets no headers.
     const deps = readFileSync(
       join(ROOT, "..", "backend", "app", "routes", "deps.py"),
       "utf8",
@@ -81,7 +81,7 @@ describe("one condition, one wording across surfaces", () => {
     const shared = ["sign in through Settings", "personal API key"];
     // Python wraps NEED_KEY across adjacent string literals and JSX wraps it
     // across lines, so both sides are read with the quotes dropped and the
-    // whitespace collapsed — otherwise the seam falls inside a sentence.
+    // whitespace collapsed - otherwise the seam falls inside a sentence.
     const flat = (s: string) => s.replace(/"/g, "").replace(/\s+/g, " ");
     for (const s of shared) {
       expect(flat(deps), `deps.py no longer says: ${s}`).toContain(s);
@@ -118,7 +118,7 @@ describe("the decided lexicon (docs/LEXICON.md)", () => {
   });
 
   it("says promise, not commitment, in user-visible text", () => {
-    // one concept, one word — promise, end to end (the table, kind, and
+    // one concept, one word - promise, end to end (the table, kind, and
     // API path renamed with it). What remains of `commitment` in source is
     // the typed-input alias regexes, which this sweep does not read.
     // "commitment line" is a DIFFERENT concept (tasks committed to an ISO

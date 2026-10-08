@@ -22,7 +22,7 @@ class JobSpec:
     name: str
     fn: Callable[[], Any]
     trigger: dict = field(default_factory=dict)  # APScheduler add_job kwargs
-    period_hours: float = 24  # expected cadence — drives the job_stale rule
+    period_hours: float = 24  # expected cadence - drives the job_stale rule
     catch_up: bool = False  # run at startup to fill in missed firings
     retry_safe: bool = False
     timezone: str | None = None
@@ -59,7 +59,7 @@ def _embed_reconcile():
     if not config.EMBED_READY:
         return "embeddings off"
     # bounded batch: a huge backlog (first enable, model change) must not hold
-    # a job slot for hours — the next hourly run continues where this stopped
+    # a job slot for hours - the next hourly run continues where this stopped
     done, failed = embed_missing(limit=200)
     status = "error" if failed and not done else "partial" if failed else "ok"
     return {"embedded": done, "failed": failed, "status": status}
@@ -263,7 +263,7 @@ JOBS: tuple[JobSpec, ...] = (
         # after the context pack (05:00) so a woken agent reads a fresh one,
         # and well before the 07:00 digest so its proposals are in the inbox
         # the digest reports on. catch_up=False on purpose: this SPENDS, and a
-        # restart must not buy a turn nobody scheduled — the per-agent claim
+        # restart must not buy a turn nobody scheduled - the per-agent claim
         # key would stop a second run, but only after the decision to run.
         {"trigger": "cron", "hour": 5, "minute": 30},
         24,

@@ -32,7 +32,7 @@ describe("the backend-unreachable wording", () => {
 describe("the 'Error: ' class-name prefix", () => {
   it("never reaches the reader, from either helper", () => {
     // String(new Error("x")) is "Error: x". Every surface that interpolated an
-    // error showed that prefix — JS internals, and nothing to act on.
+    // error showed that prefix - JS internals, and nothing to act on.
     const refusal = new Error("decision #1 is already superseded");
     expect(actionError(refusal)).toBe("decision #1 is already superseded");
     expect(loadError(refusal)).not.toContain("Error:");

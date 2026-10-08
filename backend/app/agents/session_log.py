@@ -1,7 +1,7 @@
 """Bridge slash-command exchanges into a thread's model session.
 
 Commands are deterministic and run no model, but their output is part of the
-conversation the user sees — a follow-up like "more details on this
+conversation the user sees - a follow-up like "more details on this
 briefing?" must find the briefing in the agent's history, not open with a
 blank slate. So the output DOES reach the provider, on the next agent turn,
 with every row the command read for the caller. Writes use the same session store build_agent restores from,
@@ -46,7 +46,7 @@ def _append_exchange(thread_id: str, user_text: str, assistant_text: str) -> Non
     repo = DatabaseSessionRepository()
     # everything below reads the session, derives next_id from it, and
     # writes back. The LOCK is what makes that atomic across threads and
-    # processes — the transaction alone is not, because the read that
+    # processes - the transaction alone is not, because the read that
     # derives next_id takes no lock of its own. Unserialized, concurrent
     # commands read the same last id and write over each other: measured
     # at 36 of 60 messages surviving without this lock.
@@ -91,7 +91,7 @@ def _append_exchange(thread_id: str, user_text: str, assistant_text: str) -> Non
         next_id = messages[-1].message_id + 1 if messages else 0
         if messages and messages[-1].to_message()["role"] == "user":
             # a failed model call strands its user turn, and bedrock's
-            # Converse rejects non-alternating roles — fold into the
+            # Converse rejects non-alternating roles - fold into the
             # stranded turn instead of stacking a second user message
             last = messages[-1]
             target = last.redact_message if last.redact_message is not None else last.message

@@ -1,4 +1,4 @@
-"""One engagement, whole — and nothing from an engagement the reader cannot open.
+"""One engagement, whole - and nothing from an engagement the reader cannot open.
 
 The brief composes seven surfaces. Every one of them carries a tier, so the
 tests here are mostly about the doors: an unreadable engagement must answer
@@ -41,7 +41,7 @@ def test_an_unreadable_engagement_answers_like_an_absent_one(client, fresh_db):
 
 
 def test_a_closed_engagement_shows_its_completed_work(client, fresh_db):
-    """The closed page is an archive, and it showed none of the work — the
+    """The closed page is an archive, and it showed none of the work - the
     empty open-work list invited the reader to capture a todo on a finished
     engagement. Done tasks appear only once the engagement closes; an active
     engagement's done work has its own surfaces."""
@@ -62,7 +62,7 @@ def test_a_closed_engagement_shows_its_completed_work(client, fresh_db):
 
 
 def test_since_yesterday_counts_only_this_engagement(client, fresh_db):
-    """The strip answers "what moved HERE since yesterday" — a task finished on
+    """The strip answers "what moved HERE since yesterday" - a task finished on
     another engagement must not inflate it, and a fresh blocker must count."""
     from app.services import blockers, engagements, users, work
 

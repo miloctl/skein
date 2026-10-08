@@ -240,7 +240,7 @@ Each slice is one commit, or a short series. Each passes
 must fail against the code before its slice, and its fixtures must come
 from a running instance (CLAUDE.md conventions).
 
-### Slice 1 — The board read [S]
+### Slice 1 - The board read [S]
 
 - `_task_rows` gains `engagement_id` (the D13 clause) and `completed_since`
   (`AND t.completed_at >= ?`). `list_tasks_joined` and `_task_collection`
@@ -310,7 +310,7 @@ from a running instance (CLAUDE.md conventions).
     `test_task_browse_projection.py::test_browse_projection_runs_after_visibility_and_workplace_policy`).
   - `mine=true` returns only the caller's tasks.
 
-### Slice 2 — Compare-and-set and the blocker write paths [XS]
+### Slice 2 - Compare-and-set and the blocker write paths [XS]
 
 - `expected_status: str = Field("", max_length=20)` on `TaskPatch`, and a
   keyword-only `expected_status` on `update_task` and
@@ -328,7 +328,7 @@ from a running instance (CLAUDE.md conventions).
   - Of two blockers on one task, resolving the first returns
     `task_unblocked: false` and the last returns `true`.
 
-### Slice 3 — The read-only board page [M]
+### Slice 3 - The read-only board page [M]
 
 - `frontend/app/board/page.tsx`: the fetch, the columns, the scope header,
   the cap line (D12), the D10 reload listeners and an "Only my tasks"
@@ -405,7 +405,7 @@ from a running instance (CLAUDE.md conventions).
 - Docs in this commit: the FEATURES rows listed under slice 4 that describe
   the read.
 
-### Slice 4 — Moves [M]
+### Slice 4 - Moves [M]
 
 Needs `feature/blocker-form` merged.
 

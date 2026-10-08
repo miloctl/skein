@@ -1,13 +1,13 @@
 """The Monday planning cockpit: one read, in meeting order.
 
-Running the week meant touring three pages — /portfolio for the kept-% and the
+Running the week meant touring three pages - /portfolio for the kept-% and the
 draft, /intake for the queue, /charter for stale decisions, each with its own
 load. The weekly operating rhythm is this product's spine and the person who
 runs it had no room built for it.
 
 Composition only. Every number here already had a home; this module owns the
 ORDER, which is the part that was missing. Nothing is computed twice and no
-new write path exists — a cockpit that could write would be a sixth place to
+new write path exists - a cockpit that could write would be a sixth place to
 change a task.
 
 Order is the meeting's order, and it is load-bearing: how last week went
@@ -18,7 +18,7 @@ whether the last one landed, which is the mistake the ritual exists to
 prevent.
 
 The numbers a reader sees are the CARD TITLES in frontend/app/planning/
-page.tsx, not a list here — two numberings of one order drift apart, and a
+page.tsx, not a list here - two numberings of one order drift apart, and a
 reader cross-referencing them lands on the wrong card.
 """
 
@@ -37,10 +37,10 @@ def cockpit(viewer: scope.Viewer = scope.NOBODY, *, ahead_weeks: int = 6) -> dic
     """Everything the Monday ritual reads, in the order it is read.
 
     `viewer` reaches every scoped read, so the cockpit shows exactly what its
-    caller may see — a manager without a crew's membership does not learn that
+    caller may see - a manager without a crew's membership does not learn that
     crew's work exists by opening this page.
     """
-    # week_view reads the workspace tier and takes no viewer — the commitment
+    # week_view reads the workspace tier and takes no viewer - the commitment
     # line is the team's shared plan by construction (services/weekly.py)
     week = weekly.week_view()
     last = weekly.week_view(weekly.current_week(-1))
@@ -84,7 +84,7 @@ def cockpit(viewer: scope.Viewer = scope.NOBODY, *, ahead_weeks: int = 6) -> dic
         # in exactly one way, and nobody was watching (migration 007)
         "awaiting": promises.list_promises(status="open", viewer=viewer, direction="received"),
         "health": health,
-        # Back SEVEN DAYS (not "to last Monday" — that is only the same
+        # Back SEVEN DAYS (not "to last Monday" - that is only the same
         # thing when the page is opened on a Monday), matching the weekly
         # ritual this page serves: the default (yesterday) answers a question
         # nobody asked on a page opened once a week.
@@ -103,7 +103,7 @@ def cockpit(viewer: scope.Viewer = scope.NOBODY, *, ahead_weeks: int = 6) -> dic
         ],
         # The one open task whose finish releases the most other work. A
         # waiting-on edge told the person who typed it nothing; this is the
-        # meeting's use for it — "start here and three people move".
+        # meeting's use for it - "start here and three people move".
         "top_unblocking_move": _top_unblocking_move(viewer),
         "today": db.today().isoformat(),
     }
@@ -115,7 +115,7 @@ def _top_unblocking_move(viewer: scope.Viewer) -> dict | None:
     Two steps, because the honest score is transitive and the transitive walk
     is expensive. Step one ranks every candidate by its DIRECT waiter count in
     a single GROUP BY. Step two walks only the shortlist. Scoring every
-    candidate cost two queries each — 602 on a workspace with 300 edges, each
+    candidate cost two queries each - 602 on a workspace with 300 edges, each
     one its own round trip (services/scope.py records that the round trip
     costs far more than the SELECT it carries), on a page
     whose own docstring promises it computes nothing twice.
@@ -130,7 +130,7 @@ def _top_unblocking_move(viewer: scope.Viewer) -> dict | None:
     # waiters its reader cannot see, and the number would not match the peek
     wfrag, wp = scope.visible_filter(viewer, "tasks", alias="w")
     ranked = db.query(
-        f"SELECT t.id, t.title, t.assignee, COUNT(*) AS direct"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT t.id, t.title, t.assignee, COUNT(*) AS direct"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" FROM tasks t JOIN tasks w ON w.waiting_on_type = 'task'"
         f" AND w.waiting_on_id = t.id AND w.status NOT IN ('done', 'void') AND {wfrag}"
         f" WHERE t.status NOT IN ('done', 'void') AND {frag}"

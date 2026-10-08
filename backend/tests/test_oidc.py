@@ -1,6 +1,6 @@
 """app/oidc.py validates IdP tokens locally: signature against the JWKS,
 then iss / aud / exp. These tests sign real RS256 tokens with a generated
-key and pin the refusals — including the HS256 algorithm-confusion attack,
+key and pin the refusals - including the HS256 algorithm-confusion attack,
 where a forger HMAC-signs with the PUBLIC key material."""
 
 import base64
@@ -35,7 +35,7 @@ def _start_server(handler):
 def _clean_oidc():
     """app/oidc.py caches the JWKS client, the discovery document and two
     throttles at module level. Any of them surviving into the next test makes
-    that test pass for the wrong reason — a discovery-failure test cannot fail
+    that test pass for the wrong reason - a discovery-failure test cannot fail
     if an earlier file already cached a working document."""
     oidc.reset()
     yield
@@ -82,7 +82,7 @@ _live: dict = {}
 def issuer(monkeypatch, rsa_key):
     monkeypatch.setattr(config, "OIDC_ISSUER", ISS)
     monkeypatch.setattr(config, "OIDC_AUDIENCE", "skein")
-    oidc.reset()  # the refresh throttle is module state — never leak it across tests
+    oidc.reset()  # the refresh throttle is module state - never leak it across tests
     _live["client"] = _Client(rsa_key.public_key())
     monkeypatch.setattr(oidc, "_client", lambda: _live["client"])
     yield rsa_key
@@ -191,7 +191,7 @@ def test_unknown_kid_refresh_is_throttled(jwks, issuer):
     """An attacker-chosen kid is read BEFORE any signature check, and
     PyJWKClient refreshes its key set on every miss. Without a throttle each
     forged kid becomes one outbound JWKS fetch, blocking a worker for the
-    fetch timeout — an unauthenticated denial of service."""
+    fetch timeout - an unauthenticated denial of service."""
     forged = _token(issuer, kid="attacker-chosen")
     with pytest.raises(oidc.OIDCError):
         oidc.validate(forged)
@@ -200,7 +200,7 @@ def test_unknown_kid_refresh_is_throttled(jwks, issuer):
     for _ in range(20):
         with pytest.raises(oidc.OIDCError):
             oidc.validate(forged)
-    # 20 more forged kids cost lookups against the CACHED set only — the
+    # 20 more forged kids cost lookups against the CACHED set only - the
     # refresh does not fire again inside the cooldown
     assert jwks.fetches == after_first + 20
 
@@ -623,7 +623,7 @@ def test_failed_discovery_is_not_retried_on_every_request(monkeypatch):
     for _ in range(5):
         with pytest.raises(oidc.OIDCError):
             oidc._client()
-    # one attempt, then the cooldown answers — a down IdP must not turn every
+    # one attempt, then the cooldown answers - a down IdP must not turn every
     # request into an outbound connection attempt
     assert len(calls) == 1
     oidc.reset()
@@ -662,7 +662,7 @@ def test_a_failing_jwks_fetch_is_not_retried_on_every_request(monkeypatch, issue
 def test_an_unreachable_jwks_is_not_reported_as_a_refused_token(monkeypatch, issuer):
     """PyJWKClientConnectionError subclasses PyJWTError, so it used to land in
     the same branch as a bad signature: every signed-in person was told their
-    token was refused and to sign in again — at an identity provider that is
+    token was refused and to sign in again - at an identity provider that is
     the very thing that is down."""
     monkeypatch.setattr(oidc, "_client", lambda: _Down())
     with pytest.raises(oidc.OIDCUnavailable) as e:
@@ -825,7 +825,7 @@ def test_discovery_has_an_absolute_response_deadline(monkeypatch):
 
 def test_a_rotation_that_keeps_the_kid_heals_on_refresh(jwks, issuer):
     """The kid matches the CACHED key, so the unknown-kid refresh never fires
-    — before the signature-failure refresh, every sign-in failed for the
+    - before the signature-failure refresh, every sign-in failed for the
     cache lifetime after a same-kid rotation."""
     new_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 

@@ -2,7 +2,7 @@ import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The attachment half of the chat adapter. Both adapters are module-private,
- *  so the test captures them where the runtime library receives them — the
+ *  so the test captures them where the runtime library receives them - the
  *  same shape __tests__/chat-stream.test.tsx uses, and everything below the
  *  capture is the real code. */
 
@@ -118,7 +118,7 @@ describe("attaching a file", () => {
 
   it("tells the person why a refused upload did not attach", async () => {
     // throwing keeps the draft, but the rejection then dies unhandled inside
-    // aui's fire-and-forget send — so the backend's usable sentence reached
+    // aui's fire-and-forget send - so the backend's usable sentence reached
     // the console and nowhere a person looks
     mocks.authenticatedFetch.mockResolvedValue(
       new Response(JSON.stringify({ detail: "the file is larger than 8 MB." }), {
@@ -210,7 +210,7 @@ describe("attaching a file", () => {
       messages: [
         {
           content: [{ type: "text", text: "hi" }],
-          // the id add() stages before send() replaces it — a request carrying
+          // the id add() stages before send() replaces it - a request carrying
           // it would be a 422 the person cannot act on
           attachments: [{ id: "pending-notes.md-1" }],
         },

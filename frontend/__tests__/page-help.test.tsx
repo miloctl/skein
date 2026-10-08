@@ -244,7 +244,7 @@ describe("page help", () => {
     fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
     expect(await screen.findByText("Review queue")).toBeTruthy();
 
-    // a same-route Link would leave a stale ?compose= and do nothing —
+    // a same-route Link would leave a stale ?compose= and do nothing -
     // thread.tsx reads it on mount only
     const ask = screen.getByRole("button", {
       name: "Ask the Bosun about this page",
@@ -258,7 +258,7 @@ describe("page help", () => {
   it("drops the card link when the card points at the current route", async () => {
     render(<PageHelp />);
     fireEvent.click(screen.getByRole("button", { name: "Help for this page" }));
-    // the fixture card links to /review and the reader is on /review — the
+    // the fixture card links to /review and the reader is on /review - the
     // link would close the panel and go nowhere
     expect(await screen.findByText("Review queue")).toBeTruthy();
     expect(screen.queryByText("Open Review queue")).toBeNull();

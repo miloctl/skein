@@ -2,7 +2,7 @@
 actually reaches the code that enforces it.
 
 The last part is the point. A settings surface that reports a number the
-enforcement path never reads is worse than no surface at all — it tells an
+enforcement path never reads is worse than no surface at all - it tells an
 administrator the deployment is configured one way while it runs another.
 """
 
@@ -67,7 +67,7 @@ def test_the_socket_timeout_cannot_be_inverted_from_a_form(fresh_db):
     """tests/test_model_providers.py pins READ_TIMEOUT_S > MEMBER_TIMEOUT_S.
     Without a cross-knob check an administrator inverts it from the UI, and
     every cold model load starts dying as a failed member instead of
-    finishing — the exact failure the ordering exists to prevent."""
+    finishing - the exact failure the ordering exists to prevent."""
     with pytest.raises(ValueError, match="must be greater than"):
         tuning.set_tunable("read_timeout_s", 60, actor="admin")
     # and from the other side: lowering the member deadline first is allowed,

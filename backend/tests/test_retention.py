@@ -121,7 +121,7 @@ def test_chat_message_mention_dedupe_leaves_only_with_its_message(fresh_db):
 
 
 def test_retention_accounts_for_every_table(fresh_db):
-    """A migration decides each new table's retention fate explicitly —
+    """A migration decides each new table's retention fate explicitly -
     an unrecorded table silently defaults to kept-forever."""
     from app import config
     from app.services import private_notes
@@ -159,7 +159,7 @@ def test_retention_accounts_for_every_table(fresh_db):
     doubled = (pruned & kept) | (pruned & cascaded) | (kept & cascaded)
     assert not doubled, f"tables with two retention decisions: {sorted(doubled)}"
 
-    # a cascade claim needs a real parent decision and a real cascade —
+    # a cascade claim needs a real parent decision and a real cascade -
     # otherwise the map documents a cleanup the database does not perform.
     # A parent may itself be cascaded (sessions -> session_agents ->
     # session_messages); the chain still ends at a pruned or kept root.
@@ -240,7 +240,7 @@ def test_an_idle_chat_loses_its_model_sessions_and_keeps_the_chat(fresh_db):
 
 def _backdate(fresh_db, table: str, column: str, days: int, row_id) -> None:
     fresh_db.execute(
-        f"UPDATE {table} SET {column} = ? WHERE id = ?",  # noqa: S608 — test constants
+        f"UPDATE {table} SET {column} = ? WHERE id = ?",  # noqa: S608 - test constants
         (_iso_hours_ago(24 * days), row_id),
     )
 

@@ -19,7 +19,7 @@ import {
 const LAST_KEY = "skein-last-chat";
 
 function newId() {
-  // crypto.randomUUID is secure-context-only — absent when Skein is served
+  // crypto.randomUUID is secure-context-only - absent when Skein is served
   // over plain http. getRandomValues is not.
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   const b = crypto.getRandomValues(new Uint8Array(16));
@@ -91,7 +91,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     document.title =
-      selection.kind === "shared" ? `${sharedTitle} — Skein` : "Chat — Skein";
+      selection.kind === "shared" ? `${sharedTitle} - Skein` : "Chat - Skein";
     // a private room's title must not outlive the page (thread-title.tsx)
     return () => {
       document.title = "Skein";
@@ -149,7 +149,7 @@ export default function ChatPage() {
     setTimeout(() => chatsBtnRef.current?.focus(), 0);
   }, []);
   useEffect(() => {
-    // crossing to >=md must drop the drawer state — it would force-open a
+    // crossing to >=md must drop the drawer state - it would force-open a
     // deliberately-collapsed desktop sidebar (and re-present on rotate back)
     const mq = window.matchMedia("(min-width: 768px)");
     const onChange = () => mq.matches && setMobileChats(false);
@@ -201,7 +201,7 @@ export default function ChatPage() {
           onClick={closeChats}
           // BELOW the header's z-10 (nav.tsx), with the drawer in chat-
           // sidebar.tsx. Both start under the header already, so they never
-          // needed to outrank it — and above it they swallowed every header
+          // needed to outrank it - and above it they swallowed every header
           // popover that hangs down: page help, search results and the
           // identity menu all became unclickable with the drawer open, while
           // focus still moved into them. It only has to beat the thread,
@@ -215,7 +215,7 @@ export default function ChatPage() {
         className="flex h-full min-h-0 min-w-0 flex-1 flex-col"
       >
         <WeakIdentityNotice className="m-2 mb-0" />
-        {/* one header bar, one control per breakpoint — the toggle lives
+        {/* one header bar, one control per breakpoint - the toggle lives
             OUTSIDE the sidebar, so it never has to teleport when it hides */}
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2 sm:px-4">
           <button

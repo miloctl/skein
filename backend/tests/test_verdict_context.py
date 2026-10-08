@@ -1,7 +1,7 @@
 """The proposer's record, at the verdict.
 
 A reviewer judged every proposal blind. Approval rate and streak were already
-computed and rendered on /agents — two pages from the one screen where the
+computed and rendered on /agents - two pages from the one screen where the
 number decides something. This attaches the record for the (proposer, entity)
 pair to each pending row, read from `delegation.trust_scores` so a second
 definition of "streak" cannot disagree with the promotion job.
@@ -16,7 +16,7 @@ def _settle(client, change_id: int, verdict: str) -> None:
     non-override rows, so a plain X-User approval feeds no streak."""
     r = client.post(f"/api/review/{change_id}/{verdict}", json={"note": "ok"})
     # asserted: a 4xx here would leave the row pending with a strong-verdict
-    # flag on it — a state no code path produces — and the failure would
+    # flag on it - a state no code path produces - and the failure would
     # surface several asserts later as a None record
     assert r.status_code == 200, r.text
     db.execute(
@@ -89,7 +89,7 @@ def test_an_agent_already_past_review_is_not_offered_a_promotion(client):
 
 def test_no_promotion_is_promised_where_none_can_be_filed(client):
     """`task_completion` is the entity a delegated agent proposes on MOST, and
-    `review_authority` skips it outright — so a restated rule here advertised a
+    `review_authority` skips it outright - so a restated rule here advertised a
     promotion that could never be filed, on the common case. The queue asks
     delegation for the predicate instead of repeating part of it."""
     users.ensure_user("scout", kind="agent")
@@ -131,7 +131,7 @@ def test_no_promotion_is_promised_where_none_can_be_filed(client):
 def test_the_queue_pays_only_for_the_pairs_it_shows(client):
     """`trust_scores` runs a per-pair lookup for every pair in the settled
     history. Unfiltered, rendering a queue holding one proposer cost a lookup
-    per pair the deployment had ever settled — a cost that grew with its age
+    per pair the deployment had ever settled - a cost that grew with its age
     rather than with the page."""
     users.ensure_user("scout", kind="agent")
     # settled history for three pairs that will NOT be on the page
@@ -164,7 +164,7 @@ def test_the_queue_pays_only_for_the_pairs_it_shows(client):
 def test_a_human_proposer_gets_no_record_at_all(client):
     """Ingest files proposals under the PERSON who pasted the notes, and
     /review is team-visible. A record keyed on the proposer alone would put
-    one teammate's approval history in front of the whole roster — person-level
+    one teammate's approval history in front of the whole roster - person-level
     data judging the past, which the anti-surveillance rule refuses. It is also
     the wrong question: the record decides whether an AGENT earned autonomy."""
     from app.services import ingest

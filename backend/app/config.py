@@ -39,7 +39,7 @@ FLOCKS_OVERLAY: Path | None = Path(_flocks_overlay) if _flocks_overlay else None
 
 def overlay_errors() -> list[str]:
     """A configured overlay dir that does not exist is ignored by the loaders
-    (the deployment keeps working on stock content) — but silently, which is
+    (the deployment keeps working on stock content) - but silently, which is
     how an unmounted volume masquerades as a working overlay. /health carries
     this, on the MODEL_PROVIDER_ERROR precedent: degrade AND say so.
     Computed live so mounting the directory clears the error without a
@@ -130,7 +130,7 @@ def _structured(name: str) -> tuple[str, str, str]:
 
     A fault never carries the exception text. A YAML error quotes the line it
     failed on and an OSError carries the path, and every one of these strings
-    reaches every signed-in user through /api/health and /api/agents/status —
+    reaches every signed-in user through /api/health and /api/agents/status -
     a params document is a plausible place an operator put a credential.
     """
     inline = os.getenv(name, "").strip()
@@ -172,7 +172,7 @@ def _structured(name: str) -> tuple[str, str, str]:
         return "", f"{name}_FILE is not valid YAML. Correct the document.", "file"
     try:
         # an empty file loads as None and dumps to "null", which every call
-        # site below already refuses by shape — no separate empty-file fault
+        # site below already refuses by shape - no separate empty-file fault
         _validate_json_value(loaded)
         return json.dumps(loaded, allow_nan=False), "", "file"
     except _StructuredFault as exc:
@@ -189,7 +189,7 @@ def _structured(name: str) -> tuple[str, str, str]:
 # The PostgreSQL server. No default and no fallback: a default that resolved
 # would serve an empty database beside the real one, and the roster coming up
 # blank reads as data loss rather than as a missing setting. Fails CLOSED like
-# AUTH_MODE — db.py raises this string, and /health carries it.
+# AUTH_MODE - db.py raises this string, and /health carries it.
 def _database_url() -> str:
     url = os.getenv("SKEIN_DATABASE_URL", "").strip()
     if url:
@@ -232,16 +232,16 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Model settings. The registry is the single list of providers Skein knows;
 # nothing outside agents/team_agent.py may branch on a provider name.
-#   default_model    — used when SKEIN_MODEL_ID is unset. None = operator must
+#   default_model - used when SKEIN_MODEL_ID is unset. None = operator must
 #                      say, because the server decides what it serves.
-#   base_url         — "required" | "forbidden". Forbidden matters: without it
+#   base_url - "required" | "forbidden". Forbidden matters: without it
 #                      a leftover SKEIN_MODEL_BASE_URL from an experiment would
 #                      silently redirect a paid provider's traffic.
-#   key_env          — provider-native credential to fall back on. Empty means
+#   key_env - provider-native credential to fall back on. Empty means
 #                      NO ambient key is ever read: either none is needed
 #                      (mock, bedrock's AWS chain) or sending one would be a
-#                      leak (openai_compatible — see below).
-#   key_required     — the provider cannot answer at all without a key, so a
+#                      leak (openai_compatible - see below).
+#   key_required - the provider cannot answer at all without a key, so a
 #                      missing one is a config fault that degrades to mock at
 #                      boot. FALSE wherever keyless is a real deployment:
 #                      ollama and openai_compatible both serve local endpoints
@@ -249,11 +249,11 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 #                      would degrade a working keyless box to mock. Bedrock
 #                      resolves the ambient AWS chain, which is not readable
 #                      from here.
-#   typed_output_cap — config.MAX_TOKENS reaches this provider. False on the
+#   typed_output_cap - config.MAX_TOKENS reaches this provider. False on the
 #                      OpenAI family, where the served model chooses the key.
-#   output_cap_params — free-form keys that can replace that typed cap. The
+#   output_cap_params - free-form keys that can replace that typed cap. The
 #                      settings summary reads only their PRESENCE, never values.
-#   params_as_model_config — free-form params become top-level constructor
+#   params_as_model_config - free-form params become top-level constructor
 #                      kwargs, so typed registry fields can shadow global params.
 # `attachments` is the media kinds a chat attachment may become here
 # (routes/chat.py), read as a CAPABILITY so nothing outside team_agent._model()
@@ -267,7 +267,7 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 # The split is not pedantic: the provider's formatter and the served model are
 # different things, and claiming a capability the model lacks is not a worse
 # answer but a 400 that kills the whole turn (`this model does not support
-# image input` — ollama serving a text model, 2026-08-16).
+# image input` - ollama serving a text model, 2026-08-16).
 #
 # config.attachment_support() resolves the two layers and is what callers use.
 PROVIDERS: dict[str, dict] = {
@@ -306,7 +306,7 @@ PROVIDERS: dict[str, dict] = {
     #
     # key_env is deliberately EMPTY. Falling back to OPENAI_API_KEY here would
     # hand a paid OpenAI credential to whatever third-party host the operator
-    # named — and OPENAI_API_KEY is already set on any box using semantic
+    # named - and OPENAI_API_KEY is already set on any box using semantic
     # search. Credentials for a non-OpenAI endpoint must be stated explicitly
     # in SKEIN_MODEL_API_KEY.
     "openai_compatible": {
@@ -329,7 +329,7 @@ PROVIDERS: dict[str, dict] = {
     "ollama": {
         "default_model": "gpt-oss:120b-cloud",
         # EMPTY, though the formatter has an image branch: the operator picks
-        # which model ollama serves, and most are text-only — a text model
+        # which model ollama serves, and most are text-only - a text model
         # answers an image with `this model does not support image input`
         # (HTTP 400), which kills the whole turn. Declare `attachments` on the
         # model's SKEIN_MODELS entry to turn it on for a vision model.
@@ -449,12 +449,12 @@ def sanitize_model_params(params: dict) -> tuple[dict, tuple[str, ...]]:
 # Misconfiguration must never take down the deterministic core: config is
 # imported by db, every route, seed.py and the CLI, so a bad *model* setting
 # raising here would kill the REST API, ICS feed and backups. Record the fault,
-# fall back to mock, and let agents/team_agent.py raise at construction time —
+# fall back to mock, and let agents/team_agent.py raise at construction time -
 # where routes/chat.py already turns it into an SSE error the operator reads.
 MODEL_PROVIDER_ERROR = ""
 
 # int() on operator input is exactly the "raises at import" trap the paragraph
-# above forbids — SKEIN_MAX_TOKENS= (empty) and =4k both throw.
+# above forbids - SKEIN_MAX_TOKENS= (empty) and =4k both throw.
 _raw_max_tokens = os.getenv("SKEIN_MAX_TOKENS", "").strip()
 MAX_TOKENS_SOURCE = "env" if _raw_max_tokens else "default"
 try:
@@ -462,11 +462,11 @@ try:
 except ValueError:
     MAX_TOKENS = 4096
     MAX_TOKENS_SOURCE = "fallback"
-    MODEL_PROVIDER_ERROR = "SKEIN_MAX_TOKENS is not an integer — falling back to 4096"
+    MODEL_PROVIDER_ERROR = "SKEIN_MAX_TOKENS is not an integer - falling back to 4096"
 
 if MODEL_PROVIDER not in PROVIDERS:
     MODEL_PROVIDER_ERROR = (
-        f"unknown SKEIN_MODEL_PROVIDER {MODEL_PROVIDER!r} —"
+        f"unknown SKEIN_MODEL_PROVIDER {MODEL_PROVIDER!r} -"
         f" expected one of: {', '.join(sorted(PROVIDERS))}"
     )
 elif PROVIDERS[MODEL_PROVIDER]["base_url"] == "required" and not MODEL_BASE_URL:
@@ -475,14 +475,14 @@ elif PROVIDERS[MODEL_PROVIDER]["base_url"] == "forbidden" and MODEL_BASE_URL:
     # refusing this is what actually stops a stale base url from redirecting a
     # paid provider's traffic (and its key) to a host the operator forgot about
     MODEL_PROVIDER_ERROR = (
-        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} does not accept SKEIN_MODEL_BASE_URL —"
+        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} does not accept SKEIN_MODEL_BASE_URL -"
         " use openai_compatible to point at a custom endpoint"
     )
 
 # Guarded on MODEL_PROVIDER_ERROR like the SKEIN_MODEL_PARAMS check below,
 # for two reasons: an already-recorded fault (a bad SKEIN_MAX_TOKENS) must not
 # be overwritten by this one, and an unknown provider name has no registry
-# entry to subscript. Caught here or not at all — unchecked, EFFECTIVE_PROVIDER
+# entry to subscript. Caught here or not at all - unchecked, EFFECTIVE_PROVIDER
 # stays on the real provider, /health reports no fault, and the SDK raises per
 # request instead, so every chat reply becomes raw provider internals (a 401
 # body carrying its request id) shown to the user.
@@ -492,7 +492,7 @@ if (
     and not (MODEL_API_KEY or os.getenv(PROVIDERS[MODEL_PROVIDER]["key_env"]))
 ):
     MODEL_PROVIDER_ERROR = (
-        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} needs a key —"
+        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} needs a key -"
         f" set {PROVIDERS[MODEL_PROVIDER]['key_env']} or SKEIN_MODEL_API_KEY"
     )
 
@@ -518,7 +518,7 @@ if not MODEL_PROVIDER_ERROR:
 def _finite_price(v) -> bool:
     """A usable price component: a real non-negative number. bool is an int
     in Python, json.loads parses the bare Infinity token, and math.isfinite
-    converts to a C double first — so a 309-digit JSON integer raises
+    converts to a C double first - so a 309-digit JSON integer raises
     OverflowError, and an uncaught raise here takes down every importer of
     config (the _ctx_num rule, and the exact trap its docstring records)."""
     if not isinstance(v, (int, float)) or isinstance(v, bool):
@@ -532,7 +532,7 @@ def _finite_price(v) -> bool:
 # Price table for cost estimates: {"model-id": [usd_per_mtok_in, usd_per_mtok_out]}.
 # EMPTY by default, deliberately: a shipped price table goes stale and a stale
 # price is a wrong number presented as accounting. A model with no entry gets
-# cost NULL — honest, not zero. A bad value degrades and says so; it must
+# cost NULL - honest, not zero. A bad value degrades and says so; it must
 # never take the provider down, because prices are bookkeeping, not routing.
 MODEL_PRICES: dict[str, tuple[float, float]] = {}
 _raw_prices, MODEL_PRICES_ERROR, MODEL_PRICES_SOURCE = _structured("SKEIN_MODEL_PRICES")
@@ -543,7 +543,7 @@ if _raw_prices:
             raise TypeError("not a JSON object")
         for _mid, _pair in _parsed.items():
             # _finite_price refuses bool, bare Infinity, and the huge-int
-            # OverflowError — any of them would price a model at a number the
+            # OverflowError - any of them would price a model at a number the
             # operator never wrote, or kill the import outright
             if (
                 not isinstance(_pair, (list, tuple))
@@ -573,14 +573,14 @@ except (ValueError, OverflowError):
 # ---- model registry (SKEIN_MODELS) ----------------------------------------
 # The menu of models an administrator may pick between in Settings, each with
 # optional per-model tuning. env-only ON PURPOSE: the operator curates the
-# menu, the admin picks from it (services/settings.py) — the same two-tier
+# menu, the admin picks from it (services/settings.py) - the same two-tier
 # split the tuning.py docstring records for provider and credential settings.
 # Registry content must never be persisted to app_settings: that table travels
 # in every database backup, and params values are a plausible place an operator
 # put a credential.
 #
 # Fault discipline extends SKEIN_MODEL_PRICES': ANY invalid entry voids the
-# WHOLE list — a partial menu looks complete, which is worse than no menu,
+# WHOLE list - a partial menu looks complete, which is worse than no menu,
 # because an old validator cannot tell a future field from a typo and the
 # admin picks from whatever renders. Every fault across every entry is
 # collected in one pass (the _ctx_num rule: one at a time makes an operator
@@ -610,14 +610,14 @@ _MODEL_ENTRY_FIELDS = frozenset(
 _MODEL_ATTACHMENT_KINDS = ("image", "document")
 # price carries only keys the accounting multiplies (usage.py::cost_for reads
 # input and output). cached_input is deliberately absent until usage_log
-# carries cache-read tokens — a price nothing multiplies is a believed number
+# carries cache-read tokens - a price nothing multiplies is a believed number
 # not in effect.
 _MODEL_PRICE_FIELDS = frozenset({"input", "output"})
 # Skein's reasoning vocabulary, in display order: OpenAI's reasoning_effort
 # values plus Anthropic's `max`. An entry declares the subset its model
 # accepts and the exact params each one sends, because the right request
 # differs per MODEL, not per provider (Claude 4.7+ refuse the budget_tokens
-# that Haiku 4.5 requires) — a built-in mapping would be wrong on some model
+# that Haiku 4.5 requires) - a built-in mapping would be wrong on some model
 # the day it ships. No name may be a YAML 1.1 boolean: an unquoted `off` key
 # loads as False, and _StructuredLoader refuses the whole menu file.
 REASONING_LEVELS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
@@ -655,7 +655,7 @@ def merge_level(base: dict, level: dict) -> dict:
 
 def _as_whole(v) -> int | None:
     """The value as an int, or None when it is not a whole number. Accepts a
-    zero-fraction float on purpose — see the call sites. inf/nan fail
+    zero-fraction float on purpose - see the call sites. inf/nan fail
     is_integer(), and a float too large for int never parses from JSON as a
     float without becoming inf first, so no overflow path exists here."""
     if isinstance(v, bool):
@@ -744,9 +744,9 @@ def _reasoning_faults(tag: str, raw, entry_cap: int | None, params: dict) -> tup
 
 
 def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, dict]) -> list[str]:
-    """Faults for one entry, appended to nothing — the caller collects. On a
+    """Faults for one entry, appended to nothing - the caller collects. On a
     clean entry with a usable id the normalized form lands in `out` keyed by
-    id. `mid` is None when the caller already faulted the id — field checks
+    id. `mid` is None when the caller already faulted the id - field checks
     still run so one restart reports everything, but nothing is stored."""
     faults = []
     if unknown := sorted(set(entry) - _MODEL_ENTRY_FIELDS):
@@ -760,7 +760,7 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
     # _as_whole, not isinstance(int): JSON Schema 2020-12 "integer" admits a
     # zero-fraction float (4096.0), so the code must too or the shipped
     # schema approves a registry the deployment refuses. bool is still
-    # refused — unchecked, `"max_tokens": true` becomes a 1-token cap the
+    # refused - unchecked, `"max_tokens": true` becomes a 1-token cap the
     # operator never wrote.
     max_tokens = entry.get("max_tokens")
     if max_tokens is not None:
@@ -802,7 +802,7 @@ def _model_entry_faults(tag: str, mid: str | None, entry: dict, out: dict[str, d
             )
     # None (absent) and () (declared empty) are DIFFERENT: absent falls back to
     # the provider, declared-empty refuses attachments for this model even
-    # where the provider allows them — which is how an operator turns them off
+    # where the provider allows them - which is how an operator turns them off
     # for one old model on a capable provider.
     attachments: tuple[str, ...] | None = None
     raw_attachments = entry.get("attachments")
@@ -849,7 +849,7 @@ MODEL_ID_SOURCE = "env" if _raw_model_id else "provider_default"
 MODEL_ID = _raw_model_id or _default_model or ""
 if EFFECTIVE_PROVIDER != "mock" and not MODEL_ID:
     MODEL_PROVIDER_ERROR = (
-        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} has no default model —"
+        f"SKEIN_MODEL_PROVIDER={MODEL_PROVIDER} has no default model -"
         " set SKEIN_MODEL_ID to whatever the endpoint serves"
     )
     EFFECTIVE_PROVIDER, MODEL_ID = "mock", "mock"
@@ -871,7 +871,7 @@ if _raw_models:
             _parsed_models = _decoded
     except json.JSONDecodeError as exc:
         # str(exc) carries position only ("line 1 column 5"), never the text
-        # around it — safe for a string every signed-in user can read
+        # around it - safe for a string every signed-in user can read
         _model_faults.append(f"the value is not JSON ({exc}).")
     if _parsed_models is not None:
         for _i, _entry in enumerate(_parsed_models):
@@ -903,7 +903,7 @@ if _raw_models:
 # FORMAT: anthropic's API takes application/pdf and text/plain, the openai file
 # part takes pdf, and bedrock's Converse takes the whole DocumentFormat enum.
 # A csv sent as a document block to anthropic is the same turn-killing 400
-# attachment_support exists to prevent, one level down — so routes/chat.py asks
+# attachment_support exists to prevent, one level down - so routes/chat.py asks
 # both questions. Text formats never need this: they inline as prose.
 _PROVIDER_DOCUMENT_FORMATS: dict[str, frozenset[str]] = {
     "anthropic": frozenset({"pdf", "txt"}),
@@ -916,7 +916,7 @@ def document_formats() -> frozenset[str] | None:
     """The document formats this provider accepts, or None for no restriction.
 
     None rather than "every format": the full list lives in
-    services/uploads.py::DOCUMENTS, and config may not import a service — the
+    services/uploads.py::DOCUMENTS, and config may not import a service - the
     dependency runs the other way. The caller already knows the format it
     holds, so it only needs to be told when the provider is narrower.
     """
@@ -930,12 +930,12 @@ def attachment_support(model_id: str = "") -> tuple[str, ...]:
     operator knows what the endpoint they chose is serving; otherwise the
     provider default applies. A declared empty list therefore turns
     attachments off for one model on an otherwise capable provider, and an
-    absent entry on ollama or openai_compatible means "no", not "unknown" —
+    absent entry on ollama or openai_compatible means "no", not "unknown" -
     guessing yes is a 400 that kills the turn, guessing no is a line telling
     the reader the model cannot open that file.
 
     Model ids reaching here come from SKEIN_MODEL_ID, the admin pick, or a
-    persona override, and each is a plain id — a miss just falls through to
+    persona override, and each is a plain id - a miss just falls through to
     the provider default, which is the same answer as before the entry
     existed.
     """
@@ -945,7 +945,7 @@ def attachment_support(model_id: str = "") -> tuple[str, ...]:
     return tuple(PROVIDERS.get(EFFECTIVE_PROVIDER, {}).get("attachments", ()))
 
 
-# A second model, on THIS provider, that reads an image the chat model cannot —
+# A second model, on THIS provider, that reads an image the chat model cannot -
 # it describes the picture and the description goes to the chat model as text.
 # Empty = off, and an attached image degrades to a line naming the file, which
 # is what every deployment did before this existed.
@@ -956,17 +956,17 @@ def attachment_support(model_id: str = "") -> tuple[str, ...]:
 # upload to a host nobody configured.
 #
 # One attached image is one extra model call, and it runs BEFORE the turn's
-# first token — so a slow vision model is felt as a slow answer. It needs no
+# first token - so a slow vision model is felt as a slow answer. It needs no
 # timeout of its own: agents/team_agent.py::READ_TIMEOUT_S already bounds
 # every model that _model() builds, this one included.
 VISION_MODEL = os.getenv("SKEIN_VISION_MODEL", "").strip()
 
 
 def menu_warnings() -> list[str]:
-    """The env default running outside its own menu — the same drift class as
+    """The env default running outside its own menu - the same drift class as
     a persona model the menu does not list (personas.unlisted_model_warnings),
     reported beside it on /health. Legal on purpose: the menu constrains the
-    ADMIN pick, never the operator's env — so this warns, it does not fault.
+    ADMIN pick, never the operator's env - so this warns, it does not fault.
     A function, not a constant, so the suite's config monkeypatching reads
     through."""
     if MODELS and EFFECTIVE_PROVIDER != "mock" and MODEL_ID and MODEL_ID not in MODELS:
@@ -982,7 +982,7 @@ OLLAMA_HOST = os.getenv("SKEIN_OLLAMA_HOST", "") or "http://localhost:11434"
 
 # ---- optional semantic search --------------------------------------------
 # Deliberately its OWN provider setting, not SKEIN_MODEL_PROVIDER: anthropic
-# and bedrock have no embeddings endpoint, and vectors PERSIST — following the
+# and bedrock have no embeddings endpoint, and vectors PERSIST - following the
 # chat provider would mean a chat switch silently invalidates every stored
 # vector (cosine across two embedding spaces is noise). All three options
 # speak the OpenAI wire shape (/v1/embeddings), so one client covers them.
@@ -990,7 +990,7 @@ OLLAMA_HOST = os.getenv("SKEIN_OLLAMA_HOST", "") or "http://localhost:11434"
 # never no-op in silence.
 EMBED_PROVIDERS: dict[str, dict] = {
     # default_model None = operator must say (the server decides what it serves)
-    # base_url forbidden/required mirrors the chat registry — forbidden on
+    # base_url forbidden/required mirrors the chat registry - forbidden on
     # ollama too: its endpoint derives from SKEIN_OLLAMA_HOST alone, and a
     # leftover SKEIN_EMBED_BASE_URL would both mis-route the Ollama Cloud
     # bearer key and double the /v1 suffix into a silently-404ing URL.
@@ -999,7 +999,7 @@ EMBED_PROVIDERS: dict[str, dict] = {
         "base_url": "forbidden",
         "key_env": "OPENAI_API_KEY",
     },
-    # never falls back to OPENAI_API_KEY — same leak rule as the chat provider
+    # never falls back to OPENAI_API_KEY - same leak rule as the chat provider
     "openai_compatible": {"default_model": None, "base_url": "required", "key_env": ""},
     "ollama": {"default_model": None, "base_url": "forbidden", "key_env": "OLLAMA_API_KEY"},
 }
@@ -1015,7 +1015,7 @@ EMBED_BASE_URL = ""
 if EMBEDDINGS_ENABLED:
     if EMBED_PROVIDER not in EMBED_PROVIDERS:
         EMBEDDINGS_ERROR = (
-            f"unknown SKEIN_EMBED_PROVIDER {EMBED_PROVIDER!r} —"
+            f"unknown SKEIN_EMBED_PROVIDER {EMBED_PROVIDER!r} -"
             f" expected one of: {', '.join(sorted(EMBED_PROVIDERS))}"
         )
     else:
@@ -1023,7 +1023,7 @@ if EMBEDDINGS_ENABLED:
         _embed_rule = EMBED_PROVIDERS[EMBED_PROVIDER]["base_url"]
         if _embed_rule == "forbidden" and _embed_base:
             EMBEDDINGS_ERROR = (
-                f"SKEIN_EMBED_PROVIDER={EMBED_PROVIDER} does not accept SKEIN_EMBED_BASE_URL —"
+                f"SKEIN_EMBED_PROVIDER={EMBED_PROVIDER} does not accept SKEIN_EMBED_BASE_URL -"
                 " use openai_compatible to point at a custom endpoint"
                 " (the ollama endpoint derives from SKEIN_OLLAMA_HOST)"
             )
@@ -1033,13 +1033,13 @@ if EMBEDDINGS_ENABLED:
             )
         elif not EMBED_MODEL:
             EMBEDDINGS_ERROR = (
-                f"SKEIN_EMBED_PROVIDER={EMBED_PROVIDER} has no default model —"
+                f"SKEIN_EMBED_PROVIDER={EMBED_PROVIDER} has no default model -"
                 " set SKEIN_EMBED_MODEL to what the endpoint serves"
             )
         elif EMBED_PROVIDER == "openai" and not (EMBED_API_KEY or os.getenv("OPENAI_API_KEY")):
             EMBEDDINGS_ERROR = (
                 "SKEIN_EMBEDDINGS=1 with SKEIN_EMBED_PROVIDER=openai needs OPENAI_API_KEY"
-                " (or SKEIN_EMBED_API_KEY) — semantic search is off. Keyless option:"
+                " (or SKEIN_EMBED_API_KEY) - semantic search is off. Keyless option:"
                 " SKEIN_EMBED_PROVIDER=ollama with a pulled embedding model."
             )
         if not EMBEDDINGS_ERROR:
@@ -1054,7 +1054,7 @@ EMBED_READY = EMBEDDINGS_ENABLED and not EMBEDDINGS_ERROR
 # Cosine floor a semantic hit must clear. Without one, semantic_search returns
 # the top N vectors by similarity NO MATTER how dissimilar they are, so a
 # nonsense query comes back with a full page of unrelated rows and the "nothing
-# matches those words" answer becomes unreachable — measured on a 35-record
+# matches those words" answer becomes unreachable - measured on a 35-record
 # corpus, `zzzznotarealterm` scored 0.49 against records it shares no word with.
 #
 # The right value is per model, because each embedding space has its own noise
@@ -1079,7 +1079,7 @@ def provider_key() -> str:
 
     SKEIN_MODEL_API_KEY always wins; otherwise the provider's own env var, but
     ONLY where the registry names one. A provider with an empty key_env never
-    picks up an ambient key — that is what keeps OPENAI_API_KEY from being
+    picks up an ambient key - that is what keeps OPENAI_API_KEY from being
     posted to a third-party openai_compatible endpoint.
     """
     if MODEL_API_KEY:
@@ -1089,7 +1089,7 @@ def provider_key() -> str:
 
 
 # Mutating agent writes become pending_changes proposals that a human
-# approves in the review inbox. ON by default — the one trust boundary that
+# approves in the review inbox. ON by default - the one trust boundary that
 # shipped open while every other one fails closed (an unset auth mode
 # refuses every request, a secretless webhook is closed). Autonomy is
 # granted per (agent, entity) through the authority matrix, after a record
@@ -1112,8 +1112,8 @@ REVIEW_SEPARATION = os.getenv("SKEIN_REVIEW_SEPARATION", "0") == "1"
 TURN_GUARD = os.getenv("SKEIN_TURN_GUARD", "0") == "1"
 
 # How a long conversation is kept inside the model's context window.
-#   sliding   — drop the oldest messages. Free, loses them.
-#   summarize — condense the oldest messages into a summary. Costs one extra
+#   sliding - drop the oldest messages. Free, loses them.
+#   summarize - condense the oldest messages into a summary. Costs one extra
 #               model call when it fires, keeps the gist.
 # Never reaches the mock provider: build_agent returns MockAgent before any
 # Strands Agent exists, so there is no conversation manager to configure and
@@ -1145,8 +1145,8 @@ def _ctx_num(name: str, default, cast, low=None, high=None):
     Range-checked HERE rather than left to the SDK. Out of range, the managers
     either raise at construction (a negative window: every chat turn fails
     while /health stays green) or silently clamp (a ratio above 0.8: the
-    operator believes a number that is not in effect). Both are the same bug —
-    a setting that does not mean what it says — so both are refused up front.
+    operator believes a number that is not in effect). Both are the same bug -
+    a setting that does not mean what it says - so both are refused up front.
 
     EVERY fault is collected, not just the first: these knobs are independent,
     so reporting one at a time makes an operator with two typos restart twice.
@@ -1155,10 +1155,10 @@ def _ctx_num(name: str, default, cast, low=None, high=None):
     try:
         value = cast(raw or default)
         # NaN fails every comparison, so a bare < / > check would pass it
-        # straight to the SDK's max(min(...)) clamp — the exact "a number that
+        # straight to the SDK's max(min(...)) clamp - the exact "a number that
         # is not in effect" case these bounds exist to refuse.
         # OverflowError, not just ValueError: isfinite() converts to a C double
-        # first, so a 309-digit int raises here — and an uncaught raise in this
+        # first, so a 309-digit int raises here - and an uncaught raise in this
         # module takes down every route, the ICS feed, and backups with it.
         if not math.isfinite(value):
             _CONTEXT_FAULTS.append(f"{name} is not a real number. Skein uses {default}.")
@@ -1175,7 +1175,7 @@ def _ctx_num(name: str, default, cast, low=None, high=None):
 
 # messages kept before the oldest are dropped (sliding). 0 would clear the
 # history on every reduction, which is a chat with no memory at all. Named
-# _MESSAGES because it counts messages, not tokens — a knob called plain
+# _MESSAGES because it counts messages, not tokens - a knob called plain
 # "context window" reads as a token capacity and invites the wrong edit.
 CONTEXT_WINDOW_MESSAGES = _ctx_num("SKEIN_CONTEXT_WINDOW_MESSAGES", 40, int, low=1)
 # The pre-rename name is a fault, never a fallback: read silently, a stale
@@ -1195,7 +1195,7 @@ CONTEXT_PRESERVE_RECENT = _ctx_num("SKEIN_CONTEXT_PRESERVE_RECENT", 10, int, low
 # messages, so the pin does not survive a turn boundary. Wired for when it does.
 CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int, low=0, high=1000)
 # compress before an overflow instead of after. The threshold is 70% of the
-# MODEL's TOKEN context window — NOT of CONTEXT_WINDOW_MESSAGES, which is a
+# MODEL's TOKEN context window - NOT of CONTEXT_WINDOW_MESSAGES, which is a
 # message count. The SDK resolves known ids from its own table
 # (strands/models/_defaults.py) and assumes 200k for the rest; a MODELS
 # entry's context_tokens overrides both (agents/team_agent.py::_model), which
@@ -1214,7 +1214,7 @@ CORS_ORIGINS = [
 
 # ---- team time zone --------------------------------------------------------
 # The zone the TEAM's rhythms run in: which hour a ritual fires, and which
-# calendar day "today" means. STORAGE is unaffected — db.now() stays UTC
+# calendar day "today" means. STORAGE is unaffected - db.now() stays UTC
 # ISO-8601 and every stored timestamp keeps that shape, because a stored local
 # time is ambiguous for one hour every autumn.
 #
@@ -1227,13 +1227,13 @@ CORS_ORIGINS = [
 # (main.py) and every human-facing date reads db.today().
 TZ_NAME = os.getenv("SKEIN_TZ", "").strip() or "UTC"
 TZ_ERROR = ""
-# the rejected value, for the boot log only — never for TZ_ERROR, which
+# the rejected value, for the boot log only - never for TZ_ERROR, which
 # /health serves to every signed-in caller (main.py logs this)
 TZ_REJECTED = ""
 # tzinfo, not ZoneInfo: the fallback below must never need tzdata. ZoneInfo
 # is an ordinary tzdata lookup even for "UTC", so a slim/alpine/distroless
 # image with no /usr/share/zoneinfo raises INSIDE the handler that exists to
-# recover — and a raise at module scope means `import app.config` fails and
+# recover - and a raise at module scope means `import app.config` fails and
 # the whole REST API is dead at boot, which is the opposite of degrading.
 # datetime.UTC is a fixed offset built into the interpreter.
 TZ: tzinfo = UTC
@@ -1299,7 +1299,7 @@ except (ZoneInfoNotFoundError, KeyError):
 # a deployment that never asked for the runner.
 #
 # The wall clock is NOT one of those. It defaults to 300 and its floor is 30,
-# so SKEIN_AGENT_RUN_SECONDS=0 does not disable it — _ctx_num clamps out of
+# so SKEIN_AGENT_RUN_SECONDS=0 does not disable it - _ctx_num clamps out of
 # range values back to the default and records a fault. A zero-second bound
 # on a turn would mean every turn is abandoned, which is not a setting
 # anybody wants; backend/.env.example documents the same split.
@@ -1313,7 +1313,7 @@ AGENT_DAILY_TOKENS = _ctx_num("SKEIN_AGENT_DAILY_TOKENS", 0, int, low=0, high=10
 # finish, which is the shape of a runaway.
 AGENT_RUN_SECONDS = _ctx_num("SKEIN_AGENT_RUN_SECONDS", 300, int, low=30, high=3600)
 # In-turn bounds the SDK enforces at each loop boundary (strands Limits):
-# unlike the wall clock, these stop the turn CLEANLY — prior tool calls
+# unlike the wall clock, these stop the turn CLEANLY - prior tool calls
 # complete and the stop reason is named in the run record. The wall clock
 # stays the outer backstop, because a turn stuck on one socket never reaches
 # a turn boundary for these to fire at. Admin-tunable via services/tuning.py.
@@ -1322,14 +1322,14 @@ AGENT_RUN_TOKENS = _ctx_num("SKEIN_AGENT_RUN_TOKENS", 200_000, int, low=1_000, h
 # Context offload: a chat tool result over this many (estimated) tokens is
 # stored in session_offload and replaced in context by a preview plus a
 # retrieval tool, so one fat read_artifact stops taxing every later turn of
-# the thread. 0 disables the plugin. Chat agents only — the wake runner's
+# the thread. 0 disables the plugin. Chat agents only - the wake runner's
 # narrow tool contract and a persona's declared allowlist both exclude it
 # (agents/team_agent.py::build_agent names the two contracts).
 OFFLOAD_RESULT_TOKENS = _ctx_num("SKEIN_OFFLOAD_RESULT_TOKENS", 2500, int, low=0, high=1_000_000)
 OFFLOAD_PREVIEW_TOKENS = _ctx_num("SKEIN_OFFLOAD_PREVIEW_TOKENS", 1000, int, low=0, high=1_000_000)
 # Workspace-wide daily cap on delegation-triggered wake turns. Bounded by
 # default on purpose: the wake path bypasses the runner allowlist, the token
-# ceiling defaults to 0, and a strong caller can mint fresh agent names — so
+# ceiling defaults to 0, and a strong caller can mint fresh agent names - so
 # without an aggregate cap one authenticated loop converts delegations into
 # an unbounded provider bill. 0 removes the cap.
 AGENT_WAKES_PER_DAY = _ctx_num("SKEIN_AGENT_WAKES_PER_DAY", 24, int, low=0, high=10000)
@@ -1355,7 +1355,7 @@ OTEL_ENDPOINT = os.getenv("SKEIN_OTEL_ENDPOINT", "")
 
 # Opt-in prebuilt tools from strands-agents-tools for the real agent,
 # comma-separated (e.g. "calculator,current_time,batch"). Only
-# allowlisted names load — see app/agents/extra_tools.py.
+# allowlisted names load - see app/agents/extra_tools.py.
 EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("SKEIN_EXTRA_TOOLS", "").split(",") if t.strip())
 
 # ---- authentication --------------------------------------------------------
@@ -1368,7 +1368,7 @@ EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("SKEIN_EXTRA_TOOLS", "").split(
 #   oidc            humans present an IdP-issued JWT, validated in-process
 #                   against the issuer's JWKS (app/oidc.py). Personal API
 #                   keys still work for automation (CLI, MCP, hooks).
-# An unknown mode fails CLOSED — every /api request is refused and /health
+# An unknown mode fails CLOSED - every /api request is refused and /health
 # says why. A typo of "oidc" must not silently open the deployment, so this
 # is the one config fault that does NOT degrade to a working default. The
 # UNSET default is api-key for the same reason: a deployment that never set
@@ -1384,7 +1384,7 @@ CREDENTIAL_KEY = os.getenv("SKEIN_CREDENTIAL_KEY", "").strip()
 # how many trusted proxies sit in front of this process and append to
 # X-Forwarded-For (an OpenShift/k8s ingress router = 1). At 0 the header is
 # ignored: per-address rate caps key on the socket peer, which behind a
-# router is the router — one signin bucket for the whole team. Trusting
+# router is the router - one signin bucket for the whole team. Trusting
 # MORE hops than actually exist hands every caller a spoofable bucket key,
 # so a bad value degrades to 0, never up.
 try:
@@ -1394,7 +1394,7 @@ except ValueError:
 
 # Thread-pool sizes, applied at startup (main.py lifespan). Measured, not
 # guessed under SQLite: GIL handoff between threads parked on the driver's C
-# boundary made throughput ANTI-scale with pool width — GET /api/tasks at 40
+# boundary made throughput ANTI-scale with pool width - GET /api/tasks at 40
 # concurrent callers measured 97 req/s with 8 threads against 68 with the
 # default 40 (4 cores). RE-MEASURE on PostgreSQL before trusting these
 # numbers: the driver, the round trip, and the connection pool are all
@@ -1405,7 +1405,7 @@ except ValueError:
 #
 # THREAD_POOL is anyio's limiter: every sync route handler and every
 # run_in_threadpool call. TOOL_THREADS is the event loop's default executor:
-# every sync @tool via asyncio.to_thread — unset, it sizes itself
+# every sync @tool via asyncio.to_thread - unset, it sizes itself
 # min(32, cpu + 4), so the ceiling was 8 on a 4-vCPU deploy VM and 32 on a
 # dev box, and nobody chose either. The floor is 2, never 0 or 1: a
 # single-thread pool deadlocks the first tool that itself waits on the pool.
@@ -1426,12 +1426,12 @@ if AUTH_MODE not in AUTH_MODES:
 
 # Administrators: the only identities the roster / team-config / export
 # surfaces accept (deps.AdminUser). Empty + trusted-header mode = every key
-# holder administers — the historical scarcity model, where the operator
+# holder administers - the historical scarcity model, where the operator
 # mints each key by hand. api-key and oidc modes remove that scarcity, so
 # there an empty set keeps the admin surfaces locked until it is set.
 ADMINS = frozenset(a.strip() for a in os.getenv("SKEIN_ADMINS", "").split(",") if a.strip())
 
-# OIDC (SKEIN_AUTH_MODE=oidc): validation is local — signature against the
+# OIDC (SKEIN_AUTH_MODE=oidc): validation is local - signature against the
 # issuer's JWKS, then iss / aud / exp. No sidecar, no per-request IdP call.
 OIDC_ISSUER = os.getenv("SKEIN_OIDC_ISSUER", "").strip().rstrip("/")
 OIDC_AUDIENCE = os.getenv("SKEIN_OIDC_AUDIENCE", "").strip()
@@ -1442,7 +1442,7 @@ OIDC_GROUPS_CLAIM = os.getenv("SKEIN_OIDC_GROUPS_CLAIM", "").strip() or "groups"
 # Where the groups claim is read: the access token itself, or the issuer's
 # userinfo endpoint (for an ATM that does not stamp groups into the token).
 # Env-only: it decides who is an admin. An unknown value is refused below,
-# not degraded — silently reading the token would drop every group.
+# not degraded - silently reading the token would drop every group.
 OIDC_GROUPS_SOURCE = os.getenv("SKEIN_OIDC_GROUPS_SOURCE", "").strip() or "token"
 OIDC_USERINFO_URL = os.getenv("SKEIN_OIDC_USERINFO_URL", "").strip()
 # IdP group that grants admin, alongside SKEIN_ADMINS
@@ -1459,7 +1459,7 @@ OIDC_AUTHORIZE_URL = os.getenv("SKEIN_OIDC_AUTHORIZE_URL", "").strip()
 OIDC_TOKEN_URL = os.getenv("SKEIN_OIDC_TOKEN_URL", "").strip()
 # Clock-skew tolerance (seconds) on exp/nbf/iat. PingFederate stamps nbf at
 # issue time, so a pod one second behind the IdP refuses every fresh token
-# with ImmatureSignatureError — intermittently, right after sign-in. A bad
+# with ImmatureSignatureError - intermittently, right after sign-in. A bad
 # value degrades to the default, never to zero.
 try:
     OIDC_LEEWAY = max(0, int(os.getenv("SKEIN_OIDC_LEEWAY", "").strip() or 30))
@@ -1474,7 +1474,7 @@ if not AUTH_ERROR and AUTH_MODE == "oidc":
         AUTH_ERROR = "SKEIN_OIDC_GROUPS_SOURCE must be token or userinfo"
 
 # Optional shared bearer token for the whole API (set when exposing beyond
-# a trusted network). Only read in trusted-header mode — the other modes
+# a trusted network). Only read in trusted-header mode - the other modes
 # carry a per-caller credential on every request, which is strictly stronger.
 API_TOKEN = os.getenv("SKEIN_API_TOKEN", "")
 
@@ -1485,7 +1485,7 @@ ICS_TOKEN = os.getenv("SKEIN_ICS_TOKEN", "")
 
 # Shared secret for Gitea (HMAC-SHA256 over the raw body). Empty
 # disables the endpoint: the webhook moves tasks, so an unsigned caller must
-# never reach it. Its own secret, never the API token — the forge stores it
+# never reach it. Its own secret, never the API token - the forge stores it
 # in a repository setting that every repo admin can read.
 FORGE_WEBHOOK_SECRET = os.getenv("SKEIN_FORGE_WEBHOOK_SECRET", "")
 

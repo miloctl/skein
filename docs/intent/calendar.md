@@ -169,7 +169,7 @@ suites. Each deletes its own bullet from the ROADMAP section in the same
 commit. Each new test must fail against the code before the change, and its
 fixtures must come from a running instance (CLAUDE.md conventions).
 
-### Slice 1 — The calendar page (read path)
+### Slice 1 - The calendar page (read path)
 
 Backend:
 
@@ -259,7 +259,7 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
 - `truncated` names a kind at its limit.
 - A denying policy rule drops rows (the `test_policy_axis` pattern).
 
-### Slice 2 — Edit and reschedule
+### Slice 2 - Edit and reschedule
 
 - No policy fix comes first. `policy_context._target_engagement` reads a
   stored `engagement_id` only for tasks and milestones, but the gate and the
@@ -316,7 +316,7 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
   replace the event on the next refresh. `SEQUENCE` is left out until a
   client that ignores the update is seen.
 
-### Slice 3 — Items that came out of a meeting
+### Slice 3 - Items that came out of a meeting
 
 - Migration `044_event_links.sql`, following the style of `026` and `028`.
   For each of the seven tables:
@@ -405,7 +405,7 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
   - The export nulls a hidden `event_id`.
   - A share is refused while the linked meeting is narrower.
 
-### Slice 4 — Agenda references, and events as a reference target
+### Slice 4 - Agenda references, and events as a reference target
 
 - `services/refs.py`: add `"event"` to `TARGETS` and `("events", "title")`
   to `_TITLE_SOURCE`. Add a `quoted: bool = True` keyword argument to `refs`

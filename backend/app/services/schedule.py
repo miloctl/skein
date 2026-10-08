@@ -8,7 +8,7 @@ from .. import config, db
 from . import policy_context, scope
 from .scope import WORKSPACE_ONLY
 
-# a date, or a date-prefixed ISO timestamp — both compare correctly against
+# a date, or a date-prefixed ISO timestamp - both compare correctly against
 # the stored starts_at strings
 DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ].*)?$")
 
@@ -16,7 +16,7 @@ DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ].*)?$")
 def _canon(label: str, value: str) -> str:
     # normalize at write time: fromisoformat accepts space separators and
     # offsets, but the ICS builder (and string comparisons) only survive
-    # the plain YYYY-MM-DDTHH:MM shape — store exactly that, in UTC
+    # the plain YYYY-MM-DDTHH:MM shape - store exactly that, in UTC
     try:
         dt = datetime.fromisoformat(value)
     except (TypeError, ValueError):
@@ -44,10 +44,10 @@ def _check_engagement(engagement_id: int, actor: str, *, tier: str, crew_id: int
     # the same guard add_promise puts on its own engagement link: unchecked,
     # a bad id raises IntegrityError (a 500 from a value the caller sent) and
     # a readable-looking id lets an event attach to another crew's private
-    # engagement — which migration 008 exists to attribute hours to
+    # engagement - which migration 008 exists to attribute hours to
     efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
     engagement = db.query_one(
-        f"SELECT visibility, crew_id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT visibility, crew_id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (engagement_id, *ep),
     )
     if engagement is None:
@@ -178,7 +178,7 @@ def update_event(
             raise ValueError("nothing to update")
         sets = ", ".join(f"{k} = ?" for k in fields)
         db.execute(
-            f"UPDATE events SET {sets} WHERE id = ?",  # noqa: S608 — keys come from the fixed names above
+            f"UPDATE events SET {sets} WHERE id = ?",  # noqa: S608 - keys come from the fixed names above
             (*fields.values(), event_id),
         )
         new = {**row, **fields}
@@ -235,7 +235,7 @@ def check_event_link(
     """
     frag, vp = scope.visible_filter(scope.Viewer.for_actor(actor), "events")
     event = db.query_one(
-        f"SELECT visibility, crew_id FROM events WHERE id = ? AND {frag} FOR KEY SHARE",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT visibility, crew_id FROM events WHERE id = ? AND {frag} FOR KEY SHARE",  # noqa: S608 - scope.visible_filter emits only bound marks
         (event_id, *vp),
     )
     if event is None:
@@ -252,14 +252,14 @@ def link_item(event_id: int, kind: str, item_id: int, *, actor: str = "system") 
         # the event, then the row: review.approve_change holds a create's
         # parents in that order, and the reverse order deadlocks against it
         policy_context.hold_resource("event", event_id)
-        row = db.query_one(f"SELECT * FROM {table} WHERE id = ? FOR UPDATE", (item_id,))  # noqa: S608 — table from LINKED
+        row = db.query_one(f"SELECT * FROM {table} WHERE id = ? FOR UPDATE", (item_id,))  # noqa: S608 - table from LINKED
         if not row:
             raise scope.missing(table, item_id)
         scope.assert_editable(table, row, actor, verb="link")
         check_event_link(
             event_id, actor=actor, tier=row["visibility"], crew_id=row["crew_id"], label=kind
         )
-        db.execute(f"UPDATE {table} SET event_id = ? WHERE id = ?", (event_id, item_id))  # noqa: S608 — table from LINKED
+        db.execute(f"UPDATE {table} SET event_id = ? WHERE id = ?", (event_id, item_id))  # noqa: S608 - table from LINKED
         db.log_activity(
             actor,
             "link_event",
@@ -271,13 +271,13 @@ def link_item(event_id: int, kind: str, item_id: int, *, actor: str = "system") 
 def unlink_item(event_id: int, kind: str, item_id: int, *, actor: str = "system") -> dict:
     table = _linked_table(kind)
     with db.transaction():
-        row = db.query_one(f"SELECT * FROM {table} WHERE id = ? FOR UPDATE", (item_id,))  # noqa: S608 — table from LINKED
+        row = db.query_one(f"SELECT * FROM {table} WHERE id = ? FOR UPDATE", (item_id,))  # noqa: S608 - table from LINKED
         if not row:
             raise scope.missing(table, item_id)
         scope.assert_editable(table, row, actor, verb="unlink")
         if int(row.get("event_id") or 0) != event_id:
             raise ValueError("This record is not linked to this meeting.")
-        db.execute(f"UPDATE {table} SET event_id = NULL WHERE id = ?", (item_id,))  # noqa: S608 — table from LINKED
+        db.execute(f"UPDATE {table} SET event_id = NULL WHERE id = ?", (item_id,))  # noqa: S608 - table from LINKED
         db.log_activity(
             actor,
             "unlink_event",
@@ -301,7 +301,7 @@ def event_items(
     for kind, (table, title) in LINKED.items():
         frag, vp = scope.visible_filter(viewer, table)
         rows = db.query(
-            f"SELECT id, {title} AS title, visibility, crew_id FROM {table}"  # noqa: S608 — table and column from LINKED, scope.visible_filter emits only bound marks
+            f"SELECT id, {title} AS title, visibility, crew_id FROM {table}"  # noqa: S608 - table and column from LINKED, scope.visible_filter emits only bound marks
             f" WHERE event_id = ? AND {frag}{_LINKED_LIVE.get(kind, '')} ORDER BY id LIMIT ?",
             (event_id, *vp, EVENT_ITEMS_LIMIT),
         )
@@ -325,12 +325,12 @@ def linked_counts(
     for kind, (table, _title) in LINKED.items():
         frag, vp = scope.visible_filter(viewer, table)
         parts.append(
-            f"SELECT '{kind}' AS kind, id, event_id FROM {table}"  # noqa: S608 — kind and table from LINKED, scope.visible_filter emits only bound marks
+            f"SELECT '{kind}' AS kind, id, event_id FROM {table}"  # noqa: S608 - kind and table from LINKED, scope.visible_filter emits only bound marks
             f" WHERE event_id IN ({marks}) AND {frag}{_LINKED_LIVE.get(kind, '')}"
         )
         params += [*event_ids, *vp]
     rows = db.query(
-        f"SELECT kind, id, event_id FROM ({' UNION ALL '.join(parts)}) linked LIMIT ?",  # noqa: S608 — kinds and tables from LINKED, scope.visible_filter emits only bound marks
+        f"SELECT kind, id, event_id FROM ({' UNION ALL '.join(parts)}) linked LIMIT ?",  # noqa: S608 - kinds and tables from LINKED, scope.visible_filter emits only bound marks
         (*params, len(event_ids) * EVENT_ITEMS_LIMIT),
     )
     counts: dict[int, int] = {}
@@ -346,7 +346,7 @@ def list_events(
 ) -> list[dict]:
     if from_date:
         # a string compare against a garbage value returns [], which reads as
-        # "no events" — a silent wrong answer. Every write path validates
+        # "no events" - a silent wrong answer. Every write path validates
         # dates strictly, so this read must too. Shape alone is not enough:
         # "9999-99-99" matches the pattern and is still not a date.
         head = from_date[:10]
@@ -359,12 +359,12 @@ def list_events(
     frag, vp = scope.visible_filter(viewer, "events")
     if from_date:
         rows = db.query(
-            f"SELECT * FROM events WHERE starts_at >= ? AND {frag} ORDER BY starts_at LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM events WHERE starts_at >= ? AND {frag} ORDER BY starts_at LIMIT ?",  # noqa: S608 - scope.visible_filter emits only bound marks
             (from_date, *vp, limit),
         )
     else:
         rows = db.query(
-            f"SELECT * FROM events WHERE {frag} ORDER BY starts_at LIMIT ?",  # noqa: S608 — scope.visible_filter emits only bound marks
+            f"SELECT * FROM events WHERE {frag} ORDER BY starts_at LIMIT ?",  # noqa: S608 - scope.visible_filter emits only bound marks
             (*vp, limit),
         )
     return [with_local(r) for r in rows]
@@ -442,7 +442,7 @@ def calendar_range(
     # reach six figures.
     frag, vp = scope.visible_filter(viewer, "events")
     events = db.query(
-        f"SELECT * FROM events WHERE {frag} AND ("  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM events WHERE {frag} AND ("  # noqa: S608 - scope.visible_filter emits only bound marks
         f"(length(starts_at) > 10 AND starts_at < ? AND COALESCE({_DRAWN_END} > ?, starts_at >= ?))"
         f" OR (length(starts_at) = 10 AND starts_at <= ? AND COALESCE({_DRAWN_END} > ?, starts_at >= ?))"
         ") ORDER BY starts_at, id LIMIT ?",
@@ -454,21 +454,21 @@ def calendar_range(
         # the link columns stay out: a task's milestone and engagement ids
         # are redacted per reader elsewhere (work.redact_task_relationships),
         # and a calendar needs none of them
-        "SELECT id, title, due_date, assignee, status, priority, visibility, crew_id"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT id, title, due_date, assignee, status, priority, visibility, crew_id"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" FROM tasks WHERE status NOT IN ('done', 'void') AND due_date >= ? AND due_date <= ?"
         f" AND {frag}{mine} ORDER BY due_date, id LIMIT ?",
         (start, end, *vp, *([assignee] if assignee else []), CALENDAR_LIMIT + 1),
     )
     frag, vp = scope.visible_filter(viewer, "milestones")
     milestones = db.query(
-        "SELECT id, title, due_date, status, owner, visibility, crew_id FROM milestones"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT id, title, due_date, status, owner, visibility, crew_id FROM milestones"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" WHERE status != 'done' AND due_date >= ? AND due_date <= ? AND {frag}"
         " ORDER BY due_date, id LIMIT ?",
         (start, end, *vp, CALENDAR_LIMIT + 1),
     )
     frag, vp = scope.visible_filter(viewer, "promises")
     promises = db.query(
-        "SELECT id, promise, to_whom, due_date, direction, visibility, crew_id FROM promises"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT id, promise, to_whom, due_date, direction, visibility, crew_id FROM promises"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" WHERE status = 'open' AND due_date >= ? AND due_date <= ? AND {frag}"
         " ORDER BY due_date, id LIMIT ?",
         (start, end, *vp, CALENDAR_LIMIT + 1),
@@ -479,7 +479,7 @@ def calendar_range(
     today = db.today().isoformat()
     frag, vp = scope.visible_filter(viewer, "absences")
     readable = db.query(
-        "SELECT id, person, kind, starts_on, ends_on, note, visibility, crew_id FROM absences"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT id, person, kind, starts_on, ends_on, note, visibility, crew_id FROM absences"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" WHERE starts_on <= ? AND ends_on >= ? AND {frag} AND (person = ? OR ends_on >= ?)"
         " ORDER BY starts_on, person LIMIT ?",
         (end, start, *vp, viewer.name, today, CALENDAR_LIMIT + 1),
@@ -491,7 +491,7 @@ def calendar_range(
     shared = capped(
         "time_away",
         db.query(
-            "SELECT id, person, starts_on, ends_on, visibility, crew_id FROM absences"  # noqa: S608 — TEAM_SEES_DATES and scope.visible_filter emit only constants and bound marks
+            "SELECT id, person, starts_on, ends_on, visibility, crew_id FROM absences"  # noqa: S608 - TEAM_SEES_DATES and scope.visible_filter emit only constants and bound marks
             f" WHERE starts_on <= ? AND ends_on >= ? AND {TEAM_SEES_DATES} AND NOT {frag}"
             " AND ends_on >= ? ORDER BY starts_on, person LIMIT ?",
             (end, start, *vp, today, CALENDAR_LIMIT + 1),
@@ -546,7 +546,7 @@ def team_day_events(d: date) -> list[dict]:
     west of UTC, and admits tomorrow's all-day row in the west."""
     start, end = db.local_event_window(d)
     rows = db.query(
-        f"SELECT * FROM events WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM events WHERE {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND ((length(starts_at) > 10 AND starts_at >= ? AND starts_at < ?) OR starts_at = ?)"
         " ORDER BY starts_at",
         (start, end, d.isoformat()),
@@ -556,7 +556,7 @@ def team_day_events(d: date) -> list[dict]:
 
 def get_event(event_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict | None:
     """One event, or None. Exists so tools/schedule.py can name an event in a
-    proposal summary without writing SQL — it was the only query in app/tools/,
+    proposal summary without writing SQL - it was the only query in app/tools/,
     and the rule is that SQL lives here.
 
     Filtered, and the default viewer is NOBODY. tools/schedule.py puts the
@@ -565,7 +565,7 @@ def get_event(event_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict | None
     """
     frag, vp = scope.visible_filter(viewer, "events")
     return db.query_one(
-        f"SELECT * FROM events WHERE id = ? AND {frag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM events WHERE id = ? AND {frag}",  # noqa: S608 - scope.visible_filter emits only bound marks
         (event_id, *vp),
     )
 
@@ -600,7 +600,7 @@ def _ics_escape(text: str) -> str:
 
 
 def _ics_dt(iso: str) -> str:
-    """RFC 5545 DATE-TIME is exactly YYYYMMDDTHHMMSS — pad the seconds our
+    """RFC 5545 DATE-TIME is exactly YYYYMMDDTHHMMSS - pad the seconds our
     API's own suggested format (2026-07-24T15:00) omits."""
     out = iso.replace("-", "").replace(":", "")[:15]
     if len(out) == 13:  # date + T + HHMM
@@ -628,7 +628,7 @@ ICS_LOOKBACK_DAYS = 90
 def ics_feed() -> str:
     """Events + open milestone/promise due dates as an iCalendar feed.
     Team-visible data only; keep the feed inside the trusted network (hosted
-    calendar clients would mirror titles off-box — prefer local clients)."""
+    calendar clients would mirror titles off-box - prefer local clients)."""
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -639,7 +639,7 @@ def ics_feed() -> str:
     stamp = f"DTSTAMP:{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}Z"
     floor = (db.today() - timedelta(days=ICS_LOOKBACK_DAYS)).isoformat()
     for e in db.query(
-        f"SELECT * FROM events WHERE starts_at >= ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM events WHERE starts_at >= ? AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " ORDER BY starts_at LIMIT 500",
         (floor,),
     ):
@@ -661,7 +661,7 @@ def ics_feed() -> str:
             "END:VEVENT",
         ]
     for m in db.query(
-        f"SELECT id, title, due_date FROM milestones WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, title, due_date FROM milestones WHERE {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND status != 'done' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
     ):
         start = _ics_dt_lines("DTSTART", m["due_date"])
@@ -676,7 +676,7 @@ def ics_feed() -> str:
             "END:VEVENT",
         ]
     for c in db.query(
-        f"SELECT id, promise, due_date, direction FROM promises WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, promise, due_date, direction FROM promises WHERE {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND status = 'open' AND due_date IS NOT NULL ORDER BY due_date LIMIT 200"
     ):
         start = _ics_dt_lines("DTSTART", c["due_date"])
@@ -711,7 +711,7 @@ OUTCOME_SILENT_WEEKS = 3
 
 def record_outcome(event_id: int, outcome: str, *, actor: str = "system") -> dict:
     """Mark what came out of a meeting. `recorded` or `none` are BOTH answers
-    — a meeting that produced nothing is a fact worth having, and the finding
+    - a meeting that produced nothing is a fact worth having, and the finding
     below counts exactly those."""
     if outcome not in ("recorded", "none"):
         raise ValueError("outcome must be 'recorded' or 'none'")
@@ -730,8 +730,8 @@ def meetings_awaiting_outcome(viewer: scope.Viewer = scope.NOBODY) -> list[dict]
     The window opens OUTCOME_ASK_AFTER_HOURS after the start, not at it: a
     meeting is not over when it begins, and asking during it is noise.
 
-    `starts_at` is naive UTC — `_canon` above stores
-    `astimezone(UTC).replace(tzinfo=None)` — so the cutoff is naive UTC too. A
+    `starts_at` is naive UTC - `_canon` above stores
+    `astimezone(UTC).replace(tzinfo=None)` - so the cutoff is naive UTC too. A
     bare `datetime.now()` is the HOST's clock, which is a different instant on
     any machine that is not on UTC: west of it the window opened hours late,
     and east of it it opened during the meeting.
@@ -747,12 +747,12 @@ def meetings_awaiting_outcome(viewer: scope.Viewer = scope.NOBODY) -> list[dict]
     #
     # The predicate below asks TODAY OR LATER, not `!= today`. Equality alone
     # compares a team-local date against a naive-UTC window, so in any zone
-    # west of about UTC-5 the UTC day rolls over while the local day has not —
+    # west of about UTC-5 the UTC day rolls over while the local day has not -
     # and tomorrow's all-day block entered the window for the last hours of
     # every evening. Los Angeles, Denver, Anchorage and Honolulu all showed it.
     today_local = db.today().isoformat()
     # A lower bound, or migration 008 puts every meeting in the table's whole
-    # history on My Day the morning it is deployed — it defaults them all to
+    # history on My Day the morning it is deployed - it defaults them all to
     # 'pending' and backfills nothing. A meeting nobody wrote up inside a week
     # is not going to be written up now.
     #
@@ -764,7 +764,7 @@ def meetings_awaiting_outcome(viewer: scope.Viewer = scope.NOBODY) -> list[dict]
     # it needs no ask either: whoever types it in knows what it produced.
     floor = (now - timedelta(days=OUTCOME_ASK_LOOKBACK_DAYS)).strftime("%Y-%m-%dT%H:%M")
     rows = db.query(
-        f"SELECT * FROM events WHERE outcome_status = 'pending'"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT * FROM events WHERE outcome_status = 'pending'"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" AND starts_at < ? AND starts_at >= ? AND created_at <= starts_at"
         f" AND (length(starts_at) > 10 OR starts_at < ?)"
         f" AND {frag} ORDER BY starts_at DESC LIMIT 20",

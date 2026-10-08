@@ -12,7 +12,7 @@ from app.services import collab, jobs, search
 
 @pytest.fixture()
 def indexed_note(fresh_db):
-    """A note indexed while the embed path is unavailable — the exact state a
+    """A note indexed while the embed path is unavailable - the exact state a
     provider outage leaves behind."""
     collab.save_note("conventions", "branch names use task ids", author="mira")
     return fresh_db

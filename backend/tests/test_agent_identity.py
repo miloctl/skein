@@ -22,7 +22,7 @@ def test_reads_do_not_mint_roster_rows(client, fresh_db):
 
 
 def test_reserved_agent_identities_minted_at_startup(client, fresh_db):
-    # the client fixture runs the lifespan — 'agent' (default chat identity)
+    # the client fixture runs the lifespan - 'agent' (default chat identity)
     # must exist as kind=agent so a weak header can never shadow it
     row = fresh_db.query_one("SELECT kind FROM users WHERE name = 'agent'")
     assert row and row["kind"] == "agent"

@@ -1,7 +1,7 @@
 """Two write paths, one service layer: SQL lives in app/services/ alone.
 
 Humans mutate via REST, agents via Strands tools, and both must call the shared
-functions in app/services/ — a route or tool that writes its own SQL bypasses
+functions in app/services/ - a route or tool that writes its own SQL bypasses
 provenance and the activity ledger with nothing to notice. One breach shipped
 (a SELECT inside tools/schedule.py, added because no service exposed a single
 event) with no test to catch the next, so this pins the rule rather than that
@@ -38,7 +38,7 @@ def test_no_sql_outside_the_service_layer(layer):
         hit for path in sorted((APP / layer).rglob("*.py")) for hit in _sql_bearing_lines(path)
     ]
     assert not offenders, (
-        f"SQL in app/{layer}/ — move it behind a function in app/services/, "
+        f"SQL in app/{layer}/ - move it behind a function in app/services/, "
         "or the write skips provenance and the activity ledger:\n" + "\n".join(offenders)
     )
 
@@ -53,7 +53,7 @@ def test_no_mutating_db_helpers_outside_the_service_layer(layer):
         if helpers.search(line)
     ]
     assert not offenders, (
-        f"mutating db helpers in app/{layer}/ — move them behind services:\n" + "\n".join(offenders)
+        f"mutating db helpers in app/{layer}/ - move them behind services:\n" + "\n".join(offenders)
     )
 
 

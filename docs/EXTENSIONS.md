@@ -260,8 +260,8 @@ for item in client.open_items():
 One held item does not stop the batch. The rest of the run lands, and a
 reviewer answers the held ones once.
 
-A rule on the **operation action itself** — the REST action, a contributed
-route operation, or a scheduled job — has no request to resume, so it returns
+A rule on the **operation action itself** - the REST action, a contributed
+route operation, or a scheduled job - has no request to resume, so it returns
 `POLICY_REVIEW_UNSUPPORTED` and does not run the operation. Name the command
 action when the intent is to hold one write for approval.
 
@@ -847,7 +847,7 @@ and use a sidecar service for it.
 
 The store supplies `execute`, `query`, `query_one`, `migrate`, and
 `transaction`, which nests. `execute` returns the first column of a
-`RETURNING` row, or 0 when the statement has none — an insert whose id you
+`RETURNING` row, or 0 when the statement has none - an insert whose id you
 need must say `RETURNING id`, because there is no last-inserted-id to hand
 back. There is no `connect`: a raw connection would
 escape the schema scoping and the placeholder translation that make the rest
@@ -1056,7 +1056,7 @@ bound the backend applies to one capability request.
 
 A card or navigation item that declares a policy action is hidden unless
 `/api/capabilities` returns `permit`. The backend refuses an action that no
-composed module registers, outside the reserved `skein.` core namespace —
+composed module registers, outside the reserved `skein.` core namespace -
 and a private module cannot declare an operation under that namespace, and
 a frontend `policyAction` cannot name it. A frontend package whose backend
 module is not installed therefore stays hidden instead of rendering
@@ -1092,7 +1092,7 @@ An installed deployment sets at least:
   `SKEIN_DB_HOST`, `SKEIN_DB_NAME`, `SKEIN_DB_USER`, and
   `SKEIN_DB_PASSWORD`. `SKEIN_DB_PORT` is optional. Use component variables
   in a deployment manifest because a password can contain URI punctuation.
-- `SKEIN_DATA_DIR` holds artifacts, backups, and exports — no database.
+- `SKEIN_DATA_DIR` holds artifacts, backups, and exports - no database.
   Always set it for an installed package. The default resolves inside the
   installed package directory.
 - `SKEIN_MODEL_PROVIDER` selects the model provider. The keyless `mock`

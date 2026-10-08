@@ -1,4 +1,4 @@
-"""Milestone and task services — the single write path for both REST and tools."""
+"""Milestone and task services - the single write path for both REST and tools."""
 
 import re
 from collections.abc import Callable
@@ -15,7 +15,7 @@ WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
 # Bounds for the two free-text fields, enforced HERE because this is the only
 # write path. routes/api.py imports these for its own Field(max_length=...) so
 # the two doors cannot drift: the REST models capped these and the service did
-# not, so an agent or MCP caller wrote a title the PATCH route then refused —
+# not, so an agent or MCP caller wrote a title the PATCH route then refused -
 # a row the system wrote that its own UI could not edit.
 TITLE_LEN = 200
 DESCRIPTION_LEN = 4000
@@ -93,7 +93,7 @@ def create_milestone(
     _bounded("milestone", title, description)
     db.validate_date("due_date", due_date, allow_clear=False)
     ts = db.now()
-    # the membership check belongs INSIDE the insert's transaction — bare, it
+    # the membership check belongs INSIDE the insert's transaction - bare, it
     # opens its own connection, so a person removed from the crew between the
     # check and the write still scopes the row (services/scope.py::resolve_write)
     with db.transaction():
@@ -135,7 +135,7 @@ def create_milestone(
             ),
         )
         # "team" is every person on the roster and the message quotes the
-        # title, so a scoped milestone tells nobody — its own list still shows
+        # title, so a scoped milestone tells nobody - its own list still shows
         # the unlinked project to the people who can read it
         if eng is None and project != "default" and tier == scope.WORKSPACE:
             from .notifications import notify
@@ -144,7 +144,7 @@ def create_milestone(
                 "team",
                 lambda source: (
                     f"Milestone #{source['id']} '{source['title']}' names project"
-                    f" '{source['project']}' but no engagement matches — it will not"
+                    f" '{source['project']}' but no engagement matches - it will not"
                     " count in health/forecast until you relink it."
                 ),
                 tier="digest",
@@ -702,7 +702,7 @@ def consistent_task_rows(tasks: list[dict], viewer: scope.Viewer) -> list[dict]:
     ]
 
 
-# portfolio._WAIT_SATISFIED keys mirror this tuple — a new type needs its
+# portfolio._WAIT_SATISFIED keys mirror this tuple - a new type needs its
 # satisfied-query there or /portfolio KeyErrors on the first wait using it
 WAITING_ON_TYPES = ("task", "blocker", "promise", "question")
 _WAITING_TABLES = {
@@ -832,23 +832,23 @@ def _update_task_locked(
             current["crew_id"],
         )
     # delegated work is closed by the sponsor's verdict, never by an agent
-    # marking it done — otherwise submit_for_acceptance is a paper wall.
+    # marking it done - otherwise submit_for_acceptance is a paper wall.
     #
     # No agent_verified exemption: approve_change applies EVERY proposal with
     # exactly that origin, so exempting it made the guard void on the review
     # path. An agent could file a generic `task` update proposal instead of
-    # submit_for_acceptance, and any human — not the sponsor — could approve
+    # submit_for_acceptance, and any human - not the sponsor - could approve
     # it, with no reason on record and no override marking. accept_completion
     # writes its own UPDATE and never routes through here, so the sponsor's
     # real verdict is unaffected.
     # void is refused OUTRIGHT on a delegated task, for anyone: voiding ends
     # the delegation with no verdict and no trust signal, and it would strand
     # the acceptance proposal pending forever (its apply raises on a task
-    # that is no longer open). The sponsor ends the delegation first — their
-    # verdict, or a reassignment — and voids the plain task after.
+    # that is no longer open). The sponsor ends the delegation first - their
+    # verdict, or a reassignment - and voids the plain task after.
     if status == "void" and current["delegated_agent"]:
         raise ValueError(
-            f"task #{task_id} is delegated — end the delegation first"
+            f"task #{task_id} is delegated - end the delegation first"
             " (the sponsor's verdict, or a reassignment), then void it"
         )
     if status == "done" and current["delegated_agent"]:
@@ -860,12 +860,12 @@ def _update_task_locked(
             # must settle it rejected rather than reset it to pending, where
             # it would clutter /review until a human rejects it by hand
             raise db.TerminalReject(
-                f"task #{task_id} is delegated — submit_for_acceptance gets the"
+                f"task #{task_id} is delegated - submit_for_acceptance gets the"
                 " sponsor's verdict; only that closes it"
             )
         # ...and no OTHER human either. The agent half of this guard was
         # complete and the human half did not exist, so any teammate who could
-        # reach PATCH /api/tasks/{id} closed delegated work with one field —
+        # reach PATCH /api/tasks/{id} closed delegated work with one field -
         # no sponsor verdict, no reason on record, no override marking, and no
         # trust signal for the agent that did the work. review._sponsor_override
         # is the path for acting when the sponsor cannot: it takes a reason and
@@ -879,7 +879,7 @@ def _update_task_locked(
     # (below), so it is the same transition wearing a different field. Guarded
     # here or the refusal above is two PATCH calls deep: reassign to clear
     # `delegated_agent` and `sponsor`, then close the now-undelegated task.
-    # That path also strands the acceptance proposal pending forever — its
+    # That path also strands the acceptance proposal pending forever - its
     # apply raises "already done", which resets it to pending on every verdict.
     if assignee and current["delegated_agent"] and assignee != current["delegated_agent"]:
         _assert_sponsor(task_id, current, actor, verb="end this delegation")
@@ -922,7 +922,7 @@ def _update_task_locked(
         raise ValueError("nothing to update")
     if committed_week == "-":
         fields["committed_week"] = None
-    # "-" clears any clearable field — the single write path must be able to
+    # "-" clears any clearable field - the single write path must be able to
     # unset a wrong due date without hand-editing the database
     for clearable, empty in (("due_date", None), ("assignee", ""), ("description", "")):
         if fields.get(clearable) == "-":
@@ -934,7 +934,7 @@ def _update_task_locked(
     # the sentinel is resolved BEFORE the two tests below, not only into
     # `fields`. Testing the raw parameter sent the literal "-" to
     # assert_readable_by, which asked whether a person named "-" is in the
-    # crew — so un-assigning a crew or private task was refused outright, and
+    # crew - so un-assigning a crew or private task was refused outright, and
     # the only write path could not undo an assignment it had made.
     if assignee == "-":
         assignee = ""
@@ -949,7 +949,7 @@ def _update_task_locked(
             label="assignee",
             author=current["created_by"],
         )
-    # reassigning a delegated task away from its agent ends the delegation —
+    # reassigning a delegated task away from its agent ends the delegation -
     # otherwise both parties see it as theirs. The contract fields go with it:
     # they describe THAT delegation, and the next delegate would inherit a
     # done-definition and a check-in date somebody wrote for a different party.
@@ -962,7 +962,7 @@ def _update_task_locked(
     sets = ", ".join(f"{k} = ?" for k in fields)
     with db.transaction():
         db.execute(
-            f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 — keys hardcoded
+            f"UPDATE tasks SET {sets}, updated_at = ? WHERE id = ?",  # noqa: S608 - keys hardcoded
             (*fields.values(), db.now(), task_id),
         )
         db.log_activity(actor, "update_task", f"#{task_id} {status or 'edited'}{note}")
@@ -973,7 +973,7 @@ def _update_task_locked(
         row = db.query_one("SELECT * FROM tasks WHERE id = ?", (task_id,))
         if row:
             if row["status"] == "void":
-                # search must never cite a voided task — leaving every other
+                # search must never cite a voided task - leaving every other
                 # list is the whole meaning of the status. Un-voiding (setting
                 # any live status) falls through to index_record below.
                 from .search import deindex_record
@@ -1012,7 +1012,7 @@ def _assert_sponsor(task_id: int, task: dict, actor: str, verb: str = "close it"
     Two writes end one: setting status to done, and reassigning the task away
     from its agent (which clears `delegated_agent` and `sponsor`). Guarding
     only the first leaves the second as a two-call bypass of the whole
-    acceptance loop — no verdict, no reason on record, no override marking, no
+    acceptance loop - no verdict, no reason on record, no override marking, no
     trust signal for the agent that did the work, and an acceptance proposal
     stranded pending because its apply now raises "already done".
 
@@ -1024,17 +1024,17 @@ def _assert_sponsor(task_id: int, task: dict, actor: str, verb: str = "close it"
         # TerminalReject for an AGENT proposer, the same reason the
         # delegated-done guard above uses one: approve_change applies with
         # `actor = change["proposed_by"]`, so an agent-filed reassignment can
-        # never be approved into success — and a plain PermissionError lands in
+        # never be approved into success - and a plain PermissionError lands in
         # the generic handler, which resets the proposal to pending and
         # boomerangs it on every future verdict.
         from .users import is_agent
 
         if is_agent(actor):
             raise db.TerminalReject(
-                f"task #{task_id} is sponsored by {task['sponsor']} — only the sponsor can {verb}"
+                f"task #{task_id} is sponsored by {task['sponsor']} - only the sponsor can {verb}"
             )
         raise PermissionError(
-            f"task #{task_id} is sponsored by {task['sponsor']} — only the sponsor"
+            f"task #{task_id} is sponsored by {task['sponsor']} - only the sponsor"
             f" can {verb}. Judge the acceptance proposal in Approvals to act for"
             " them, which puts the reason on record"
         )
@@ -1043,8 +1043,8 @@ def _assert_sponsor(task_id: int, task: dict, actor: str, verb: str = "close it"
 def _settle_acceptance(task_id: int, actor: str, strong: bool, agent: str) -> None:
     """Close the acceptance proposal the sponsor has just answered by hand.
 
-    APPROVED, not rejected. The proposal asks one question — does the sponsor
-    accept this work — and closing the task is a yes. A rejection here would
+    APPROVED, not rejected. The proposal asks one question - does the sponsor
+    accept this work - and closing the task is a yes. A rejection here would
     be a false record of the verdict AND would feed the agent's demotion
     streak (services/delegation.py::trust_scores counts consecutive strong
     non-override rejections), punishing it for work that was accepted.
@@ -1062,7 +1062,7 @@ def _settle_acceptance(task_id: int, actor: str, strong: bool, agent: str) -> No
 
     Every row is claimed in ONE statement and logged only if that statement
     claimed it. `waiting` is read first, but a concurrent reject in another tab
-    can settle a row between the read and the UPDATE — and a ledger row saying
+    can settle a row between the read and the UPDATE - and a ledger row saying
     a rejected proposal was approved can never be corrected, because `activity`
     rows carrying a `seq` are hash-chained (CLAUDE.md).
     """
@@ -1115,7 +1115,7 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     evfrag, evp = scope.visible_filter(viewer, "events", alias="ev")
     rofrag, rop = scope.visible_filter(viewer, "routines", alias="ro")
     row = db.query_one(
-        "SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        "SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 - scope.visible_filter emits only bound marks
         " e.id AS visible_engagement_id, e.name AS engagement_name, ev.id AS visible_event_id,"
         " ro.id AS visible_routine_id,"
         " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id,"
@@ -1157,7 +1157,7 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         # the finding that ASKED for this work, if one did. `source_finding_id`
         # was stamped at conversion (services/insights.py) and nothing read it
         # back, so a task existed because a rule fired and the task could not
-        # say so — which is the half of the loop that tells a reader whether
+        # say so - which is the half of the loop that tells a reader whether
         # the rule was worth keeping.
         "source_finding": _source_finding(task),
     }
@@ -1355,7 +1355,7 @@ def _source_finding(task: dict) -> dict | None:
     """The finding a task was converted from.
 
     `findings` carries no tier (scope.UNSCOPED), and the message is written by
-    a deterministic rule over rows the rule itself could read — so there is no
+    a deterministic rule over rows the rule itself could read - so there is no
     filter to apply, only a lookup.
     """
     fid = task.get("source_finding_id")
@@ -1375,12 +1375,12 @@ def blocking_by_task(task_ids: list[int], viewer: scope.Viewer) -> dict[int, lis
     `blockers.task_id` names the task a blocker BLOCKS, and raise_blocker sets
     that task to 'blocked' (services/blockers.py). Nothing read the edge back,
     so a task could sit in status 'blocked' while every surface that showed it
-    — the peek, My Day, Browse — had no way to name what stopped it, who owns
+    - the peek, My Day, Browse - had no way to name what stopped it, who owns
     it, or when it escalates. The reader saw a state with no receipt and had to
     go find the blocker register by hand.
 
     Viewer-scoped: a blocker nobody may read must not name itself through a
-    task they can. Resolved rows are excluded — a settled blocker is history,
+    task they can. Resolved rows are excluded - a settled blocker is history,
     and listing it beside a live one reads as still-stuck.
     """
     if not task_ids:
@@ -1388,7 +1388,7 @@ def blocking_by_task(task_ids: list[int], viewer: scope.Viewer) -> dict[int, lis
     frag, vp = scope.visible_filter(viewer, "blockers", alias="b")
     found: dict[int, list[dict]] = {}
     for row in db.query(
-        f"SELECT b.id, b.title, b.owner, b.impact, b.status, b.escalated_at, b.task_id"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT b.id, b.title, b.owner, b.impact, b.status, b.escalated_at, b.task_id"  # noqa: S608 - scope.visible_filter emits only bound marks
         f" FROM blockers b WHERE b.task_id = ANY(?) AND b.status != 'resolved' AND {frag}"
         " ORDER BY CASE b.impact WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
         " WHEN 'medium' THEN 2 ELSE 3 END, b.id",
@@ -1423,7 +1423,7 @@ def board_scope(
     )
     frag, vp = scope.visible_filter(viewer, table)
     row = db.query_one(
-        f"SELECT id, {name} AS title FROM {table} WHERE id = ? AND {frag}",  # noqa: S608 — table and column from the fixed pair above
+        f"SELECT id, {name} AS title FROM {table} WHERE id = ? AND {frag}",  # noqa: S608 - table and column from the fixed pair above
         (row_id, *vp),
     )
     if not row or not policy_context.filter_resource_rows(kind, [row], viewer, resource_filter):
@@ -1490,7 +1490,7 @@ def _stored_moment(value: str | None):
 
 
 # How deep `downstream` follows the chain. Cycles are closed by the visited
-# set in `downstream`, NOT here — this bounds chain LENGTH, so one long chain
+# set in `downstream`, NOT here - this bounds chain LENGTH, so one long chain
 # cannot turn a task-peek open into a hundred queries. Ten is far past any
 # real chain; the deepest the team has recorded is two. TRUNCATION is
 # reported, never arrival: a chain of exactly this many hops is counted in
@@ -1505,8 +1505,8 @@ def _blocked_by(task_ids: set[int], viewer: scope.Viewer) -> list[dict]:
     two targets do not belong here and the omission is deliberate:
 
     `blocker:N` looks like a second edge and is not. `blockers.task_id` names
-    the task the blocker BLOCKS — raise_blocker sets that task to 'blocked'
-    (services/blockers.py) — so a blocker is never caused by a task, and
+    the task the blocker BLOCKS - raise_blocker sets that task to 'blocked'
+    (services/blockers.py) - so a blocker is never caused by a task, and
     counting through it claimed that finishing a task released work when the
     same blocker was what stopped that task from finishing at all. Resolving
     a blocker is a blocker verb, not a task one.
@@ -1514,7 +1514,7 @@ def _blocked_by(task_ids: set[int], viewer: scope.Viewer) -> list[dict]:
     `promise:N` is settled by a promise verdict, never by finishing a task.
 
     `question:N` is settled by an answer (collab.answer_question), never by
-    finishing a task — same reasoning as the promise edge.
+    finishing a task - same reasoning as the promise edge.
     """
     if not task_ids:
         return []
@@ -1524,7 +1524,7 @@ def _blocked_by(task_ids: set[int], viewer: scope.Viewer) -> list[dict]:
         # neither terminal status: a finished task is not waiting on anything
         # (listing it as released work would double-count what already
         # landed), and a voided one never should have existed
-        f"SELECT t.id, t.title, t.status, t.assignee, t.priority"  # noqa: S608 — marks are bound, visible_filter emits only bound marks
+        f"SELECT t.id, t.title, t.status, t.assignee, t.priority"  # noqa: S608 - marks are bound, visible_filter emits only bound marks
         f" FROM tasks t WHERE t.status NOT IN ('done', 'void') AND {frag}"
         f" AND t.waiting_on_type = 'task' AND t.waiting_on_id IN ({marks})"
         " ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
@@ -1546,7 +1546,7 @@ def downstream(
     other direction, so the edge cost the person who typed it and paid them
     nothing back. This is the payment: "finish this and three people move".
 
-    Viewer-scoped at every hop — a task nobody may read must not be countable
+    Viewer-scoped at every hop - a task nobody may read must not be countable
     through the chain either, and a bare count would leak its existence.
     """
     seen: set[int] = {task_id}
@@ -1652,7 +1652,7 @@ def _task_rows(
     offset: int = 0,
 ) -> list[dict]:
     # Two filters, two placements. `t` is the LEFT JOIN's driving side, so it
-    # belongs in WHERE. `m` is the nullable side and belongs in the ON clause —
+    # belongs in WHERE. `m` is the nullable side and belongs in the ON clause -
     # in WHERE it would drop every task with no milestone and turn the join
     # INNER. Without the `m` filter this column served a private milestone's
     # title beside a workspace task (weekly.week_view has the same pair).
@@ -1666,7 +1666,7 @@ def _task_rows(
     evfrag, evp = scope.visible_filter(viewer, "events", alias="ev")
     rofrag, rop = scope.visible_filter(viewer, "routines", alias="ro")
     sql = (
-        f"SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 — scope.visible_filter emits only bound marks
+        f"SELECT t.*, m.id AS visible_milestone_id, m.title AS milestone_title,"  # noqa: S608 - scope.visible_filter emits only bound marks
         " e.id AS visible_engagement_id, ev.id AS visible_event_id, ro.id AS visible_routine_id,"
         " COALESCE(waiting_task.id, waiting_blocker.id, waiting_promise.id,"
         " waiting_question.id) AS visible_waiting_id FROM tasks t"

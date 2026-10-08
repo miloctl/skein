@@ -1,7 +1,7 @@
-# Synthesis of the two independent reviews — FINAL
+# Synthesis of the two independent reviews - FINAL
 
 > **CLOSED 2026-08-02.** The cut table below moved to `docs/ROADMAP.md` under
-> "Open backlog". The ROADMAP copy is authoritative — this file records the
+> "Open backlog". The ROADMAP copy is authoritative - this file records the
 > table as it stood when the decisions were made.
 
 *Inputs: `2026-07-24-agent-sol.md`, `2026-07-24-agent-fable.md`, and the
@@ -27,14 +27,14 @@ entities**. The panel sharpened that into three governing rules:
    consumer, plus a documented trigger for when to generalize.
 3. **Privacy is structural, or it is nothing.** The platform's first private
    person-keyed records get: key-based auth (the repo's existing hashed
-   `sk-strands-` keys — X-User identity is 403 on private surfaces), a
+   `sk-strands-` keys - X-User identity is 403 on private surfaces), a
    separate `private.db` that backup/export/MCP/agents/FTS never open, a
    read-time-only nudge, and a canary CI test over every egress surface.
    All of it exists before the first private row is written.
 
 ## Final decisions on the draft's open questions
 
-1. **`entity_links`?** No — over-engineering confirmed. Ship
+1. **`entity_links`?** No - over-engineering confirmed. Ship
    `tasks.waiting_on_type/waiting_on_id` and `source_finding_id` columns
    (tasks + questions). `answers`/`supersedes` already exist as dedicated
    columns. Generalize to a link table only when a fourth relationship with
@@ -43,8 +43,8 @@ entities**. The panel sharpened that into three governing rules:
    require personal-API-key identity (403 otherwise); the author-private
    journal additionally lives in a separate DB file because backups, export,
    and in-process MCP defeat any column check. Solo use gets the same
-   machinery — FTS/backups are write-time sinks.
-3. **Attention before manager layer?** False choice — both fit
+   machinery - FTS/backups are write-time sinks.
+3. **Attention before manager layer?** False choice - both fit
    pre-transition once stripped to load-bearing form. Manager layer first
    (hard deadline), attention regroup second (it's ~a day as a refactor of
    `briefing.py`).
@@ -53,7 +53,7 @@ entities**. The panel sharpened that into three governing rules:
    prefilling the existing notes field. Diff view second wave.
 5. **Over-specified for one person?** Most of draft Phases 1, 3, and 5:
    thread view, legality registry, attention budget/acks, auto-quiet, shadow
-   mode, trust partitions, token budget config, coordination-debt metric —
+   mode, trust partitions, token budget config, coordination-debt metric -
    all cut or deferred with triggers.
 
 ## Cut list (with re-entry triggers)
@@ -67,7 +67,7 @@ entities**. The panel sharpened that into three governing rules:
 | Auto-quiet findings rules | Rule count or noise grows beyond hand-tending (maintainer retires rules at season end today) |
 | Stakeholder signed status pages | Real stakeholder demand AND real auth; then build as push-generated static artifacts, never by exposing the app |
 | Coordination-debt / closed-loop-rate metrics registry | Multi-team scale |
-| sol's Playbooks 2.0, delegation contracts, evidence pack, outbox, capability broker | Unchanged from draft — deferred |
+| sol's Playbooks 2.0, delegation contracts, evidence pack, outbox, capability broker | Unchanged from draft - deferred |
 | Employee private-prep sections (sol §11) | Refused until the journal's separate-store pattern is proven |
 
 ## Security hard lines (from the panel, now policy)
@@ -105,5 +105,5 @@ after the first incident
 Full specs: `2026-07-24-implementation-plan.md`. Panel detail: `2026-07-24-panel.md`.
 
 **Standing guardrail (from both reviews):** every post-transition build runs
-as a Skein experiment engagement — timebox, kill criteria, recorded
+as a Skein experiment engagement - timebox, kill criteria, recorded
 conclusion. The platform polices its own player-coach trap.

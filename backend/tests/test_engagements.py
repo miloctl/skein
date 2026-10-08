@@ -6,7 +6,7 @@ from conftest import _unread_for
 
 def test_create_engagement_adopts_orphan_milestones(fresh_db):
     from app.services import engagements, work
-    from app.services.portfolio import _linked_blockers  # noqa: F401 — import sanity
+    from app.services.portfolio import _linked_blockers  # noqa: F401 - import sanity
 
     work.create_milestone(title="Early milestone", project="Comet", actor="tester")
     eng = engagements.create_engagement(name="Comet", actor="tester")

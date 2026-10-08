@@ -47,7 +47,7 @@ export default defineConfig({
   webServer: [
     {
       // scripts/stub-idp.py signs with a real RS256 key the backend verifies
-      // against its JWKS — a stub that skipped the signature would pass here
+      // against its JWKS - a stub that skipped the signature would pass here
       // and prove nothing about app/oidc.py
       command: `../backend/.venv/bin/python ../scripts/stub-idp.py ${IDP_PORT} ${AUDIENCE}`,
       env: CLEAN_ENV,

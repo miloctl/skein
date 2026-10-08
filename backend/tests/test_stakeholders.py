@@ -1,7 +1,7 @@
 """Open threads with people outside the team.
 
 Four tables already recorded an outside name and nothing put them together,
-so "what is open with Acme" was answerable only by remembering — and the
+so "what is open with Acme" was answerable only by remembering - and the
 answer arrived after the meeting rather than before it.
 """
 

@@ -1,6 +1,6 @@
-# Theme system — 5-agent review (2026-07-27)
+# Theme system - 5-agent review (2026-07-27)
 
-> **Status (2026-08-02): CLOSED — TD1/TD2/TD6 and TP5/TP6/TP3 shipped. The
+> **Status (2026-08-02): CLOSED - TD1/TD2/TD6 and TP5/TP6/TP3 shipped. The
 > open items (TD3-TD5, TD7-TD10, the Vellum pack concept, TP1) moved to
 > `docs/ROADMAP.md` under "Open backlog". This file stays because
 > `globals.css`, `theme.ts` and `whimsy.ts` cite these IDs in source comments.
@@ -26,7 +26,7 @@ validation as design (TB6). Accepted: one-time adopt flash per new browser
 
 ## Proposals awaiting triage
 
-Design (CSS-var level, AA checker stays the gate) — priority TD1, TD2, TD6:
+Design (CSS-var level, AA checker stays the gate) - priority TD1, TD2, TD6:
 - TD1 display-type voice per pack (tracking/case/Fraunces SOFT+WONK axes/glow)
 - TD2 per-pack selvage (Oxford rule / phosphor line / weld thread)
 - TD3 density dial via --spacing (ledger dense, atelier airy)
@@ -37,13 +37,13 @@ Design (CSS-var level, AA checker stays the gate) — priority TD1, TD2, TD6:
 - TD8 atelier laid-paper texture (light only)
 - TD9 high-contrast commits: plain heading face + 3px focus ring
 - TD10 phosphor light mode = paper teletype (dot-matrix texture)
-- New pack concept: **Vellum** (drafting grid / blueprint night) — full token
+- New pack concept: **Vellum** (drafting grid / blueprint night) - full token
   sketch in the review transcript; run `scripts/check_theme_contrast.py`
   before shipping.
 
-Product — recommended order TP5 → TP6 → TP3, then stop:
-- TP5 shareable theme code (copy/paste JSON or ?theme= link) — S, DO
-- TP6 pack-aware voice for ~6 empty states w/ default fallback — S/M, DO
-- TP3 team default theme (operator-set, adopt fallback) — S, DO
+Product - recommended order TP5 → TP6 → TP3, then stop:
+- TP5 shareable theme code (copy/paste JSON or ?theme= link) - S, DO
+- TP6 pack-aware voice for ~6 empty states w/ default fallback - S/M, DO
+- TP3 team default theme (operator-set, adopt fallback) - S, DO
 - TP1 named presets (MAYBE later), TP2 per-appearance packs / TP4 seasonal /
-  TP7 OS accent (not buildable) / TP8 scheduled dark — SKIP.
+  TP7 OS accent (not buildable) / TP8 scheduled dark - SKIP.

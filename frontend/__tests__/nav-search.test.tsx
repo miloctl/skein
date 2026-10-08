@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
  *  them.
  *
  *  The load-bearing test here is the last one. FTS5 wraps matches in <b>, and
- *  the snippet is built from indexed row text — every task title, note body
+ *  the snippet is built from indexed row text - every task title, note body
  *  and decision anyone has written. Rendered with dangerouslySetInnerHTML it
  *  would be a stored-XSS sink reachable by any teammate. */
 

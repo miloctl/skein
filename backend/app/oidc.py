@@ -6,13 +6,13 @@ unknown kid), check the signature, then iss / aud / exp. No sidecar, no
 session state, no per-request call to the IdP.
 
 Asymmetric algorithms only. Accepting HS* would let anyone mint a valid
-token by signing with the PUBLIC JWKS material as the HMAC secret — the
-classic algorithm-confusion attack — so the allowlist below is a security
+token by signing with the PUBLIC JWKS material as the HMAC secret - the
+classic algorithm-confusion attack - so the allowlist below is a security
 boundary, not a compatibility knob. `none` is absent for the same reason.
 
 EVERY outbound fetch here is throttled, because the token is unverified
 when the fetch is decided. A `kid` is read from the token header before any
-signature is checked, and PyJWKClient refreshes its key set on any miss —
+signature is checked, and PyJWKClient refreshes its key set on any miss -
 so without the throttles below, an unauthenticated caller sending random
 kids turns each request into an outbound JWKS fetch, against both this
 server and the identity provider.
@@ -109,7 +109,7 @@ class OIDCProviderError(OIDCError):
 
 
 class OIDCRefused(OIDCError):
-    """The identity provider rejected the caller's own submission — a stale
+    """The identity provider rejected the caller's own submission - a stale
     or replayed code, a mismatched redirect_uri. Caller input, so the route
     answers 4xx: a 5xx here would tell the browser to retry something that
     can never succeed, and page whoever is on call for a user's typo."""
@@ -434,7 +434,7 @@ class _SameOriginRedirect(urllib.request.HTTPRedirectHandler):
                         "The identity provider returned an unusable token redirect."
                         " Check the identity provider."
                     )
-                return urllib.request.Request(  # noqa: S310 — redirected passed _redirect_url
+                return urllib.request.Request(  # noqa: S310 - redirected passed _redirect_url
                     redirected,
                     data=req.data,
                     headers=dict(req.headers),
@@ -544,7 +544,7 @@ def _fetch_userinfo(access_token: str) -> dict[str, Any]:
         # a 401 at the bearer door and SessionInvalid at the cookie door,
         # which signs every user out over a missing userinfo_endpoint
         raise OIDCProviderError(str(exc)) from exc
-    request = urllib.request.Request(  # noqa: S310 — scheme checked by _web_url
+    request = urllib.request.Request(  # noqa: S310 - scheme checked by _web_url
         url,
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
     )
@@ -605,7 +605,7 @@ def groups(claims: dict[str, Any], access_token: str) -> list[str]:
     document = _fetch_userinfo(access_token)
     # OIDC Core 5.3.2: the client MUST verify the userinfo sub against the
     # token's. Without it a proxy that answers for another user grants that
-    # user's groups — admin included — to whoever holds this token.
+    # user's groups - admin included - to whoever holds this token.
     if str(document.get("sub", "")) != str(claims.get("sub", "")):
         raise OIDCProviderError("The identity provider's userinfo names a different subject.")
     found = _groups_in(document)
@@ -631,7 +631,7 @@ def exchange(form: dict[str, str]) -> dict[str, Any]:
     or forged log lines, so neither leaves this function.
     """
     body = urllib.parse.urlencode(form).encode()
-    request = urllib.request.Request(  # noqa: S310 — scheme checked by _web_url
+    request = urllib.request.Request(  # noqa: S310 - scheme checked by _web_url
         token_url(),
         data=body,
         headers={
@@ -691,7 +691,7 @@ class _SafeJWKClient(PyJWKClient):
                 raise OIDCUnavailable(IDP_UNREACHABLE)
             _jwks_fetching = True
         try:
-            request = urllib.request.Request(  # noqa: S310 — _client validates transport; _open blocks cross-origin redirects
+            request = urllib.request.Request(  # noqa: S310 - _client validates transport; _open blocks cross-origin redirects
                 url=self.uri,
                 headers=self.headers,
             )
@@ -984,7 +984,7 @@ def identity(claims: dict[str, Any]) -> tuple[str, str]:
 
 def principal(claims: dict[str, Any]) -> tuple[str, list[str]]:
     """(username, groups) from verified claims. The claim names are
-    deployment config because IdPs disagree — Keycloak sends
+    deployment config because IdPs disagree - Keycloak sends
     preferred_username, Entra sends upn, groups arrive under many names.
     """
     raw_name = claims.get(config.OIDC_USERNAME_CLAIM)

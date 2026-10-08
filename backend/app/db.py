@@ -37,7 +37,7 @@ MIGRATIONS_DIR = Path(__file__).resolve().parent / "core_migrations"
 
 log = logging.getLogger("skein")
 
-# Services catch this instead of importing psycopg — the driver stays behind
+# Services catch this instead of importing psycopg - the driver stays behind
 # this module. Re-exported, not redefined: a subclass would not match what
 # the driver actually raises.
 IntegrityError = psycopg.errors.IntegrityError
@@ -71,7 +71,7 @@ BUSY_ERRORS: tuple[type[Exception], ...] = (
 )
 
 # Parameterized with the row factory, so mypy knows a row is a dict and not
-# the driver default tuple — see pool().
+# the driver default tuple - see pool().
 DictConnection = psycopg.Connection[dict[str, Any]]
 
 _ambient: ContextVar[DictConnection | None] = ContextVar("skein_txn", default=None)
@@ -82,7 +82,7 @@ _on_rollback: ContextVar[list[Callable[[], None]] | None] = ContextVar(
     "skein_txn_rollbacks", default=None
 )
 # Ledger rows queued by log_activity inside a transaction, flushed as that
-# transaction's LAST statements — see _flush_activity.
+# transaction's LAST statements - see _flush_activity.
 _pending_activity: ContextVar[list[tuple[str, str, str, str]] | None] = ContextVar(
     "skein_txn_activity", default=None
 )
@@ -90,10 +90,10 @@ _pending_activity: ContextVar[list[tuple[str, str, str, str]] | None] = ContextV
 
 def on_commit(fn: Callable[[], None]) -> bool:
     """Queue fn to run after the ambient transaction commits; a rollback
-    drops it. Returns False when no transaction is active — the caller runs
+    drops it. Returns False when no transaction is active - the caller runs
     the work inline. For side effects that must not hold a write open
     (search's embedding HTTP call) and must not survive a rolled-back write.
-    A raising callback is logged and swallowed — the write it followed
+    A raising callback is logged and swallowed - the write it followed
     committed, so the caller must never see its failure."""
     callbacks = _on_commit.get()
     if callbacks is None:
@@ -113,7 +113,7 @@ def on_rollback(fn: Callable[[], None]) -> bool:
 
 class NotFound(ValueError):
     """Entity-lookup failure. Subclasses ValueError so every existing catch
-    still works; the API layer maps it to 404 instead of 400 — one rule for
+    still works; the API layer maps it to 404 instead of 400 - one rule for
     the whole surface instead of per-route guesswork."""
 
 
@@ -126,7 +126,7 @@ class Conflict(ValueError):
 
 
 class TerminalReject(ValueError):
-    """A service refusal that re-approval can never satisfy — a permanent
+    """A service refusal that re-approval can never satisfy - a permanent
     policy block, not a transient failure. Subclasses ValueError so the direct
     write path is unchanged (still a 400); review.approve_change catches it
     and settles the proposal as rejected, instead of resetting it to pending
@@ -146,12 +146,12 @@ def today() -> date:
     human reads as "today": due-soon, week rituals, digests, month boundaries.
 
     NOT interchangeable with now()[:10]. That is the UTC day, and east of UTC
-    they are a different date for part of every day — a due-today list built
+    they are a different date for part of every day - a due-today list built
     from one and a digest built from the other disagree, in public.
 
     Stored timestamps stay UTC (now()), so a row written at 21:00 in New York
     carries the next UTC day. Comparisons that ask "which team-day did this
-    happen on" must convert, not slice — see local_day()."""
+    happen on" must convert, not slice - see local_day()."""
     return datetime.now(config.TZ).date()
 
 
@@ -162,7 +162,7 @@ def _local_midnight(d: date) -> datetime:
     00:00 (America/Havana, America/Santiago, Asia/Beirut) local midnight does
     not exist on the spring date, and the day begins at 01:00. Converting to
     UTC resolves it to that real instant, which is the bound every caller
-    wants — a window anchored to a wall time that never happened would either
+    wants - a window anchored to a wall time that never happened would either
     start an hour early or drop the hour entirely."""
     return datetime.combine(d, time.min, tzinfo=config.TZ).astimezone(UTC)
 
@@ -175,7 +175,7 @@ def local_midnight_utc(d: date) -> str:
     different moment than local midnight everywhere except UTC. Use today()
     only against date columns, which carry no zone at all.
 
-    Matches now()'s shape — offset-aware, seconds. Never use it against
+    Matches now()'s shape - offset-aware, seconds. Never use it against
     events.starts_at, which is stored NAIVE (services/schedule.py::_canon):
     an event at exactly local midnight sorts BEFORE this string, because the
     shorter value is a prefix of it, and drops out of its own day."""
@@ -184,7 +184,7 @@ def local_midnight_utc(d: date) -> str:
 
 def local_day(ts: str) -> str:
     """The team-day a stored timestamp falls on, as YYYY-MM-DD. Slicing
-    ts[:10] answers a different question — the UTC day — and buckets evening
+    ts[:10] answers a different question - the UTC day - and buckets evening
     work under tomorrow for any zone behind UTC. Use this whenever a bucket
     key is compared against a today()-derived date, or the two key spaces
     disagree and the comparison silently never matches.
@@ -206,7 +206,7 @@ def local_moment(ts: str) -> str:
     local_day's time-carrying sibling, and it exists for the same reason: a
     naive value is UTC by the storage contract, so printing it unconverted
     tells a reader in Denver that a 09:00 meeting ran at 15:00. A date-only
-    value keeps its date and gains no time — it was never a moment, and
+    value keeps its date and gains no time - it was never a moment, and
     "09 Aug at 00:00" invents one.
     """
     if len(ts) <= 10:
@@ -240,12 +240,12 @@ def _pretty_date(day: str) -> str:
 
 def local_event_window(d: date) -> tuple[str, str]:
     """[start, end) for team-day d against events.starts_at, in that column's
-    own shape — naive UTC "YYYY-MM-DDTHH:MM" (services/schedule.py::_canon
+    own shape - naive UTC "YYYY-MM-DDTHH:MM" (services/schedule.py::_canon
     converts every offset away before storing).
 
     A separate function from local_midnight_utc rather than a parameter: the
     two shapes are not interchangeable, and the failure of using the wrong one
-    is silent — an event missing from the day it belongs to, never an error."""
+    is silent - an event missing from the day it belongs to, never an error."""
     fmt = "%Y-%m-%dT%H:%M"
     return (
         _local_midnight(d).strftime(fmt),
@@ -256,7 +256,7 @@ def local_event_window(d: date) -> tuple[str, str]:
 def validate_date(label: str, value: str, allow_clear: bool = True) -> None:
     """Shared YYYY-MM-DD guard for every service that stores a date. Empty
     passes; '-' (the clear sentinel) passes only where an update path maps it
-    to NULL (allow_clear) — on creates it would be STORED and sort before
+    to NULL (allow_clear) - on creates it would be STORED and sort before
     every real date. Dates are compared as strings and fed to the ICS feed,
     so a malformed one corrupts every due-soon surface downstream."""
     if not value:
@@ -281,7 +281,7 @@ def validate_date(label: str, value: str, allow_clear: bool = True) -> None:
 # ROUND(x::numeric, n), and for EXTRACT(epoch ...); psycopg loads that as
 # Decimal, which json.dumps refuses. Every service here is written for the
 # float SQLite returned, and the breakage lands on the json.dumps callers
-# only — FastAPI routes survive on jsonable_encoder, so a route stays green
+# only - FastAPI routes survive on jsonable_encoder, so a route stays green
 # while the agent tool beside it raises. Without this the findings job dies
 # on its own budget receipt (services/insights.py) and get_flow_metrics
 # raises whenever any task is complete (tools/portfolio.py).
@@ -328,7 +328,7 @@ def privilege_warnings() -> list[str]:
 
     A superuser can COPY ... FROM PROGRAM, which runs shell commands on the
     database host, and pg_read_file, which reads its filesystem. That turns
-    every SQL bug — and every extension, which supplies raw SQL — into command
+    every SQL bug - and every extension, which supplies raw SQL - into command
     execution. The deployment creates a NOSUPERUSER role for this
     (deploy/k8s/base/postgres.yaml); a deployment that skipped it has no other
     signal, so /health carries this the way it carries a bad model provider.
@@ -350,7 +350,7 @@ def privilege_warnings() -> list[str]:
                 " ORDER BY rolname"
             )
         ]
-    except psycopg.Error:  # pragma: no cover — reported by the connection check
+    except psycopg.Error:  # pragma: no cover - reported by the connection check
         return []
     if row and row["rolsuper"]:
         return [
@@ -383,7 +383,7 @@ def _translate(sql: str) -> str:
 
     ORDER IS LOAD-BEARING: doubling after the placeholder rewrite would turn
     each fresh `%s` into `%%s`, which psycopg emits literally instead of
-    binding — every parameter would silently go unsent. Only reached when the
+    binding - every parameter would silently go unsent. Only reached when the
     caller passes parameters; see _prepare."""
     return sql.replace("%", "%%").replace("?", "%s")
 
@@ -392,7 +392,7 @@ def _prepare(sql: str, params: tuple) -> tuple[str, tuple | None]:
     """The (query, params) pair psycopg is given.
 
     A parameterless query is passed through VERBATIM with params=None,
-    because psycopg only unescapes `%%` when parameters are present — doubling
+    because psycopg only unescapes `%%` when parameters are present - doubling
     it here would leave `LIKE 'x%%'` matching a literal percent sign in the
     data."""
     # Lists reach psycopg as arrays (`= ANY(?)`), so a NUL inside one is the
@@ -644,7 +644,7 @@ LOCK_CI_SOURCE = 16
 # EVERY advisory lock is scoped to the current database by this expression.
 # PostgreSQL advisory locks are CLUSTER-global: the key space is shared by
 # every database on the server, so without this a dev database beside a
-# production one — or the test suite's per-worker databases — serialize on
+# production one - or the test suite's per-worker databases - serialize on
 # each other's ledger and identity locks, and can deadlock across databases
 # that share nothing. A stable 32-bit hash of the database name is the first
 # key of every two-key acquisition below.
@@ -652,7 +652,7 @@ _DB_KEY = "('x' || substr(md5(current_database()), 1, 8))::bit(32)::int"
 
 
 def _advisory(conn: DictConnection, key: int, *, xact: bool = True) -> None:
-    """Take one advisory lock, scoped to this database — see _DB_KEY."""
+    """Take one advisory lock, scoped to this database - see _DB_KEY."""
     fn = "pg_advisory_xact_lock" if xact else "pg_advisory_lock"
     # ::int on both keys: the two-key form is (int4, int4), and an unadorned
     # Python int binds as bigint, which matches no overload.
@@ -663,7 +663,7 @@ def in_transaction() -> bool:
     """Whether the caller is inside db.transaction().
 
     Read by code that must behave differently when its statement is part of a
-    larger unit — a row lock only means something while a transaction holds
+    larger unit - a row lock only means something while a transaction holds
     it (services/policy_context.py::resource_row).
     """
     return _ambient.get() is not None
@@ -711,7 +711,7 @@ def ensure_owned_schema(schema: str) -> None:
         # or extension migration transaction.
         name_lock(LOCK_SCHEMA, schema)
         conn = _ambient.get()
-        if conn is None:  # pragma: no cover — transaction() just set it
+        if conn is None:  # pragma: no cover - transaction() just set it
             raise RuntimeError("ensure_owned_schema needs an active transaction")
         row = conn.execute(
             "SELECT pg_get_userbyid(nspowner) = current_user AS owned"
@@ -742,7 +742,7 @@ def schema_scope(schema: str) -> Iterator[None]:
     """
     with transaction():
         conn = _ambient.get()
-        if conn is None:  # pragma: no cover — transaction() just set it
+        if conn is None:  # pragma: no cover - transaction() just set it
             raise RuntimeError("schema_scope needs an active transaction")
         set_path = pgsql.SQL("SET LOCAL search_path TO {}")
         conn.execute(set_path.format(pgsql.Identifier(schema)))
@@ -750,7 +750,7 @@ def schema_scope(schema: str) -> Iterator[None]:
             yield
         finally:
             # Suppressed, because the block may have left the transaction
-            # ABORTED — and then this reset raises InFailedSqlTransaction and
+            # ABORTED - and then this reset raises InFailedSqlTransaction and
             # REPLACES the real error on the way out, so the caller is told
             # "transaction is aborted" instead of which statement aborted it.
             # The reset is only an optimisation anyway: SET LOCAL dies with
@@ -788,7 +788,7 @@ def savepoint() -> Iterator[None]:
         connection.execute("RELEASE SAVEPOINT skein_review_apply")
         # SQL created after the savepoint no longer exists. Its deferred
         # effects must not run when the outer review-settlement transaction
-        # commits — and the LEDGER rows queued inside the rolled-back unit
+        # commits - and the LEDGER rows queued inside the rolled-back unit
         # must go with them, or the chain records writes that never happened.
         if callbacks is not None:
             del callbacks[callback_count:]
@@ -804,7 +804,7 @@ def savepoint() -> Iterator[None]:
 # ---- migrations ------------------------------------------------------------
 
 # Two workers booting together must not both apply a migration. A session
-# advisory lock serializes them without a table to contend on — the arbitrary
+# advisory lock serializes them without a table to contend on - the arbitrary
 # constant only has to be stable and unique to this use.
 _MIGRATION_LOCK = 4_216_017  # int4, see _advisory
 
@@ -824,7 +824,7 @@ def init_db() -> None:
     """Apply pending migrations in filename order; track in schema_version.
 
     Each migration runs inside ONE transaction together with its
-    schema_version insert, so a crash mid-migration rolls back cleanly — DDL
+    schema_version insert, so a crash mid-migration rolls back cleanly - DDL
     is transactional here, so a half-applied file cannot exist.
 
     A migration file is executed WHOLE rather than split on semicolons, so it
@@ -1051,13 +1051,13 @@ ACTIVITY_HIGH_HASH = "activity_chain_high_hash"
 ACTIVITY_LOCK_TIMEOUT = "5s"
 # How many times log_activity took the unchained fallback since the last
 # adoption. Read and reset by services/activity.py::adopt_unchained, which
-# reports it beside the number of rows it chained — an adoption larger than
+# reports it beside the number of rows it chained - an adoption larger than
 # this count is a row nothing in this process wrote.
 UNCHAINED_FALLBACKS = "activity_unchained_fallbacks"
 
 # Two appends may otherwise read the same tail concurrently and write the same
 # seq with the same prev_hash, which forks the chain permanently at that row.
-# Transaction-scoped, so it releases at commit with no unlock to forget — and
+# Transaction-scoped, so it releases at commit with no unlock to forget - and
 # because a transaction's rows are QUEUED and written at the very end
 # (_flush_activity), the ordinary path takes this LAST. That ordering is what
 # keeps it out of every deadlock cycle: a lock taken last is never held while
@@ -1078,7 +1078,7 @@ def activity_hash(
 ) -> str:
     """SHA-256 over one ledger row and its predecessor's digest.
 
-    Field ORDER IS FIXED — changing it, or the domain string, invalidates
+    Field ORDER IS FIXED - changing it, or the domain string, invalidates
     every chain already written. Each part is length-prefixed rather than
     separated, so no field's content can imitate a boundary.
 
@@ -1269,15 +1269,15 @@ def _append_activity(
 def hold_activity_chain() -> None:
     """Serialize this transaction against every ledger appender.
 
-    For the one writer that assigns seqs itself — services/activity.py's
-    adoption of unchained rows — rather than through _append_activity. It
+    For the one writer that assigns seqs itself - services/activity.py's
+    adoption of unchained rows - rather than through _append_activity. It
     reads the chain tail and hands out the seqs that follow it, so without
     this an ordinary append between the read and the writes takes a seq the
     adoption is about to assign, and the loser dies on the seq unique index.
 
     Take it FIRST in the transaction. The flush at commit acquires the same
     lock last, so a transaction that takes a row lock before this one and an
-    appender that takes them the other way round is a deadlock cycle — which
+    appender that takes them the other way round is a deadlock cycle - which
     is exactly what the adoption did while it took no lock at all.
     """
     conn = _ambient.get()
@@ -1295,7 +1295,7 @@ def _flush_activity(conn: DictConnection, queued: list[tuple[str, str, str, str]
     """Write a transaction's queued ledger rows, in the order they were made.
 
     One advisory-lock acquisition for the whole batch rather than one per row,
-    and it happens after every other statement in the transaction — which is
+    and it happens after every other statement in the transaction - which is
     what keeps the ledger lock out of every deadlock cycle.
     """
     _append_activity_batch(conn, queued)
@@ -1306,7 +1306,7 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
     """Append to the provenance ledger, chained to the row before it.
 
     Inside an ambient transaction the append joins it, so a failure rolls back
-    the caller's whole write — correct, and loud. Standalone it takes its own
+    the caller's whole write - correct, and loud. Standalone it takes its own
     transaction. If that fails, it attempts an UNCHAINED row without raising
     into a caller's completed write. A second database failure can lose the row.
 
@@ -1320,7 +1320,7 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
         # QUEUED, not written here. The append takes a global advisory lock
         # (_ACTIVITY_LOCK) that is held until commit, so writing it mid
         # transaction lets a caller hold the ledger lock while it waits for a
-        # row — and any other transaction holding that row and then logging
+        # row - and any other transaction holding that row and then logging
         # closes the cycle. Deferring makes the ledger lock the LAST one every
         # transaction takes, and a lock taken last can never be held while
         # waiting for another. The timestamp is captured NOW, so the row still
@@ -1328,7 +1328,7 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
         queued.append((actor, action, detail, created_at))
         return
     ambient = _ambient.get()
-    if ambient is not None:  # pragma: no cover — a transaction always queues
+    if ambient is not None:  # pragma: no cover - a transaction always queues
         _append_activity(ambient, actor, action, detail, created_at)
         return
     from .services import leases
@@ -1344,9 +1344,9 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
             _append_activity(conn, actor, action, detail, created_at)
         return
     except (psycopg.Error, ActivityChainError) as exc:
-        log.warning("activity chain append failed (%s: %s) — recording unchained", action, exc)
+        log.warning("activity chain append failed (%s: %s) - recording unchained", action, exc)
     # The fallback takes a fresh connection, so a fault that outlives the
-    # first attempt raises here too — straight into a caller that had already
+    # first attempt raises here too - straight into a caller that had already
     # committed its business write. The catch below is what keeps the
     # docstring's promise that this path never raises: losing the ledger row
     # must not also 500 a write that actually happened. If this second database
@@ -1374,4 +1374,4 @@ def log_activity(actor: str, action: str, detail: str = "") -> None:
             except psycopg.Error:
                 log.error("activity fallback counter failed", exc_info=True)
     except psycopg.Error as exc:
-        log.error("activity row LOST (%s: %s) — the write it describes did commit", action, exc)
+        log.error("activity row LOST (%s: %s) - the write it describes did commit", action, exc)

@@ -1,4 +1,4 @@
-# Skein lexicon — decision table
+# Skein lexicon - decision table
 
 One concept, one word (CLAUDE.md, "User-visible wording"). This file is the
 decision record: it names every concept the UI expresses in more than one
@@ -6,7 +6,7 @@ word, the evidence, and the term that wins. `frontend/__tests__/one-wording.test
 enforces the decided rows, so a losing synonym in user-visible text fails CI.
 
 Scope note: **user-visible strings only.** Database columns, API paths, and
-function names keep their current identifiers — renaming a label is a copy
+function names keep their current identifiers - renaming a label is a copy
 change, renaming a column is a migration. The counts below separate the two,
 because the cost of a decision is the first number, not the second.
 
@@ -16,7 +16,7 @@ refusals, chat replies, notifications, app copy, knot `pitch:`/`how:`) on
 
 Method note, recorded because it changed the numbers: the first extraction
 read only JSX text nodes and prop values, and so missed strings held in
-ternaries, object literals, and lowercase values — about 40% of the web
+ternaries, object literals, and lowercase values - about 40% of the web
 copy, including every `LEVEL_LABEL` value ("acts alone", "not allowed") and
 multi-line JSX prose. Counts below are from the corrected pass. No ruling
 changed, but any future count must come from rendered screens (Phase 1),
@@ -37,7 +37,7 @@ closed as no-change. Nothing in this file is open.
 | Words in use | **commitment** (13 visible / 6 files) · **promise** (10 / 5) |
 | Where they split | Pages say "Commitments"; capture chip, prefix `promised:`, DB field, and CLI say "promise" |
 | Code identifiers | standardized too (2026-08-04, pre-production): `promises` table, `/api/promises`, kind `promise`, verbs `add_promise`/`update_promise`/`edit_promise`, insight rules `promise_due`/`promise_slip`/`promise_missed`, ICS UID `promise-{id}@skein` |
-| **DECIDED** | **promise** (2026-08-04) — applied end to end, wire included, and enforced by
+| **DECIDED** | **promise** (2026-08-04) - applied end to end, wire included, and enforced by
 `one-wording.test.ts`: "commitment" in user-visible text fails CI |
 
 Why: it is the word the user types (`promised: …`), the word the capture chip
@@ -49,7 +49,7 @@ The wire followed the reader (2026-08-04): keeping `commitment` as the
 stored kind required a display-mapping layer on every surface, and the CLI
 missed it once. The rename used the pre-production migration override
 (edits to the pre-squash migrations 008/016/017, since folded into
-001_baseline.sql; existing databases must be recreated) —
+001_baseline.sql; existing databases must be recreated) -
 after the first production deploy this is permanent: the ICS UID would
 duplicate calendar events and the activity chain cannot rewrite old verbs.
 What stays `commitment` in source: the typed-input aliases (`commitment:`
@@ -63,14 +63,14 @@ prefix, "we committed to") and the weekly commitment line (1b).
 |---|---|
 | Words in use | **awaiting** (capture chip, prefix `awaiting:`, `waiting for:`, planning cockpit, docs) · **received** (stored value, services, comments) |
 | Where they split | User-visible text says `awaiting`; the `direction` value and service code say `received` |
-| Code identifiers | one column, `promises.direction` in (`given`, `received`) — migration 007, deliberately the same table as row 1 |
+| Code identifiers | one column, `promises.direction` in (`given`, `received`) - migration 007, deliberately the same table as row 1 |
 | **DECIDED AND APPLIED** | **awaiting** for the user-visible noun, **received** for the stored value |
 
 Why: `awaiting:` is the word the reader types, which is the same test row 1
 applied to `promised:`. It is also the only one of the four that is a single
 word, and the concept needs to sit beside `promise` in a chip list without a
 parenthetical. `received` stays in the column and in service code because
-`direction` is a pair and `given`/`received` reads as a pair — `awaiting`
+`direction` is a pair and `given`/`received` reads as a pair - `awaiting`
 has no opposite that means `given`.
 
 The planning cockpit, the FEATURES row, and the capture chip now say
@@ -80,7 +80,7 @@ The planning cockpit, the FEATURES row, and the capture chip now say
 ### 1b. CARVE-OUT (DECIDED, applied): "the weekly commitment line" stays
 
 `skein week draft` (CLI), `weekly.py`, and Insights all use **commitment**
-for the set of tasks a team commits to an ISO week — not a debt owed to a
+for the set of tasks a team commits to an ISO week - not a debt owed to a
 named person. Verified: `cli/skein_cli.py:19`, `:504`,
 `backend/app/services/weekly.py:1`, `:131`, `services/insights.py`.
 
@@ -96,7 +96,7 @@ weekly line is a **commitment**; a debt to a person is a **promise**.
 |---|---|
 | Words in use | **chat** (29 / 9) · **conversation** (4 / 3) · **thread** (1 visible) |
 | Where they split | Everything says "chat"; the rename field says "Conversation name"; `thread` is the code word |
-| **DECIDED** | **chat** (2026-08-07) — applied: the rename field label, its tooltip, the Settings long-chats copy, and the Team memory card title. `thread` stays the code identifier |
+| **DECIDED** | **chat** (2026-08-07) - applied: the rename field label, its tooltip, the Settings long-chats copy, and the Team memory card title. `thread` stays the code identifier |
 
 Why: 29 to 4 is not a contest, it is an oversight. "Thread" stays as the code
 identifier (`thread_id`) and inside the weaving metaphor ("All threads even"
@@ -110,13 +110,13 @@ Cost: 4 string edits, `thread-title.tsx` and `agents/page.tsx`.
 
 | | |
 |---|---|
-| Words in use | **entity** (7 / 5) — unglossed on the surface that needs it most |
+| Words in use | **entity** (7 / 5) - unglossed on the surface that needs it most |
 | Problem | Not a synonym clash: the word is jargon with no definition where a user must act on it (the Authority dropdown label is bare "Entity") |
-| **DECIDED** | keep **entity** as the identifier, never show it unglossed (2026-08-07) — applied: the Authority dropdown reads "Record type (task, decision, note)"; the visible option labels already glossed themselves |
+| **DECIDED** | keep **entity** as the identifier, never show it unglossed (2026-08-07) - applied: the Authority dropdown reads "Record type (task, decision, note)"; the visible option labels already glossed themselves |
 
 Why: the concept is real and has no plain-English one-word equivalent
 ("record type" is two words and vaguer). The fix is a gloss at the point of
-choice — the dropdown label becomes "Record type (task, decision, note…)" —
+choice - the dropdown label becomes "Record type (task, decision, note…)" -
 not a rename. `agents/page.tsx` already models this well for levels
 (`autonomous → "acts alone"`).
 
@@ -129,15 +129,15 @@ Cost: 2 label edits plus one helper sentence.
 | | |
 |---|---|
 | Words in use | **health** (7 / 3) · **rating** (2 rendered / 1 file) |
-| Cause | The single "rating" was introduced 2026-08-04 replacing "verdict" — it fixed a real problem (verdict belongs to reviews) but picked a third word |
-| **DECIDED** | **health** — applied. The card is titled "Engagement health — each call shows why", and the page line reads "evidence behind every health call" |
+| Cause | The single "rating" was introduced 2026-08-04 replacing "verdict" - it fixed a real problem (verdict belongs to reviews) but picked a third word |
+| **DECIDED** | **health** - applied. The card is titled "Engagement health - each call shows why", and the page line reads "evidence behind every health call" |
 
 Why: the card is titled "Engagement health", the API is
 `/api/portfolio/health`, and the knot cards say health. The stray lines now
 match them. ("Verdict" correctly means a review decision; "score" correctly
 means intake scoring. Both are separate concepts and stay.)
 
-Cost: 2 strings — one more than the static count above. A rendered walk
+Cost: 2 strings - one more than the static count above. A rendered walk
 found the card title as well as the page line, which is the method note at
 the top of this file proving itself: a component assembles a title from a
 prop, and a regex over source counts one of the two.
@@ -149,9 +149,9 @@ prop, and a regex over source counts one of the two.
 | | |
 |---|---|
 | Words in use | **charter entry** (title label, submit button) · **agreement** (body label, placeholder, replacement field) |
-| **DECIDED** | keep both, assigned (2026-08-07): the record is a **charter entry**, its text is the **agreement**. The shipped strings already conform ("Charter entry title" / "The agreement itself" / "The replacement agreement") — zero edits; this row exists so the split reads as chosen, not accidental |
+| **DECIDED** | keep both, assigned (2026-08-07): the record is a **charter entry**, its text is the **agreement**. The shipped strings already conform ("Charter entry title" / "The agreement itself" / "The replacement agreement") - zero edits; this row exists so the split reads as chosen, not accidental |
 
-Why: these may be two real things rather than drift — the entry is the row,
+Why: these may be two real things rather than drift - the entry is the row,
 the agreement is what it says. Today the split is accidental, not stated.
 Deciding it makes the placeholders read deliberately.
 
@@ -163,30 +163,30 @@ Cost: 0–2 strings, depending on the call.
 
 | | |
 |---|---|
-| Words in use | **card** (the UI noun) · **knot** (`knots.yaml`, API errors — AND rendered on every card face) |
-| **DECIDED** | keep **card** as the noun and the tied/untied vocabulary; the 13 wrong-class knot names were REASSIGNED (2026-08-07) so every label names a knot of its printed set — the label now tells you which set you are in, which is the "ornament into information" option below |
+| Words in use | **card** (the UI noun) · **knot** (`knots.yaml`, API errors - AND rendered on every card face) |
+| **DECIDED** | keep **card** as the noun and the tied/untied vocabulary; the 13 wrong-class knot names were REASSIGNED (2026-08-07) so every label names a knot of its printed set - the label now tells you which set you are in, which is the "ornament into information" option below |
 
 CORRECTION (2026-08-04): this row previously called "knot" internal. It is
 not. `frontend/app/guide/page.tsx:132` renders `{c.knot}` as a label on
 every card, and the guide's whole state vocabulary is knot-derived and
 user-visible ("Tied means you used it", "Newly tied since your last visit").
-That vocabulary is an identity asset and it glosses itself on first contact
-— keep it.
+That vocabulary is an identity asset and it glosses itself on first contact -
+keep it.
 
 The per-card knot NAME is the defect, and it is worse than decorative: it
 contradicts the taxonomy printed above it. The guide groups cards into
 Loops · Hitches · Bends · Stoppers, then labels cards in the **Loops** set
 with `Clove Hitch`, `Cow Hitch`, `Lark's Head`, `Cleat Hitch`, `Buntline`,
 `Cat's Paw`, `Highwayman's Hitch`, `Marlinspike`, `Anchor Bend`,
-`Monkey's Fist`, `Thief Knot`, `Figure Eight` — and one Bend set card with
+`Monkey's Fist`, `Thief Knot`, `Figure Eight` - and one Bend set card with
 `Timber Hitch`. **13 of 33 cards carried a knot from the wrong class**
-(measured; fixed 2026-08-07 — every replacement is a genuine member of its
+(measured; fixed 2026-08-07 - every replacement is a genuine member of its
 set's class, and the asked/answered pair became Angler's Loop / Perfection
 Loop, one knot under its two names, recorded in knots.yaml where the pair
 lives).
 
 Two fixes: reassign `knot:` in knots.yaml so each name matches its set's
-real class (turns ornament into information — the label would then tell you
+real class (turns ornament into information - the label would then tell you
 which set you are in), or delete `{c.knot}` from the card face and keep the
 names as author-facing flavor.
 
@@ -212,18 +212,18 @@ agent). Listed to close it.
 | | |
 |---|---|
 | Words in use | **flock** (the product noun: a named group of bench personas, `/flock`, `backend/flocks/*.yaml`) · **flock** (the brand metaphor: a flock of geese in flight is a skein) |
-| Recommendation | no change — the collision is the point |
+| Recommendation | no change - the collision is the point |
 
 Why: the metaphor is where the feature name came from, and both readings
 land on the same idea (several strands called into one formation). Nothing
 is ambiguous in use: the brand sense appears in `docs/brand/`, in
 `docs/ROADMAP.md` prose, and in the /agents flock empty state ("No flock
-has flown yet", "who is on the wing") — never inside a functional string,
+has flown yet", "who is on the wing") - never inside a functional string,
 which is exactly the warmth carve-out CLAUDE.md draws. The product sense is
 always adjacent to a slug or a command. Listed to close it, so the next
 wording pass does not file it as drift.
 
-The member word is **member**, not "persona", inside flock copy — a persona
+The member word is **member**, not "persona", inside flock copy - a persona
 is what the thing IS on the bench, a member is the role it plays in a
 flock. `docs/FLOCKS.md` and `services/flocks.py` hold that line.
 
@@ -233,13 +233,13 @@ flock. `docs/FLOCKS.md` and `services/flocks.py` hold that line.
 
 | | |
 |---|---|
-| Words in use | **persona** (`/personas` command name, API path, `backend/personas/*.md`, PERSONAS.md) · **specialist** (@ picker group heading, `/personas` reply body, the consult strings, knot cards) · **member** (a persona inside a flock — row 8) |
-| **DECIDED** | keep all three, assigned (2026-08-07) — same shape as row 5 |
+| Words in use | **persona** (`/personas` command name, API path, `backend/personas/*.md`, PERSONAS.md) · **specialist** (@ picker group heading, `/personas` reply body, the consult strings, knot cards) · **member** (a persona inside a flock - row 8) |
+| **DECIDED** | keep all three, assigned (2026-08-07) - same shape as row 5 |
 
 The split is by frame, not drift: **persona** is what the artifact IS (a
-file on the bench, the author's word — commands and API paths keep it),
-**specialist** is what it does FOR the user (the reader's word — user-facing
-prose prefers it: "The bench — specialists you can call in", the @ picker's
+file on the bench, the author's word - commands and API paths keep it),
+**specialist** is what it does FOR the user (the reader's word - user-facing
+prose prefers it: "The bench - specialists you can call in", the @ picker's
 "Specialists" heading, "no specialist by that name on the bench"), and
 **member** is the role inside a flock. The consult feature (2026-08-07)
 followed this: its error strings, prompt bullet, and knot card all say
@@ -264,20 +264,20 @@ trusted-header name does not qualify.
 
 ---
 
-## States that LIE — found by the state-mapping pass, not wording bugs
+## States that LIE - found by the state-mapping pass, not wording bugs
 
 A wording review needs every state a user can reach, so the states were
 mapped first. Four of them make a false claim. These are defects, not word
 choices, and they outrank every row above: a wrong claim beats a clumsy one.
 
-**T1. A failed card loads forever.** FIXED 2026-08-04. `app/portfolio/page.tsx:90-103` — six
+**T1. A failed card loads forever.** FIXED 2026-08-04. `app/portfolio/page.tsx:90-103` - six
 cards fetch independently and each `.catch` only calls `reportStatus`. State
 is never set, so `health === null` stays true and the card renders
 `Loading…` permanently. With the backend down you get six cards saying
 "Loading…" and one toast naming one of them.
 
 This is a regression I introduced on 2026-08-04. The cards used to
-initialize to `[]`, which rendered "Nobody is over 100%" on failure — a
+initialize to `[]`, which rendered "Nobody is over 100%" on failure - a
 false verdict. I changed them to `null` to stop that, and traded a loud lie
 for a quiet one: the card now claims work is in progress after the work
 stopped. The fix is a third state (error) per card, not a different
@@ -285,7 +285,7 @@ initializer. `app/agents/page.tsx` Mission control has the same shape.
 
 **T2. No loading state at all.** FIXED 2026-08-04. `/review`, `/intake`,
 `/charter` started from `[]`, so a slow or failed load rendered the EMPTY
-state — `/review` flashed its whimsy empty line on every navigation, and
+state - `/review` flashed its whimsy empty line on every navigation, and
 `/intake` had no empty state at all, making "loading", "none", and "failed"
 one blank list. All three now hold null until the fetch settles, and
 `__tests__/loading-states.test.tsx` pins loading-vs-empty-vs-failed for
@@ -293,31 +293,31 @@ each (verified to fail against the two-state shape).
 
 **T3. Silent catches.** FIXED 2026-08-04. Six `/agents` fetches (trust,
 entities, personas, status, memories, the agents list) swallowed failures.
-Three then rendered a CLAIM — "No reviewed proposals yet", "Nothing
-remembered yet" — while the bench and the status strip vanished, and the
+Three then rendered a CLAIM - "No reviewed proposals yet", "Nothing
+remembered yet" - while the bench and the status strip vanished, and the
 entity dropdown silently fell back to a one-item list that reads as "these
 are the only record types". Each section now states its own failure, in
 the same wording portfolio uses for a failed card. Pinned by
 `__tests__/agents-silent-catches.test.tsx`.
 
-**T8. One retry button exists in the whole app** (`/auth/callback` —
+**T8. One retry button exists in the whole app** (`/auth/callback` -
 recounted 2026-08-09; the two `/dashboard` buttons are gone). Everywhere
 else recovery is a manual reload, which no string mentions.
 
 Also flagged, not wording: batch selections over 100 rows were silently
-dropped (FIXED 2026-08-04 — `BatchApproveIn` accepted 200 ids while the
+dropped (FIXED 2026-08-04 - `BatchApproveIn` accepted 200 ids while the
 route looped over 100, so 150 selections returned 100 answers and lost 50
 with nothing said; the loop now honors the validated input, pinned by
 `test_batch_approve_returns_one_result_per_id`). `/review` having no
 manage gate was investigated and is NOT a defect: approvals take
-`CurrentUser` by design — "Humans hold every switch" means any identified
-human may verify agent work — and only `authority` changes require a
+`CurrentUser` by design - "Humans hold every switch" means any identified
+human may verify agent work - and only `authority` changes require a
 strong identity (`services/review.py:204`). Management view is a
 per-browser display toggle that "does not grant permissions", so gating
 approvals behind it would hide a permitted action without restricting
 anyone. Intake is gated because triage is a manager function; approving
 is not. `/ingest` truncating at 20 unclassified lines with no "and
-N more" is FIXED (2026-08-08 — the count renders, pinned by
+N more" is FIXED (2026-08-08 - the count renders, pinned by
 `__tests__/ingest-truncation.test.tsx`). Authority `not allowed` fires on
 `onChange` with no confirmation. The Agents empty state advertising
 "delegate a task" is answered: the control shipped in the task peek
@@ -334,7 +334,7 @@ so each needs a call before any further wording work.
 
 CLAUDE.md exempts five named things (`whimsy.ts` pools, digest openers,
 mock-agent replies, theme pack names, knot `pitch:` lines). The audit found
-roughly 200 unexempt strings carrying deliberate voice — so the list
+roughly 200 unexempt strings carrying deliberate voice - so the list
 protects what someone remembered to write down and silently condemns the
 rest. Unprotected today, all verified:
 
@@ -343,12 +343,12 @@ rest. Unprotected today, all verified:
   the comment "the goose must survive a white card in light mode", so
   someone fought for it. It is the README's V-formation metaphor made
   literal, and it is the most distinctive thing in the UI.
-- the colorway names: `lib/theme.ts:37-44` — "Madder & woad",
+- the colorway names: `lib/theme.ts:37-44` - "Madder & woad",
   "Verdigris & copper". Madder and woad are the historical dye plants for
   red and blue textiles. Deepest brand research in the repo.
 - the ritual all-clears: `services/rituals.py:134` ("Nothing dangling.
-  Close the laptop — the week is settled.") and `:257`.
-- the blocker funeral: `services/blockers.py` — survives only because a
+  Close the laptop - the week is settled.") and `:257`.
+- the blocker funeral: `services/blockers.py` - survives only because a
   test asserts on it.
 
 **Proposed rule** (inverts the design from "list what is safe" to "list
@@ -364,7 +364,7 @@ what is dangerous", which is shorter and fails in the right direction):
 **Resolved (2026-08-04):** CLAUDE.md now carries this rule verbatim. The
 enumerated list survives only as the five MAINTAIN places.
 
-### R2. The rhetorical-question ban is scoped to errors — it was applied wider
+### R2. The rhetorical-question ban is scoped to errors - it was applied wider
 
 CLAUDE.md's bullet reads "**Errors** state what happened... No rhetorical
 questions". On 2026-08-04 it was applied to four strings that are not
@@ -376,13 +376,13 @@ Three of those rewrites stand on other grounds (an imperative beats a
 question, condition-first). One lost meaning and should be revisited:
 `services/portfolio.py` "Still real? Split it, unblock it, or put it back
 in the pool" → "Split, unblock, or put back in the pool." The question was
-carrying a fourth option — *the task may no longer matter* — which the
+carrying a fourth option - *the task may no longer matter* - which the
 replacement drops.
 
 Decide: widen the rule to all functional text (and accept the four
 rewrites), or hold it to errors (and restore what the notification lost).
 
-**Resolved (2026-08-04):** held to errors and refusals — CLAUDE.md scopes
+**Resolved (2026-08-04):** held to errors and refusals - CLAUDE.md scopes
 the bullet and judges a question elsewhere on whether it carries
 information. The dropped fourth option is back as a statement:
 `services/portfolio.py` now ends "…or close it if it no longer matters."
@@ -406,7 +406,7 @@ are removed.
 
 An earlier revision of row 2 declared "All threads even" brand voice and
 exempt. It is a hardcoded string in `app/page.tsx:601`, not in
-`whimsy.ts` — so it is NOT on CLAUDE.md's closed list. Two governing
+`whimsy.ts` - so it is NOT on CLAUDE.md's closed list. Two governing
 documents disagreed about what the closed list contains.
 
 Recorded as a precedent question: either the list is not closed (see R1),
@@ -415,7 +415,7 @@ grants none.
 
 **Resolved (2026-08-04):** by R1. The closed list is gone; the warmth rule
 in CLAUDE.md is the authority, and it already covers "All threads even"
-(an all-clear line). The lexicon records decisions — it grants nothing.
+(an all-clear line). The lexicon records decisions - it grants nothing.
 
 ---
 
@@ -449,7 +449,7 @@ paint before `/api/crews` answers, when that request fails, and permanently
 for a row scoped to a **deactivated** crew (the endpoint returns active crews
 only, while `crews_of` still returns deactivated ones, so the row stays
 readable to its members). The picker shows it too, in the one case where a
-crew is already chosen and the list did not load — without it the select
+crew is already chosen and the list did not load - without it the select
 would fall back to "everyone on the roster" while still submitting the crew.
 
 It is deliberately not the same shape as the picker's `{crew} only`: a reader
@@ -458,12 +458,12 @@ different setting.
 
 One place shows the wire values: the API refusal for a malformed
 `visibility` field (`services/scope.py::resolve_write`). That names what the
-endpoint accepts, and no UI can produce it — the picker only ever sends one of
+endpoint accepts, and no UI can produce it - the picker only ever sends one of
 the three.
 
 `workspace` is never shown **as a tier**. The word does appear elsewhere in a
-different sense — "search across the workspace" means the corpus, not an
-audience — which is exactly why it must not also name who can read a row.
+different sense - "search across the workspace" means the corpus, not an
+audience - which is exactly why it must not also name who can read a row.
 `private` is never shown because it is already taken: the People page's
 author-private journal lives in a separate `private` schema that no code path
 opens. A tier column earns less than a separate file (`docs/VISIBILITY.md`
@@ -474,7 +474,7 @@ says the same thing and claims nothing about the file layer.
 reader takes it for public, and a bare "everyone" hands that reading straight
 back.
 
-The concept's own name on a surface is **visible to** — the picker's label.
+The concept's own name on a surface is **visible to** - the picker's label.
 Not "scope" (a code word), not "audience" (`promises.audience` is a different
 enum on the same screens), and not "sharing" (nothing is shared; a tier is read
 access that either already exists or does not. Nothing changes hands).
@@ -495,7 +495,7 @@ style, so a shared row reads as shared.
 |---|---|
 | Words in use | **deactivate** (roster, crews) · **retire** (2, one of them a different concept) |
 | Where they split | `app/settings/page.tsx` used BOTH in one sentence. `app/insights/page.tsx` uses "retire" for retiring a RULE, which is a different act |
-| **DECIDED** | **deactivate** — it is the verb on every button, the aria-label, and the confirmation. `retire` stays only where the object is a rule |
+| **DECIDED** | **deactivate** - it is the verb on every button, the aria-label, and the confirmation. `retire` stays only where the object is a rule |
 
 ## Already settled (2026-08-04, enforced or applied)
 
@@ -516,9 +516,9 @@ style, so a shared row reads as shared.
 | Concept A | Concept B | Why they must not merge |
 |---|---|---|
 | **verdict** (a review decision) | **score** (intake priority) | different acts, different surfaces |
-| **health** (engagement RAG) | **rating** — retired 2026-08-06, see #4 | not a second concept: it was one word for the same thing |
+| **health** (engagement RAG) | **rating** - retired 2026-08-06, see #4 | not a second concept: it was one word for the same thing |
 | **check** (user action) | **verify** (provenance) / **reconfirm** (charter, decisions) | CLAUDE.md reserves the last two |
 | **delete** (destruction) | **forget** (memories only) | CLAUDE.md |
 | **card** (guide UI) | **knot** (guide source) | see #6 |
-| **private** (the People journal — a separate `private` schema no other code path names) | **only you** (the visibility tier, a column) | one is structural, one is a filter. `docs/VISIBILITY.md` refuses to let the column claim the word |
+| **private** (the People journal - a separate `private` schema no other code path names) | **only you** (the visibility tier, a column) | one is structural, one is a filter. `docs/VISIBILITY.md` refuses to let the column claim the word |
 | **crew** (a durable group of people) | **flock** (a named group of personas) | see the crew entry; the member word is `member` in both |

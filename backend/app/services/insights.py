@@ -2,7 +2,7 @@
 
 Design contract (docs/INSIGHTS.md): findings first, charts are receipts;
 medians over means; n printed on every claim; no %-change claims when either
-window has n<8; person-level data never appears here (future-vs-past rule —
+window has n<8; person-level data never appears here (future-vs-past rule -
 individual data is for planning, team aggregates for judging the past).
 All reads go through the same SQL the rest of the platform uses."""
 
@@ -17,7 +17,7 @@ from .slas import ABANDONED_DAYS, AGING_WIP_DAYS, VERDICT_FLOOR_N
 WINDOW_DAYS = 28
 # Round trips inside ONE turn's tool loop before it is worth a human's
 # attention. A normal turn is single digits; a loop that cannot satisfy its
-# tool climbs without bound. Deliberately absolute — see _r_turn_runaway.
+# tool climbs without bound. Deliberately absolute - see _r_turn_runaway.
 TURN_CYCLE_ALARM = 25
 # What share of a week's finished work was never planned before the week is an
 # interrupt week rather than a busy one. Named here like every other threshold
@@ -44,7 +44,7 @@ def _n(count: int, word: str) -> str:
 
 
 def _today() -> date:
-    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    """The team's day (config.SKEIN_TZ), not the UTC day - see db.today()."""
     return db.today()
 
 
@@ -58,7 +58,7 @@ def _iso(d: date) -> str:
 
     DECIDED, not overlooked: the analytics windows in this module ("the last
     28 days", "the last 8 weeks") bind this against created_at and updated_at,
-    which are UTC timestamps — so each window is anchored to UTC midnight of a
+    which are UTC timestamps - so each window is anchored to UTC midnight of a
     local date and runs one UTC offset wide at its edge. That is hours of
     smear on multi-week medians, and every rule in the file shares it, so the
     counts stay comparable with each other.
@@ -75,7 +75,7 @@ def _week(d: date | None = None) -> str:
     return f"{iso.year}-W{iso.week:02d}"
 
 
-# one implementation, shared with portfolio — see services/stats.py
+# one implementation, shared with portfolio - see services/stats.py
 _median = stats.median
 _p85 = stats.p85
 
@@ -84,12 +84,12 @@ _p85 = stats.p85
 
 
 def _resolve_hours(since: str, until: str) -> tuple[list[float], int]:
-    """(durations, impossible) — a row resolved BEFORE it was raised is
+    """(durations, impossible) - a row resolved BEFORE it was raised is
     excluded and counted, never averaged in. One imported backup or hand-edited
     timestamp otherwise prints "median -8.5h" on /insights, and docs/INSIGHTS.md
     names the stake: one wrong receipt discredits the rule that carried it."""
     rows = db.query(
-        "SELECT (EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24 AS h"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT (EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24 AS h"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         f" FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"
         " AND resolved_at >= ? AND resolved_at < ?",
         (since, until),
@@ -104,7 +104,7 @@ def _rolling_bounds() -> tuple[str, str, str]:
     [prior_start, cut), each exactly WINDOW_DAYS wide.
 
     One definition, because every rolling-window rule needs it and each spike
-    rule that recomputed it drifted to 29-vs-28 — counting back a full
+    rule that recomputed it drifted to 29-vs-28 - counting back a full
     WINDOW_DAYS from a today-inclusive upper bound is 29 days, a 3.6% wider
     current window on both sides of every ratio and n>=8 floor, under UI cards
     that read "rolling 28 days"."""
@@ -123,7 +123,7 @@ def mttr_windows() -> dict:
     return {
         "window_days": WINDOW_DAYS,
         # rows whose resolved_at precedes created_at, excluded from every
-        # number above — nonzero means the DATA needs attention, and the card
+        # number above - nonzero means the DATA needs attention, and the card
         # says so instead of averaging an impossibility into a verdict
         "impossible_rows": bad_cur + bad_prev,
         "current": {
@@ -141,11 +141,11 @@ def mttr_windows() -> dict:
 
 def automation_ratio(months: int = 6) -> list[dict]:
     """Share of records by origin per month, across the core entities.
-    Always read next to the rejection rate — a rising ratio with rising
+    Always read next to the rejection rate - a rising ratio with rising
     rejections is a problem, not a win."""
     since = _iso(_today() - timedelta(days=31 * months))
     union = " UNION ALL ".join(
-        f"SELECT substr(created_at, 1, 7) AS month, origin FROM {t}"  # noqa: S608 — table tuple below
+        f"SELECT substr(created_at, 1, 7) AS month, origin FROM {t}"  # noqa: S608 - table tuple below
         f" WHERE created_at >= ?"
         for t in (
             "tasks",
@@ -159,7 +159,7 @@ def automation_ratio(months: int = 6) -> list[dict]:
         )
     )
     rows = db.query(
-        f"SELECT month, origin, COUNT(*) AS n FROM ({union})"  # noqa: S608 — built just above
+        f"SELECT month, origin, COUNT(*) AS n FROM ({union})"  # noqa: S608 - built just above
         " GROUP BY month, origin ORDER BY month",
         tuple([since] * 8),
     )
@@ -198,7 +198,7 @@ def review_trend(months: int = 6) -> list[dict]:
 def intake_funnel(weeks: int = 12) -> dict:
     since = _iso(_today() - timedelta(weeks=weeks))
     counts = db.query_one(
-        "SELECT COUNT(*) AS submitted,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT COUNT(*) AS submitted,"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " COUNT(*) FILTER (WHERE status != 'submitted') AS scored_or_beyond,"
         " COUNT(*) FILTER (WHERE status = 'accepted') AS accepted,"
         " COUNT(*) FILTER (WHERE status = 'deferred') AS deferred,"
@@ -209,7 +209,7 @@ def intake_funnel(weeks: int = 12) -> dict:
     times = [
         r["d"]
         for r in db.query(
-            f"SELECT EXTRACT(epoch FROM updated_at::timestamptz - created_at::timestamptz) / 86400.0 AS d"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f"SELECT EXTRACT(epoch FROM updated_at::timestamptz - created_at::timestamptz) / 86400.0 AS d"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
             f" FROM intake_requests WHERE updated_at >= ? AND {WORKSPACE_ONLY}"
             " AND status IN ('accepted', 'deferred', 'declined')",
             (since,),
@@ -237,7 +237,7 @@ def forecast_calibration(window_days: int = 180) -> dict:
     forecast, because the last snapshot before completion is nearly always
     close.
 
-    Medians and an n, withheld under n=8 — docs/INSIGHTS.md, and the same bar
+    Medians and an n, withheld under n=8 - docs/INSIGHTS.md, and the same bar
     the MTTR card holds.
     """
     # DISTINCT ON (f.milestone_id) with ORDER BY f.day takes the EARLIEST
@@ -252,7 +252,7 @@ def forecast_calibration(window_days: int = 180) -> dict:
         # bounded on the MILESTONE's completion, never the snapshot's creation:
         # as a WHERE on f.created_at it prunes rows BEFORE MIN() runs, so a
         # milestone older than the window gets scored on its earliest
-        # IN-WINDOW forecast — the converged one — which flatters the forecast
+        # IN-WINDOW forecast - the converged one - which flatters the forecast
         # in exactly the way choosing the earliest snapshot exists to prevent
         " WHERE m.status = 'done' AND m.completed_at IS NOT NULL AND m.completed_at >= ?"
         " ORDER BY f.milestone_id, f.day",
@@ -275,7 +275,7 @@ def forecast_calibration(window_days: int = 180) -> dict:
     n = len(errors)
     # which ingredient is missing, for the n=0 empty state: with finished
     # milestones and no snapshots the card said "a milestone must finish
-    # first" — naming the one ingredient the team already had. A forecast is
+    # first" - naming the one ingredient the team already had. A forecast is
     # only scoreable when a snapshot PRECEDED a finish.
     finished = db.query_one(
         "SELECT COUNT(*) AS c FROM milestones WHERE status = 'done' AND completed_at IS NOT NULL"
@@ -289,7 +289,7 @@ def forecast_calibration(window_days: int = 180) -> dict:
         "median_error_days": _median(errors),
         # the absolute miss, for "how far off is it typically"
         "median_abs_error_days": _median([abs(e) for e in errors]),
-        # withheld under the same floor every other claim here uses — a hit
+        # withheld under the same floor every other claim here uses - a hit
         # rate over three milestones is noise wearing a percentage sign
         "hit_rate": round(on_or_before / n, 2) if n >= VERDICT_FLOOR_N else None,
         # withheld with the rate it reconstructs: hits/n IS hit_rate, so
@@ -327,7 +327,7 @@ def insights() -> dict:
         "intake_funnel": intake_funnel(),
         "forecast_calibration": forecast_calibration(),
         "token_spend_weekly": token_spend_weekly(),
-        # adoption() is team-rolled by construction — the per-person tally that
+        # adoption() is team-rolled by construction - the per-person tally that
         # the anti-surveillance rule refuses was removed at the source, so it
         # is safe here and at GET /api/adoption alike (fixing it in one filter
         # here was the leak: the next endpoint over had none)
@@ -368,7 +368,7 @@ def _r_mttr() -> list[dict]:
     ratio = cur["median_hours"] / prev["median_hours"]
     _, cut, _upper = _rolling_bounds()
     slowest = db.query(
-        "SELECT id, title, ROUND((EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24) AS hours"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT id, title, ROUND((EXTRACT(epoch FROM resolved_at::timestamptz - created_at::timestamptz) / 86400.0) * 24) AS hours"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         f" FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"
         " AND resolved_at >= ? ORDER BY hours DESC LIMIT 3",
         (cut,),
@@ -404,7 +404,7 @@ def _r_mttr() -> list[dict]:
 
 def _escalated_share(since: str, until: str) -> tuple[int, float | None]:
     row = db.query_one(
-        "SELECT COUNT(*) AS n,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT COUNT(*) AS n,"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " COUNT(*) FILTER (WHERE escalated_at IS NOT NULL) AS esc"
         f" FROM blockers WHERE {WORKSPACE_ONLY}"
         " AND status = 'resolved' AND resolved_at >= ? AND resolved_at < ?",
@@ -424,7 +424,7 @@ def _r_escalation_spike() -> list[dict]:
     if pn >= 6 and pshare and share < 1.5 * pshare:
         return []
     ids = db.query(
-        f"SELECT id, title, impact FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, title, impact FROM blockers WHERE status = 'resolved' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND escalated_at IS NOT NULL AND resolved_at >= ?",
         (cut,),  # already an ISO string from _rolling_bounds
     )
@@ -444,13 +444,13 @@ def _r_escalation_spike() -> list[dict]:
 def _r_aging_wip() -> list[dict]:
     cutoff = _iso(_today() - timedelta(days=AGING_WIP_DAYS))
     wip = db.query_one(
-        f"SELECT COUNT(*) AS n FROM tasks WHERE status = 'in_progress' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT COUNT(*) AS n FROM tasks WHERE status = 'in_progress' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
     )
     aging = db.query(
-        "SELECT t.id, t.title, m.project,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT t.id, t.title, m.project,"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " FLOOR(EXTRACT(epoch FROM now() - t.updated_at::timestamptz) / 86400.0)::int AS days"
         # m.project is persisted into a findings row, which is never pruned and
-        # is republished every week — the lock rides the ON clause because m is
+        # is republished every week - the lock rides the ON clause because m is
         # the nullable side (services/scope.py::visible_filter)
         f" FROM tasks t LEFT JOIN milestones m ON m.id = t.milestone_id AND m.{WORKSPACE_ONLY}"
         f" WHERE t.{WORKSPACE_ONLY}"
@@ -478,12 +478,12 @@ def _r_task_abandoned() -> list[dict]:
     A different signal from aging_wip, which is age alone: a task nobody ever
     touched is new work with a planning problem, while a task that drew notes
     from two people and then went silent is a task the team walked away from.
-    The receipt carries counts and the task, never the authors — the finding
+    The receipt carries counts and the task, never the authors - the finding
     is about the work going quiet, not about who went quiet (the field-guide
     anti-surveillance rule)."""
     cutoff = _iso(_today() - timedelta(days=ABANDONED_DAYS))
     rows = db.query(
-        "SELECT t.id, t.title, COUNT(w.id) AS notes,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT t.id, t.title, COUNT(w.id) AS notes,"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " COUNT(DISTINCT w.author) AS actors"
         f" FROM tasks t JOIN task_worklog w ON w.task_id = t.id AND w.{WORKSPACE_ONLY}"
         f" WHERE t.{WORKSPACE_ONLY} AND t.status NOT IN ('done', 'void')"
@@ -561,7 +561,7 @@ def _r_promises_external() -> list[dict]:
     for c in db.query(
         # direction = 'given': a RECEIVED promise also defaults to audience
         # 'external', and this rule is about what the team owes outsiders
-        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"  # noqa: S608 — scope filters emit only bound marks
+        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"  # noqa: S608 - scope filters emit only bound marks
         f" AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ?",
         (soon,),
@@ -578,7 +578,7 @@ def _r_promises_external() -> list[dict]:
                 )
                 + f": “{c['promise']}” (to {c['to_whom'] or 'unspecified'})."
                 + (
-                    " Keep it, renegotiate it, or mark it missed — do not let it drift."
+                    " Keep it, renegotiate it, or mark it missed - do not let it drift."
                     if overdue
                     else ""
                 ),
@@ -592,9 +592,9 @@ def _r_promises_external() -> list[dict]:
     for c in db.query(
         # direction AND audience, like the sibling query above: a RECEIVED
         # promise marked missed is the other party breaking it, and this rule
-        # is high severity — it reached the digest saying the team missed a
+        # is high severity - it reached the digest saying the team missed a
         # promise it never made
-        f"SELECT * FROM promises WHERE status = 'missed' AND direction = 'given'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM promises WHERE status = 'missed' AND direction = 'given'"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         f" AND audience = 'external' AND {WORKSPACE_ONLY} AND updated_at >= ?",
         (week_ago,),
     ):
@@ -614,7 +614,7 @@ def _r_promises_external() -> list[dict]:
 
 def _r_review_stall() -> list[dict]:
     # scope.NOBODY: the receipt this builds lands in `findings`, which has no
-    # identity column, a UNIQUE(rule_id, subject, week) key and no pruning —
+    # identity column, a UNIQUE(rule_id, subject, week) key and no pruning -
     # docs/VISIBILITY.md calls it the most dangerous sink in the app. A
     # proposal's `summary` quotes its target row's text.
     from .review import _readable
@@ -688,7 +688,7 @@ def _r_rejection_spike() -> list[dict]:
             "rejection_spike",
             "medium",
             f"{round(rate * 100)}% of {cur['n']} reviewed proposals were"
-            " rejected in the last 28 days — read the reviewer notes.",
+            " rejected in the last 28 days - read the reviewer notes.",
             {"notes": notes},
             n=cur["n"],
             window="28d",
@@ -701,7 +701,7 @@ def _r_intake_stall() -> list[dict]:
     times = [
         r["d"]
         for r in db.query(
-            f"SELECT EXTRACT(epoch FROM updated_at::timestamptz - created_at::timestamptz) / 86400.0 AS d"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f"SELECT EXTRACT(epoch FROM updated_at::timestamptz - created_at::timestamptz) / 86400.0 AS d"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
             f" FROM intake_requests WHERE updated_at >= ? AND {WORKSPACE_ONLY}"
             " AND status IN ('accepted', 'deferred', 'declined')",
             (since,),
@@ -721,7 +721,7 @@ def _r_intake_stall() -> list[dict]:
             )
         ]
     old = db.query(
-        "SELECT id, title, score,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT id, title, score,"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " FLOOR(EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0)::int AS days"
         f" FROM intake_requests WHERE {WORKSPACE_ONLY} AND status IN ('submitted', 'scored')"
         " AND created_at < ?",
@@ -746,7 +746,7 @@ def _r_intake_stall() -> list[dict]:
 def _r_question_aging() -> list[dict]:
     out = []
     for q in db.query(
-        "SELECT id, question, asked_by,"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT id, question, asked_by,"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " FLOOR(EXTRACT(epoch FROM now() - created_at::timestamptz) / 86400.0)::int AS days"
         f" FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY} AND created_at < ?",
         (_iso(_today() - timedelta(days=5)),),
@@ -767,10 +767,10 @@ def _r_question_aging() -> list[dict]:
 
 def _r_decision_decay() -> list[dict]:
     stale = db.query(
-        f"SELECT id, title, review_by FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, title, review_by FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
     )
     corpus = db.query_row(
-        f"SELECT COUNT(*) AS n FROM decisions WHERE status != 'superseded' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT COUNT(*) AS n FROM decisions WHERE status != 'superseded' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
     )
     if not stale:
         return []
@@ -781,7 +781,7 @@ def _r_decision_decay() -> list[dict]:
                 "low",
                 f"{_n(len(stale), 'standing decision')}"
                 f" {'is' if len(stale) == 1 else 'are'} past the review-by"
-                f" date — reconfirm or supersede"
+                f" date - reconfirm or supersede"
                 f" {'it' if len(stale) == 1 else 'them'} before someone cites one.",
                 {"decisions": stale},
                 n=len(stale),
@@ -811,7 +811,7 @@ def _r_token_anomaly() -> list[dict]:
             " ELSE '(private chat)' END"
         )
         top = db.query(
-            f"SELECT {label} AS thread_id, usage.model_id,"  # noqa: S608 — label is a constant expression
+            f"SELECT {label} AS thread_id, usage.model_id,"  # noqa: S608 - label is a constant expression
             " SUM(usage.input_tokens + usage.output_tokens) AS tokens"
             " FROM usage_log usage LEFT JOIN chat_threads thread"
             " ON thread.id = usage.thread_id WHERE usage.created_at >= ?"
@@ -839,7 +839,7 @@ def _r_turn_runaway() -> list[dict]:
     afternoon, because a week's total absorbs it.
 
     A cycle is one model round trip inside a turn's tool loop, so a high count
-    is the shape of an agent arguing with a tool it cannot satisfy — the
+    is the shape of an agent arguing with a tool it cannot satisfy - the
     failure an unattended run makes expensive. Absolute, not a ratio: there is
     no honest baseline for "normal cycles" until a deployment has months of
     turns, and a ratio over a tiny sample fires on the second turn ever."""
@@ -864,7 +864,7 @@ def _r_turn_runaway() -> list[dict]:
             "medium",
             # "agent turn", not "chat turn": the case this rule was written
             # for is an UNATTENDED run (services/agent_runner.py), whose
-            # thread no chat list shows — and LEXICON fixes `chat` to a
+            # thread no chat list shows - and LEXICON fixes `chat` to a
             # conversation a person had
             f"{_n(len(rows), 'agent turn')} in the last 7 days ran"
             f" {TURN_CYCLE_ALARM} or more model round trips."
@@ -902,7 +902,7 @@ def _r_flock_failures() -> list[dict]:
             total[slug] = total.get(slug, 0) + 1
             if m.get("status") not in ("ok", None):
                 failed[slug] = failed.get(slug, 0) + 1
-    # every call failing is the signal — a persona that sometimes fails is a
+    # every call failing is the signal - a persona that sometimes fails is a
     # slow model, and a rule that fires on that gets ignored
     broken = sorted(s for s, n in failed.items() if n == total.get(s) and n >= 2)
     if not broken:
@@ -924,7 +924,7 @@ def _r_flock_failures() -> list[dict]:
 
 def _r_experiment_overdue() -> list[dict]:
     overdue = db.query(
-        f"SELECT id, name, timebox_end, kill_criteria FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, name, timebox_end, kill_criteria FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND kind = 'experiment' AND status != 'closed' AND conclusion IS NULL"
         " AND timebox_end IS NOT NULL AND timebox_end < ?",
         (_iso(_today()),),
@@ -934,7 +934,7 @@ def _r_experiment_overdue() -> list[dict]:
             "experiment_overdue",
             "medium",
             f"Experiment {wording.quoted(e['name'])} is past its timebox ({e['timebox_end']})"
-            " with no recorded conclusion — conclude it or extend it on purpose.",
+            " with no recorded conclusion - conclude it or extend it on purpose.",
             {"engagement_id": e["id"], "kill_criteria": e["kill_criteria"]},
             n=1,
             subject=f"engagement-{e['id']}",
@@ -949,21 +949,21 @@ def _r_plan_drift() -> list[dict]:
     still runs.
 
     The snapshot is written at KICKOFF (playbooks.instantiate), so this diff
-    exists from day one — but nothing read it until close, when the only thing
+    exists from day one - but nothing read it until close, when the only thing
     left to do about it is write a lesson. A milestone that has already moved
     twice and four tasks nobody planned are facts the team can still act on in
     week three, and the whole reason the snapshot is taken.
 
     Only the variance a team can DO something about fires: a milestone whose
     date moved, and work added outside the plan. Unfinished planned work is
-    not drift while the engagement runs — it is the plan, in progress.
+    not drift while the engagement runs - it is the plan, in progress.
 
     Silent under the threshold on purpose. Every engagement drifts a little,
     and a rule that fires on one moved date teaches the reader to skip it.
     """
     out = []
     for e in db.query(
-        f"SELECT id, name FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, name FROM engagements WHERE {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND status NOT IN ('closed', 'cancelled') ORDER BY id"
     ):
         from .playbooks import close_out_diff
@@ -1037,7 +1037,7 @@ def _r_job_stale() -> list[dict]:
     from .jobs import job_health
 
     if not config.SCHEDULER_ENABLED:
-        # scheduler deliberately off: every job is "stale" by definition —
+        # scheduler deliberately off: every job is "stale" by definition -
         # six red alarms about a setting is noise, not a finding
         return []
     return [
@@ -1063,7 +1063,7 @@ def _r_feature_unadopted() -> list[dict]:
             "feature_unadopted",
             "low",
             f"{wording.quoted(k['feature'])} has zero team-wide first-uses {UNADOPTED_GRACE_DAYS}+"
-            f" days after entering the field guide ({k['since']}) — broken entry"
+            f" days after entering the field guide ({k['since']}) - broken entry"
             " point, or a feature nobody wants? The how-to card is on /guide.",
             {"knot": k["id"], "link": k["link"], "since": k["since"]},
             subject=k["id"],
@@ -1081,7 +1081,7 @@ def _r_activity_chain() -> list[dict]:
     cross-checks the stored anchor and the high-water mark, so it is strictly
     stronger than the tail run rather than a different view of it.
 
-    Reports the FIRST break only — verification stops there, because every
+    Reports the FIRST break only - verification stops there, because every
     later link is computed from a value already known to be wrong.
 
     When the walk passes, the anchor log is replayed too. That is the check
@@ -1132,7 +1132,7 @@ def _r_activity_chain() -> list[dict]:
 def _r_ledger_adoptions() -> list[dict]:
     """An adopt_unchained receipt landed since the last daily run. Adoption heals
     the chain instead of alarming forever (activity.adopt_unchained), so the
-    smuggled-row case no longer keeps verify_chain failing — this finding is
+    smuggled-row case no longer keeps verify_chain failing - this finding is
     the push signal that replaces that permanent alarm. One finding per
     receipt: the subject is the receipt's seq, and a receipt already filed in
     any week is skipped, so each adoption fires exactly once and a benign
@@ -1169,7 +1169,7 @@ def _r_ledger_adoptions() -> list[dict]:
 def _r_budget() -> list[dict]:
     """Month-to-date estimated spend crossed the operator's ceiling. Off until
     SKEIN_MONTHLY_BUDGET_USD is set. If the budget is set but no model has a
-    price, the rule says the budget cannot be measured — silence there would
+    price, the rule says the budget cannot be measured - silence there would
     read as "under budget" while nothing was being counted."""
     from .. import config
     from .usage import engagement_costs, month_start, month_to_date
@@ -1193,7 +1193,7 @@ def _r_budget() -> list[dict]:
         ]
     if month["cost_usd"] is None or month["cost_usd"] < config.MONTHLY_BUDGET_USD:
         return []
-    # bounded to the CALENDAR month, same bound month_to_date uses — a finding
+    # bounded to the CALENDAR month, same bound month_to_date uses - a finding
     # that says August is over budget must not name July's biggest spender as
     # its evidence, and timedelta arithmetic drifts at month edges
     top = [
@@ -1226,7 +1226,7 @@ def _r_evidence_gap() -> list[dict]:
 
     Scoped to DELEGATED tasks, not every done task: judging each person's
     closing hygiene is a per-person judgment on a team-wide surface, which
-    the anti-surveillance rule refuses — but a sponsor accepting an agent's
+    the anti-surveillance rule refuses - but a sponsor accepting an agent's
     work with zero worklog notes is the trust loop measuring itself, and the
     loop is the thing the review gate exists to prove. `delegated_agent`
     survives completion (services/work.py clears it only on reassignment),
@@ -1239,7 +1239,7 @@ def _r_evidence_gap() -> list[dict]:
     """
     since = _iso(_today() - timedelta(days=7))
     rows = db.query(
-        f"SELECT t.id, t.title, t.delegated_agent, t.sponsor, t.completed_at"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT t.id, t.title, t.delegated_agent, t.sponsor, t.completed_at"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         f" FROM tasks t WHERE t.{WORKSPACE_ONLY}"
         " AND t.status = 'done' AND t.delegated_agent != ''"
         " AND t.completed_at >= ?"
@@ -1271,7 +1271,7 @@ def _r_meeting_no_outcome() -> list[dict]:
 
     The most expensive thing on a team's calendar and the hardest to see,
     because every single instance looks reasonable. Grouped by TITLE, which is
-    what makes a meeting recurring to a reader — a series id would be more
+    what makes a meeting recurring to a reader - a series id would be more
     precise and Skein does not have one.
 
     The receipt is hours burned: instance count times duration times attendee
@@ -1289,7 +1289,7 @@ def _r_meeting_no_outcome() -> list[dict]:
     # 1:1 is still identifiable from the pair of hours and the cadence.
     # The WHOLE roster, and every name in it. `list_users()` defaults to
     # active members only, which left a departed teammate's recurring 1:1
-    # unguarded while the events stayed in the table — and this finding
+    # unguarded while the events stayed in the table - and this finding
     # reaches the digest and the exec readout, which leaves. A length filter
     # here would silently unprotect whoever has a short name.
     # services/stakeholders.py::_roster reads the roster unfiltered for the
@@ -1309,9 +1309,9 @@ def _r_meeting_no_outcome() -> list[dict]:
         # 'none' counts HERE and nowhere else. Answering "nothing came out of
         # it" clears the daily ask (schedule.py::meetings_awaiting_outcome
         # takes 'pending' only) but it is the exact fact this rule exists to
-        # total up — filtering it out would let a series escape the weekly
+        # total up - filtering it out would let a series escape the weekly
         # finding by admitting every week that it produced nothing.
-        f"SELECT * FROM events WHERE outcome_status IN ('pending', 'none')"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM events WHERE outcome_status IN ('pending', 'none')"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         f" AND {WORKSPACE_ONLY}"
         # today is excluded: a meeting from this morning can still record an
         # outcome this afternoon, and the rule runs daily
@@ -1338,7 +1338,7 @@ def _r_meeting_no_outcome() -> list[dict]:
             continue
         # WORD boundaries, not `in`: a roster holding Ram, Ian and Ana
         # suppressed "Program review", "Alliance sync" and "Analytics review"
-        # — three ordinary titles out of four, silently.
+        # - three ordinary titles out of four, silently.
         if names_someone(title, roster):
             continue
         hours = round(g["hours"], 1)
@@ -1373,7 +1373,7 @@ def _r_interrupt_load() -> list[dict]:
 
     The interrupt ledger shipped with the cockpit and nothing read it, so the
     number was visible to whoever opened the page on Monday and to nobody
-    else. Team ratio only — this judges the PAST, and the anti-surveillance
+    else. Team ratio only - this judges the PAST, and the anti-surveillance
     rule allows person-level data only for planning the future.
     """
     from .portfolio import flow_metrics
@@ -1393,7 +1393,7 @@ def _r_interrupt_load() -> list[dict]:
             # the week it was created. Carryover is in neither, so "work that
             # started and finished inside one week" described only the
             # unplanned half and made the percentage read against the wrong
-            # base — the comment beside `same_week_unplanned_share` warns
+            # base - the comment beside `same_week_unplanned_share` warns
             # against exactly this restatement.
             f"{round(share * 100)}% of the work settled in the week it belonged to"
             f" was never on that week's commitment line"
@@ -1441,14 +1441,14 @@ RULES = (
 
 def run_findings(*, actor: str = "scheduler") -> dict:
     """Evaluate all rules; store fresh findings. UNIQUE(rule_id, subject, week)
-    is the dedupe — a rule fires at most once per subject per ISO week, so the
+    is the dedupe - a rule fires at most once per subject per ISO week, so the
     daily scheduler run is idempotent. Silence is a valid output."""
     week, fired = _week(), []
     for rule in RULES:
         try:
             candidates = rule()
         except Exception:
-            # a rule broken by a future schema change must be LOUD — "silence
+            # a rule broken by a future schema change must be LOUD - "silence
             # is a valid output" only when the rules actually ran
             import logging
 
@@ -1461,7 +1461,7 @@ def run_findings(*, actor: str = "scheduler") -> dict:
             ):
                 continue  # already fired this week
             if _suppressed(f["rule_id"], f["subject"]):
-                continue  # dismissed/deferred by a human — findings re-fire
+                continue  # dismissed/deferred by a human - findings re-fire
                 # weekly as NEW rows, so suppression keys on (rule, subject)
             fid = db.execute(
                 "INSERT INTO findings (rule_id, subject, severity,"
@@ -1500,8 +1500,8 @@ def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
     since_week = _week(_today() - timedelta(weeks=weeks))
     # One row per (rule_id, subject), newest week's row speaking for the run.
     # run_findings mints one row per ISO week while a condition persists, so a
-    # flat SELECT showed the same broken chain twice — W33 "converted" beside
-    # W34 "fresh" — and a reader counted two problems where there is one.
+    # flat SELECT showed the same broken chain twice - W33 "converted" beside
+    # W34 "fresh" - and a reader counted two problems where there is one.
     # first_week says how long it has been firing; id stays the newest row's,
     # so the disposition and convert endpoints still target a real row.
     # ADOPTION_RULE sorts last whatever its week. It files one low row per
@@ -1519,7 +1519,7 @@ def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
         " WHEN 'low' THEN 2 ELSE 3 END, f.id DESC LIMIT ?",
         (since_week, ADOPTION_RULE, limit),
     )
-    # Latest disposition per (rule_id, subject), NOT per finding id — that is
+    # Latest disposition per (rule_id, subject), NOT per finding id - that is
     # the key _suppressed() quiets on, and the key run_findings dedupes on.
     # Keyed by id, converting W33's row left W34's badge blank and the queue
     # asked about work that was already converted.
@@ -1549,9 +1549,9 @@ def list_findings(weeks: int = 4, limit: int = 50) -> list[dict]:
 
 
 def digest_findings(limit: int = 3) -> list[dict]:
-    """This week's top findings for the digest — severity-ordered, capped.
+    """This week's top findings for the digest - severity-ordered, capped.
     Dispositioned findings are excluded: acted-on means stop nagging.
-    job_stale findings collapse to one line — infra noise must not spend
+    job_stale findings collapse to one line - infra noise must not spend
     the whole team-facing budget."""
     # ADOPTION_RULE last, the list_findings rule: one low row per unused
     # field-guide card, filed first, took every slot from team findings
@@ -1571,7 +1571,7 @@ def digest_findings(limit: int = 3) -> list[dict]:
         merged = dict(stale[0])
         merged["message"] = (
             f"{len(stale)} scheduled jobs have not succeeded within twice"
-            f" their period: {names} — see /health."
+            f" their period: {names} - see /health."
         )
         rows = [merged if r is stale[0] else r for r in rows if r is stale[0] or r not in stale]
     return rows[:limit]
@@ -1590,7 +1590,7 @@ def _latest_disposition(rule_id: str, subject: str) -> dict | None:
 
 def _suppressed(rule_id: str, subject: str) -> bool:
     """dismissed quiets a (rule, subject) for 28 days; deferred until its
-    date. resolved/converted do NOT suppress — a re-fire after a fix is
+    date. resolved/converted do NOT suppress - a re-fire after a fix is
     signal, not noise."""
     d = _latest_disposition(rule_id, subject)
     return d is not None and _still_quiets(d)
@@ -1610,7 +1610,7 @@ DISPOSITIONS = ("dismissed", "deferred", "converted", "resolved")
 def finding_rule(finding_id: int) -> str:
     """Which rule raised a finding, for a caller that must decide the identity
     bar before removing it from the digest (routes/api.py). A missing row
-    returns "" and lets the service raise NotFound — two 404s for one id would
+    returns "" and lets the service raise NotFound - two 404s for one id would
     otherwise disagree about whether it exists."""
     row = db.query_one("SELECT rule_id FROM findings WHERE id = ?", (finding_id,))
     return row["rule_id"] if row else ""
@@ -1628,13 +1628,13 @@ def disposition_finding(
     if disposition not in DISPOSITIONS:
         raise ValueError(f"disposition must be one of {DISPOSITIONS}")
     if disposition == "deferred":
-        # string-compared later — an unparseable value would suppress forever
+        # string-compared later - an unparseable value would suppress forever
         try:
             date.fromisoformat(deferred_until)
         except (TypeError, ValueError):
             raise ValueError("deferred needs a deferred_until date (YYYY-MM-DD)") from None
     if origin != "human":
-        raise ValueError("dispositions are human judgments — agents cannot make them")
+        raise ValueError("dispositions are human judgments - agents cannot make them")
     finding = db.query_one("SELECT * FROM findings WHERE id = ?", (finding_id,))
     if not finding:
         raise db.NotFound(f"finding #{finding_id} not found")
@@ -1675,14 +1675,14 @@ def convert_finding(finding_id: int, kind: str, title: str = "", *, actor: str =
         linked = [
             ("task", row)
             for row in db.query(
-                f"SELECT * FROM tasks WHERE source_finding_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f"SELECT * FROM tasks WHERE source_finding_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
                 " ORDER BY id LIMIT 2",
                 (finding_id,),
             )
         ] + [
             ("question", row)
             for row in db.query(
-                f"SELECT * FROM questions WHERE source_finding_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+                f"SELECT * FROM questions WHERE source_finding_id = ? AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
                 " ORDER BY id LIMIT 2",
                 (finding_id,),
             )

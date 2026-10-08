@@ -2,7 +2,7 @@
 
 Friday close-out sweeps what the week leaves dangling; Monday open briefs
 each person on their OWN obligations. Both are pure SQL, produce a markdown
-artifact, and notify — attention lands where the ritual used to be
+artifact, and notify - attention lands where the ritual used to be
 assembled manually from five pages."""
 
 from datetime import UTC, date, datetime, timedelta
@@ -14,14 +14,14 @@ from .scope import WORKSPACE_ONLY
 
 
 def _clean(text: str, width: int = 80) -> str:
-    """User text goes into markdown bullets — a newline in a promise must not
+    """User text goes into markdown bullets - a newline in a promise must not
     forge a section header in the packet. The shared rule lives in
     services/wording.py::flatten, which every generator now uses."""
     return wording.flatten(text, width)
 
 
 def _claim_week(job: str, week: str, force: bool) -> bool:
-    """Claim for EVERY actor — a manual Monday run must stop the scheduler
+    """Claim for EVERY actor - a manual Monday run must stop the scheduler
     from double-briefing the team. Force reruns, but still stamps the claim."""
     claimed = db.claim_job(job, week)
     return claimed or force
@@ -32,7 +32,7 @@ def _existing_week_artifact(slug: str, today: date) -> int | None:
     prefix = "Week close-out " if slug == "week-close" else "Week open "
     target = today.isocalendar()[:2]
     rows = db.query(
-        f"SELECT id, title FROM artifacts WHERE kind = 'ritual' AND title LIKE ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, title FROM artifacts WHERE kind = 'ritual' AND title LIKE ?"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         f" AND {WORKSPACE_ONLY} ORDER BY id DESC",
         (f"{prefix}%",),
     )
@@ -76,7 +76,7 @@ def _write_artifact(slug: str, title: str, markdown: str, actor: str) -> tuple[i
 
 
 def week_close(*, actor: str = "scheduler", force: bool = False) -> dict:
-    """Friday sweep: what this week leaves open — due/overdue promises,
+    """Friday sweep: what this week leaves open - due/overdue promises,
     engagements stuck closing, proposals nobody has judged, questions still
     waiting. One packet, one notification, zero page-hopping."""
     today = db.today()
@@ -100,13 +100,13 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
     due_promises = db.query(
         # direction = 'given': the close-out asks what the team owes and has
         # not settled. A received promise is chased by its own hourly job.
-        f"SELECT id, promise, to_whom, due_date FROM promises"  # noqa: S608 — scope filters emit only bound marks
+        f"SELECT id, promise, to_whom, due_date FROM promises"  # noqa: S608 - scope filters emit only bound marks
         f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         (horizon,),
     )
     stuck_closing = db.query(
-        f"SELECT id, name, updated_at FROM engagements WHERE status = 'closing' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, name, updated_at FROM engagements WHERE status = 'closing' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND updated_at < ? ORDER BY updated_at",
         ((datetime.now(UTC) - timedelta(days=7)).isoformat(timespec="seconds"),),
     )
@@ -126,11 +126,11 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
         scope.NOBODY,
     )
     open_questions = db.query(
-        f"SELECT id, question, assigned_to FROM questions WHERE status = 'open'"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT id, question, assigned_to FROM questions WHERE status = 'open'"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         f" AND {WORKSPACE_ONLY} ORDER BY id"
     )
 
-    lines = [f"# Week close-out — {today.isoformat()}", ""]
+    lines = [f"# Week close-out - {today.isoformat()}", ""]
     sections = [
         (
             "Promises due or overdue",
@@ -173,7 +173,7 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
             lines += [f"## {title}", *rows, ""]
             total += len(rows)
     if total == 0:
-        lines.append("Nothing dangling. Close the laptop — the week is settled.")
+        lines.append("Nothing dangling. Close the laptop - the week is settled.")
 
     markdown = "\n".join(lines)
     aid, path = _write_artifact(
@@ -186,7 +186,7 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
         notify(
             "team",
             f"Week close-out: {wording.count(total, 'item')} need{'s' if total == 1 else ''}"
-            f" a decision before Monday — {wording.count(len(due_promises), 'promise')},"
+            f" a decision before Monday - {wording.count(len(due_promises), 'promise')},"
             f" {wording.count(len(stuck_closing), 'stuck engagement')},"
             f" {wording.count(len(stale_proposals), 'stale proposal')},"
             f" {wording.count(len(open_questions), 'open question')}.",
@@ -197,7 +197,7 @@ def _week_close_run(today: date, week: str, actor: str) -> dict:
 
 
 def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
-    """Monday brief: each person's OWN obligations for the week — the
+    """Monday brief: each person's OWN obligations for the week - the
     promises they made, decisions they own past review-by, questions waiting
     on them, tasks due. Personal notifications, team artifact."""
     today = db.today()
@@ -216,7 +216,7 @@ def week_open(*, actor: str = "scheduler", force: bool = False) -> dict:
 def _week_open_run(today: date, week: str, actor: str) -> dict:
     """Every query below that reads a CLASSIFIED table takes WORKSPACE_ONLY.
     They render into ONE markdown artifact, written at the workspace tier by
-    _write_artifact — so a scoped row quoted here reaches the whole roster
+    _write_artifact - so a scoped row quoted here reaches the whole roster
     through GET /api/artifacts, the file on disk, and job_outcomes.detail.
     The roster query reads `users`, which carries no tier (scope.UNSCOPED).
     """
@@ -225,7 +225,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
         " AND name != 'anonymous' ORDER BY name"
     )
-    lines = [f"# Week open — {today.isoformat()}", ""]
+    lines = [f"# Week open - {today.isoformat()}", ""]
     from .notifications import notify
 
     briefed = 0
@@ -234,23 +234,23 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         promises = db.query(
             # direction = 'given', like the close-out above: this brief tells a
             # person what THEY owe
-            f"SELECT id, promise, due_date FROM promises"  # noqa: S608 — scope filters emit only bound marks
+            f"SELECT id, promise, due_date FROM promises"  # noqa: S608 - scope filters emit only bound marks
             f" WHERE status = 'open' AND direction = 'given' AND {WORKSPACE_ONLY}"
             " AND created_by = ? AND (due_date IS NULL OR due_date <= ?) ORDER BY due_date NULLS FIRST",
             (name, horizon),
         )
         decisions = db.query(
-            f"SELECT id, title FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f"SELECT id, title FROM decisions WHERE status = 'stale' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
             " AND decided_by = ? ORDER BY id",
             (name,),
         )
         questions = db.query(
-            f"SELECT id, question FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f"SELECT id, question FROM questions WHERE status = 'open' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
             " AND assigned_to = ? ORDER BY id",
             (name,),
         )
         tasks = db.query(
-            f"SELECT id, title, due_date FROM tasks WHERE {WORKSPACE_ONLY} AND assignee = ?"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+            f"SELECT id, title, due_date FROM tasks WHERE {WORKSPACE_ONLY} AND assignee = ?"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
             " AND status NOT IN ('done', 'void') AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
             (name, horizon),
         )
@@ -258,14 +258,14 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         if n == 0:
             continue
         briefed += 1
-        lines.append(f"## {name} — {wording.count(n, 'obligation')}")
+        lines.append(f"## {name} - {wording.count(n, 'obligation')}")
         lines += [
             f"- promise #{c['id']}: {wording.quoted(c['promise'], 70)}"
             + (f" (due {c['due_date']})" if c["due_date"] else "")
             for c in promises
         ]
         lines += [
-            f"- stale decision #{d['id']}: {wording.quoted(d['title'], 70)} — reconfirm or supersede"
+            f"- stale decision #{d['id']}: {wording.quoted(d['title'], 70)} - reconfirm or supersede"
             for d in decisions
         ]
         lines += [f"- question #{q['id']}: {wording.quoted(q['question'], 70)}" for q in questions]
@@ -290,10 +290,10 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
             tier="digest",
             link="/",
         )
-    # promises carry only created_by (the recorder) — a promise an agent
+    # promises carry only created_by (the recorder) - a promise an agent
     # captured belongs to nobody in the loop above and must not go silent
     agent_recorded = db.query(
-        "SELECT c.id, c.promise, c.due_date FROM promises c"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        "SELECT c.id, c.promise, c.due_date FROM promises c"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " JOIN users u ON u.name = c.created_by AND u.kind = 'agent'"
         # 'given' only, like every other reader of this table: a RECEIVED
         # promise needs no owner on this side, and the chaser
@@ -305,7 +305,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
     )
     if agent_recorded:
         lines.append(
-            f"## Recorded by agents — {wording.count(len(agent_recorded), 'promise')}"
+            f"## Recorded by agents - {wording.count(len(agent_recorded), 'promise')}"
             f" need{'s' if len(agent_recorded) == 1 else ''} an owner"
         )
         lines += [
@@ -315,7 +315,7 @@ def _week_open_run(today: date, week: str, actor: str) -> dict:
         ]
         lines.append("")
     if briefed == 0 and not agent_recorded:
-        lines.append("No outstanding obligations — a clean slate of a Monday.")
+        lines.append("No outstanding obligations - a clean slate of a Monday.")
 
     markdown = "\n".join(lines)
     aid, path = _write_artifact("week-open", f"Week open {today.isoformat()}", markdown, actor)

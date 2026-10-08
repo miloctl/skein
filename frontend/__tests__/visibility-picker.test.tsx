@@ -196,7 +196,7 @@ function bodyOf(call?: { init?: RequestInit }): Record<string, unknown> {
 describe("every control in quick capture is reachable by keyboard", () => {
   it("includes the visibility select in the focus trap", async () => {
     // The picker mounts BELOW the Capture button, and the trap's selector
-    // listed only buttons, textareas and [tabindex] — so the last focusable
+    // listed only buttons, textareas and [tabindex] - so the last focusable
     // was Capture, Tab wrapped to the first chip, and the one control that
     // decides who can read the capture could not be reached at all.
     render(<CapturePalette />);
@@ -205,7 +205,7 @@ describe("every control in quick capture is reachable by keyboard", () => {
     });
     await screen.findByText("Platform only");
     // Asserted through the component's OWN trap, never by re-running its
-    // selector here — a test that queries with the fixed selector passes no
+    // selector here - a test that queries with the fixed selector passes no
     // matter what the component uses, which is no test at all.
     //
     // jsdom does not move focus on Tab, so the observable is the wrap: the
@@ -230,7 +230,7 @@ describe("the fb: path states the tier it actually uses", () => {
     await screen.findByText("Platform only");
 
     fireEvent.change(input, {
-      target: { value: "fb: ada — clearer specs please" },
+      target: { value: "fb: ada - clearer specs please" },
     });
     // services/capture.py routes this into private.db before it reads a tier,
     // so a picker offering "Platform only" here would name one that is dropped

@@ -2015,7 +2015,7 @@ def test_a_timed_out_job_cannot_write_after_its_unknown_completion(fresh_db):
 
 def test_event_visibility_selectors_come_from_the_closed_catalog():
     """A misspelled visibility matched no event, and the zero-match event was
-    finalized as delivered while the handler never ran — the same silent
+    finalized as delivered while the handler never ran - the same silent
     trap the event-type catalog already refuses."""
     from app.extensions import EventContribution
 
@@ -2163,7 +2163,7 @@ def test_a_lost_dispatch_window_records_no_job_outcome(fresh_db):
 
 def test_old_pending_outbox_rows_are_pruned(fresh_db):
     """Zero-composition dispatch leaves rows pending on purpose, so on the
-    core-only default deployment nothing else finalizes them — retention has
+    core-only default deployment nothing else finalizes them - retention has
     to reclaim them or the outbox grows without bound."""
     from app import db
     from app.services import retention
@@ -2236,7 +2236,7 @@ def test_failed_deliveries_record_an_error_outcome(fresh_db, monkeypatch):
 
 def test_the_events_job_does_not_drain_before_readiness():
     """catch_up=True ran the whole backlog synchronously before the lifespan
-    yielded — a slow subscriber delayed readiness by its full timeout per
+    yielded - a slow subscriber delayed readiness by its full timeout per
     event. The one-minute interval covers boot."""
     from app.main import _job_specs
 
@@ -2252,7 +2252,7 @@ def test_the_events_job_does_not_drain_before_readiness():
 def test_private_modules_cannot_declare_core_namespace_actions():
     """The capability endpoint exempts skein.* from its catalog refusal, so
     a private module DECLARING an operation there would ride the engine's
-    default permit. Policy rules still inspect skein.* — that is how a
+    default permit. Policy rules still inspect skein.* - that is how a
     workplace narrows core operations."""
     module = _module(
         jobs=(

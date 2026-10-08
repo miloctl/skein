@@ -1,7 +1,7 @@
 # Skein on OpenShift
 
 For day-to-day operation by someone who did not build the system, read
-`OPERATOR.md` in this directory instead — this file holds the build-time
+`OPERATOR.md` in this directory instead - this file holds the build-time
 decisions and their reasons.
 
 This directory holds the Kustomize base for a single-team OpenShift
@@ -213,13 +213,13 @@ nightly backup instead of stopping application boot.
 
 The backend composes the app credentials with the host from the ConfigMap
 into a quoted conninfo in code (`config._database_url`), never into a URL in
-the manifest — a password holding `@ : / % ? #` breaks URL parsing. There is
+the manifest - a password holding `@ : / % ? #` breaks URL parsing. There is
 no default: it refuses to start without the components rather than quietly
 serving an empty database.
 
 **The application role must not be a superuser.** A superuser can
 `COPY ... FROM PROGRAM`, which runs shell commands on the database pod, and
-`pg_read_file`, which reads its filesystem — so any SQL bug, and any
+`pg_read_file`, which reads its filesystem - so any SQL bug, and any
 extension (they supply raw SQL), escalates to command execution on that
 container. `base/postgres.yaml` creates the role with `NOSUPERUSER` on first
 boot. `/api/health` reports `database_warnings` if the backend connects
@@ -229,7 +229,7 @@ and a backup as the restricted role. A managed PostgreSQL needs the same role
 created by hand.
 
 Both passwords initialise the cluster on FIRST boot only. Changing the
-Secret later changes nothing in the database — use `ALTER ROLE` and update
+Secret later changes nothing in the database - use `ALTER ROLE` and update
 the Secret together.
 
 **If your organization offers a managed PostgreSQL**, delete
@@ -270,8 +270,8 @@ Stop if either reference contains an old or zero digest.
   That is the cost of Recreate, and it is correct here. Do not move
   migrations to a pre-sync Job: the Job can overlap the old pod, and old code
   would then serve a newer schema. (Two processes applying migrations at once
-  is safe on its own — `init_db` takes an
-  advisory lock — but that is not the reason Recreate is here.)
+  is safe on its own - `init_db` takes an
+  advisory lock - but that is not the reason Recreate is here.)
 - **Roll forward only.** Migrations are append-only with no downgrades.
   After a sync has applied migrations, an ArgoCD rollback runs old code
   against a newer schema, and nothing tests that combination. Recovery
@@ -286,7 +286,7 @@ The Secret `skein-secrets` never goes in git. It holds the model provider
 keys and the optional `SKEIN_FORGE_WEBHOOK_SECRET`, `SKEIN_GITLAB_WEBHOOK_TOKEN`
 and `SKEIN_ICS_TOKEN`.
 Create it out of band, or manage it with the cluster's secret operator
-(External Secrets, Sealed Secrets — whichever the platform team already
+(External Secrets, Sealed Secrets - whichever the platform team already
 runs). A keyless mock deployment needs no Secret: the reference is
 `optional: true`.
 
@@ -327,7 +327,7 @@ team this list. Item 1 is the one that blocks everything.
    response must then carry the groups claim, and the client's scopes must
    release it. `SKEIN_OIDC_USERINFO_URL` overrides discovery.
 3. The exact issuer string, and whether discovery is served at it. If
-   not, also the authorize URL, the token URL, and the ATM's JWKS URL —
+   not, also the authorize URL, the token URL, and the ATM's JWKS URL -
    `SKEIN_OIDC_AUTHORIZE_URL`, `SKEIN_OIDC_TOKEN_URL`, and
    `SKEIN_OIDC_JWKS_URL` override discovery. Ask which JWKS carries the
    access-token signing keys: an ATM can publish its own, separate from
@@ -638,7 +638,7 @@ path separately.
 
 The overlays carry the full set: image tags and digests, Route hosts,
 `SKEIN_AUTH_MODE`, the `SKEIN_OIDC_*` block, `SKEIN_CORS_ORIGINS` (the
-exact frontend origin — scheme and host, no trailing slash),
+exact frontend origin - scheme and host, no trailing slash),
 `SKEIN_ADMINS`, `SKEIN_TZ`, the model provider, and the CA mount. Dev
 stays keyless: mock provider, trusted-header auth, no Secret.
 
@@ -705,4 +705,4 @@ state. `/health` and `/api/health` return 200 when the process and database are
 up, including mock degradation. Alert on their error fields. Logs go to stdout
 as plain lines. There is no
 Prometheus endpoint: if the platform team requires metrics or JSON logs,
-that is new work — ask for their standard first.
+that is new work - ask for their standard first.

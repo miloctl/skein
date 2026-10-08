@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /** One condition, one wording (CLAUDE.md). 59 surfaces used to interpolate the
- *  raw exception — `alert(String(e))` and `${e.message ?? e}` — which gave the
+ *  raw exception - `alert(String(e))` and `${e.message ?? e}` - which gave the
  *  single condition "the backend is down" about 24 phrasings, several of them
  *  leaking the "Error: " class-name prefix. lib/api.ts owns the wording now.
  *
@@ -16,14 +16,14 @@ const ROOT = join(__dirname, "..");
 const DIRS = ["app", "components"];
 
 // `String(e)` and `e.message ?? e` where e is the caught error. Deliberately
-// NOT matching String(x.field) — portfolio and dashboard legitimately stringify
+// NOT matching String(x.field) - portfolio and dashboard legitimately stringify
 // engagement fields named e, and those are values, not errors.
 const HANDROLLED = [
-  { pattern: /\bString\(\s*(?:e|err|error)\s*\)/, why: "String(e) — use actionError(e) or loadError(e)" },
-  { pattern: /\b(?:e|err|error)\.message\s*\?\?/, why: "e.message ?? e — use actionError(e)" },
+  { pattern: /\bString\(\s*(?:e|err|error)\s*\)/, why: "String(e) - use actionError(e) or loadError(e)" },
+  { pattern: /\b(?:e|err|error)\.message\s*\?\?/, why: "e.message ?? e - use actionError(e)" },
   {
     pattern: /\binstanceof\s+Error\s*\?\s*\w+\.message/,
-    why: "hand-rolled Error narrowing — use actionError(e)",
+    why: "hand-rolled Error narrowing - use actionError(e)",
   },
 ];
 
@@ -39,7 +39,7 @@ const files = DIRS.flatMap((d) => walk(join(ROOT, d)));
 
 describe("nothing calls window.alert", () => {
   it("reports through lib/status.ts instead", () => {
-    // alert() blocks, steals focus, and queues serially — but the reason it
+    // alert() blocks, steals focus, and queues serially - but the reason it
     // must not come back is that browsers offer "prevent this page from
     // creating more dialogs" after a few, and once ticked every later failure
     // is swallowed in silence while the app looks like it is working.

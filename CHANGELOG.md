@@ -20,11 +20,12 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- User-visible text joins clauses with a hyphen (-) where it used an em-dash. The feedback capture (`fb: name - note`) still accepts a typed em-dash as the separator.
 - In the chat composer, text typed in the middle or at the start of a draft stays where the caret is. Before, the first character landed in place and the caret then moved to the end.
 
 ### Operations
 
-## 0.6.13 — 2026-09-30
+## 0.6.13 - 2026-09-30
 
 ### Contracts
 
@@ -41,7 +42,7 @@ keeps its existing `minimum_core` and needs no change.
 - Core and workplace Python locks pin urllib3 2.8.0. If you customize HTTPS proxy TLS, review the [upstream upgrade notes](https://urllib3.readthedocs.io/en/stable/changelog.html).
 - The frontend host and workplace example pin Next.js 16.3.8. The frontend ESLint configuration matches this version. Both npm locks use DOMPurify 3.4.16. These versions address published dependency security advisories. Update the workplace root Next.js pin and regenerate its npm lock.
 
-## 0.6.12 — 2026-09-30
+## 0.6.12 - 2026-09-30
 
 ### Contracts
 
@@ -93,7 +94,7 @@ keeps its existing `minimum_core` and needs no change.
 - New optional Secret key `SKEIN_GITLAB_WEBHOOK_TOKEN`. Empty keeps the GitLab webhook closed (503). CLAUDE.md and `docs/intent/work-durability.md` record GitLab inbound webhooks as approved, and outbound GitLab calls as an open decision.
 - Migration 045 adds `document_revisions`: one row per revision of a document, with its body. It is in both database dumps and left out of the portable export.
 
-## 0.6.11 — 2026-09-28
+## 0.6.11 - 2026-09-28
 
 ### Contracts
 
@@ -115,7 +116,7 @@ keeps its existing `minimum_core` and needs no change.
 - `docs/VISIBILITY.md` describes time away filed for somebody else as the code handles it: with no tier named, the window is private to the person away with its dates shared. The document said it was refused and fell back to the workspace tier.
 - `SECURITY.md` states where to report a vulnerability (GitHub private vulnerability reporting), which versions get fixes, the properties Skein promises, and what is out of scope.
 
-## 0.6.10 — 2026-09-28
+## 0.6.10 - 2026-09-28
 
 ### Contracts
 
@@ -142,7 +143,7 @@ keeps its existing `minimum_core` and needs no change.
 
 - Migration 044 runs at startup. It adds seven nullable columns with no default, which rewrites no table, and seven partial indexes on those columns. Each index build holds a short write lock on its table. No configuration changes.
 
-## 0.6.9 — 2026-09-28
+## 0.6.9 - 2026-09-28
 
 ### Contracts
 
@@ -168,7 +169,7 @@ keeps its existing `minimum_core` and needs no change.
 - Dependencies: PyJWT 2.15.0 (from 2.13.0), Strands SDK 1.57.1 (from 1.56.0) and pydantic 2.13.5 (from 2.13.4) in `backend/requirements.lock` and both workplace template locks. Declared minimums are unchanged. PyJWT 2.14.0 carries six security advisories, several for `PyJWKClient`, which OIDC sign-in uses. `scripts/check-session-upgrade.py` passed for sessions written on 1.56.0, restored, appended and restarted on 1.57.1, and rolled back to 1.56.0. Rebuild the image from the new lock.
 - In 0.6.8 the daily `retention-prune` job failed with KeyError on any day an export file older than 14 days existed under `data/exports`, so nothing else was pruned that day either. It now completes and names the files in its activity row. No action is needed.
 
-## 0.6.8 — 2026-09-26
+## 0.6.8 - 2026-09-26
 
 ### Contracts
 
@@ -206,7 +207,7 @@ keeps its existing `minimum_core` and needs no change.
 - `ops/ollama-bridge.py` listens on the Docker gateway address (`BRIDGE_LISTEN`, default `172.17.0.1`); every interface takes `BRIDGE_LISTEN_ALL=1`.
 - No migration.
 
-## 0.6.7 — 2026-09-25
+## 0.6.7 - 2026-09-25
 
 ### Contracts
 
@@ -246,7 +247,7 @@ keeps its existing `minimum_core` and needs no change.
 - A deployment that composes an identity mapper, a policy rule, a tool handler or a workflow action for OIDC users needs a directory resolver, or agent proposals from signed-in people cannot be approved. The stock app needs none.
 - After the upgrade, a named administrator can check Settings → Operations for proposals that no one can settle.
 
-## 0.6.6 — 2026-09-24
+## 0.6.6 - 2026-09-24
 
 ### Contracts
 
@@ -328,7 +329,7 @@ keeps its existing `minimum_core` and needs no change.
 - The backup mirror keeps 14 dumps, the same count as local, instead of 30. The first backup after the upgrade deletes the older mirror dumps. Copy any you must keep before you upgrade.
 - Same-day backup retries mirror the partial backup instead of dumping again. The nightly chain check streams the ledger in batches. Retention prunes interval-job receipts.
 
-## 0.6.5 — 2026-09-22
+## 0.6.5 - 2026-09-22
 
 ### Contracts
 
@@ -353,7 +354,7 @@ keeps its existing `minimum_core` and needs no change.
 - Upstream deprecated every allowed extra tool. Each call logs a deprecation warning, and `strands-agents-tools` `0.9.0` makes it an error log. Extra tools stay off by default.
 - GitHub and Gitea workflows use the same `setup-uv` `v10.1.0` action commit. The release-contract gate continues to refuse mismatched mirror pins.
 
-## 0.6.4 — 2026-09-20
+## 0.6.4 - 2026-09-20
 
 ### Contracts
 
@@ -375,7 +376,7 @@ keeps its existing `minimum_core` and needs no change.
 - The `delta_seen:<user>` rows in `app_settings` are no longer read. Nothing removes them. They are safe to leave in place or to delete.
 - A browser still running the previous bundle asks for `GET /api/delta?mark=true`, which now writes nothing. That reader sees the same summary until the new bundle loads.
 
-## 0.6.3 — 2026-09-18
+## 0.6.3 - 2026-09-18
 
 ### Contracts
 
@@ -392,7 +393,7 @@ keeps its existing `minimum_core` and needs no change.
 
 - The restore fence in `deploy/k8s/README.md` step 7 now removes the sealed bearer token and OAuth sign-in from every restored personal MCP server row. A token revoked or a server deleted after the backup came back usable before. Owners enter the token or sign in again.
 
-## 0.6.2 — 2026-09-17
+## 0.6.2 - 2026-09-17
 
 ### Contracts
 
@@ -407,7 +408,7 @@ keeps its existing `minimum_core` and needs no change.
 
 - The OpenAI-compatible and Anthropic clients retry a failed request once, not twice. Each retry re-waits the full read timeout on a provider that accepts the request and never answers.
 
-## 0.6.1 — 2026-09-17
+## 0.6.1 - 2026-09-17
 
 ### Contracts
 
@@ -426,7 +427,7 @@ keeps its existing `minimum_core` and needs no change.
 - Migration 030 adds `chat_agent_runs.partial_text`. It applies at startup.
 - The solo-chat stream answers with `Cache-Control: no-cache` and `X-Accel-Buffering: no`, so a buffering edge delivers frames as they are sent.
 
-## 0.6.0 — 2026-09-08
+## 0.6.0 - 2026-09-08
 
 ### Contracts
 
@@ -494,7 +495,7 @@ keeps its existing `minimum_core` and needs no change.
 
 - The npm packages publish to public npmjs.com through OIDC Trusted Publishing, with provenance, instead of GitHub Packages. `@miloctl/skein-extension-api` and `@miloctl/skein-frontend-host` install with no token, and the `.npmrc` scope routing and `read:packages` PAT are gone. The first version of each package is published by hand once, then the workflow publishes (RELEASING.md).
 
-## 0.5.0 — 2026-09-02
+## 0.5.0 - 2026-09-02
 
 ### Contracts
 
@@ -529,7 +530,7 @@ keeps its existing `minimum_core` and needs no change.
 - Release publication and finalization flatten downloaded artifacts. A single-ID download no longer lands under a nested directory the publishers cannot see.
 - The installed frontend contract proves the root-owned override refusals. It removes each override and corrupts each lock entry, and it requires the refusal both times.
 
-## 0.4.0 — 2026-08-30
+## 0.4.0 - 2026-08-30
 
 ### Contracts
 
@@ -581,7 +582,7 @@ keeps its existing `minimum_core` and needs no change.
 - The durable `agent_automation` setting pauses and resumes unattended runs without changing authority or review policy.
 - The lint gate runs the Simplified Technical English self-test, then checks field-guide `how:` instructions. Service wording remains a warning-only ring.
 
-## 0.3.2 — 2026-08-28
+## 0.3.2 - 2026-08-28
 
 This patch aligns the published frontend host with the tested workplace package boundary. Existing `0.3.x` extensions need no compatibility change.
 
@@ -603,7 +604,7 @@ This patch aligns the published frontend host with the tested workplace package 
 - Release preparation now uses one version input to update synchronized packages, exact artifacts, locks, documentation, and the release marker.
 - A protected finalization workflow verifies registry bytes from the original artifact before it creates an annotated release tag.
 
-## 0.3.0 — 2026-08-27
+## 0.3.0 - 2026-08-27
 
 Two deployment defaults changed, and both are visible to a private package.
 This is a MINOR release for exactly that reason: a package declaring
@@ -630,8 +631,8 @@ Widen to `<0.4.0` and re-read the two Behavior entries below before you do.
 ### Behavior
 
 - **The review gate is ON by default.** `SKEIN_AGENT_REVIEW` defaults to 1;
-  it defaulted to 0 through 0.2.x. A mutating agent write — including a
-  governed extension tool at the `review` authority level — becomes a
+  it defaulted to 0 through 0.2.x. A mutating agent write - including a
+  governed extension tool at the `review` authority level - becomes a
   proposal a human approves, so `execute_tool` returns `review_required`
   carrying a `review_id` where it previously returned `completed` with the
   write already done. An extension whose job or test asserts `completed`
@@ -685,7 +686,7 @@ Widen to `<0.4.0` and re-read the two Behavior entries below before you do.
 - A 0.2.x deployment must uninstall the old `skein` and Atlas 1.x
   distributions before it installs `skein-agents` and Atlas 2.0.
 
-## 0.2.2 — 2026-08-13
+## 0.2.2 - 2026-08-13
 
 The second tagged release, and the first that proves an upgrade: the Atlas
 reference extension passes every contract unchanged across the 0.2.1 to 0.2.2
@@ -782,7 +783,7 @@ build with its activity chain intact.
   composes with it and both checks must pass. Rejection is unchanged: a rule
   that traps a proposal in the queue is worse than one person declining it.
 
-## 0.2.1 — 2026-08-13
+## 0.2.1 - 2026-08-13
 
 First release after the workplace extension boundary. Extension API 1.0 for
 both the backend and the frontend.

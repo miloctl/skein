@@ -5,7 +5,7 @@ import { axe } from "vitest-axe";
 /** Pins the null-vs-[] initialization in app/portfolio/page.tsx. Initialized
  *  to [], the conflicts and promises cards rendered their verdicts
  *  ("Nobody is over 100%") during the first paint and again after a failed
- *  fetch — a confident claim about data that never arrived. The api mock
+ *  fetch - a confident claim about data that never arrived. The api mock
  *  below never resolves, so this renders the page frozen at first paint. */
 
 const mode = { fail: false };
@@ -29,7 +29,7 @@ import PortfolioPage from "@/app/portfolio/page";
 describe("the portfolio page before any data arrives", () => {
   it("leads with full-width health and risks before supporting metrics", () => {
     render(<PortfolioPage />);
-    const health = screen.getByRole("region", { name: "Engagement health — each call shows why" });
+    const health = screen.getByRole("region", { name: "Engagement health - each call shows why" });
     expect(health.classList.contains("md:col-span-2")).toBe(true);
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(headings.indexOf("Slip forecast")).toBeLessThan(headings.indexOf("AI usage and estimated cost"));
@@ -47,7 +47,7 @@ describe("the portfolio page before any data arrives", () => {
 describe("the portfolio page when a card's fetch fails", () => {
   it("says what failed instead of Loading forever", async () => {
     // null means "no data yet" for BOTH not-arrived and failed. A card that
-    // only checks null claims work is in progress after the work stopped —
+    // only checks null claims work is in progress after the work stopped -
     // and the toast cannot cover it, because six loads share one region.
     mode.fail = true;
     try {

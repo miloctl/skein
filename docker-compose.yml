@@ -1,4 +1,4 @@
-# Two database passwords are REQUIRED and have no defaults — compose refuses
+# Two database passwords are REQUIRED and have no defaults - compose refuses
 # to start without them:
 #   SKEIN_DB_ADMIN_PASSWORD  the bootstrap superuser, used once at init
 #   SKEIN_DB_PASSWORD        the role the app connects as (NOSUPERUSER)
@@ -9,7 +9,7 @@
 # One knob for team access: set SKEIN_HOST to the VM's hostname/IP so
 # teammates' browsers can reach both services, e.g.
 #   SKEIN_HOST=my-vm.internal docker compose up --build
-# NEXT_PUBLIC_* values are BAKED AT BUILD TIME — changing SKEIN_HOST,
+# NEXT_PUBLIC_* values are BAKED AT BUILD TIME - changing SKEIN_HOST,
 # SKEIN_API_TOKEN or SKEIN_FRONTEND_PORT requires `up --build`, not just a
 # restart.
 services:
@@ -25,7 +25,7 @@ services:
       POSTGRES_USER: skein_admin
       POSTGRES_PASSWORD: ${SKEIN_DB_ADMIN_PASSWORD:?set SKEIN_DB_ADMIN_PASSWORD}
       POSTGRES_DB: skein
-      # The role the app connects as — created by the init script below with
+      # The role the app connects as - created by the init script below with
       # NOSUPERUSER, because a superuser can run shell commands on this
       # container through SQL. /health reports it if the app ever connects as
       # one anyway.
@@ -69,12 +69,12 @@ services:
       # Components, never an interpolated URI: a password holding @ : / % ?
       # or # parses as URL structure and the app cannot connect. The backend
       # composes the conninfo (config._database_url). :? like the db service
-      # above, not :-skein — the db service refuses to start without the
+      # above, not :-skein - the db service refuses to start without the
       # variable, so a default here would only ever connect a lone backend
       # as skein/skein, the credential this file's header says does not exist.
       # Empty on purpose, and it must stay: `environment` beats env_file, so
       # this shadows a copied backend/.env whose SKEIN_DATABASE_URL points at
-      # localhost — which inside this container is the backend itself. Config
+      # localhost - which inside this container is the backend itself. Config
       # strips the empty string and the components below win.
       SKEIN_DATABASE_URL: ""
       SKEIN_DB_HOST: db
@@ -88,10 +88,10 @@ services:
       SKEIN_API_TOKEN: ${SKEIN_API_TOKEN:-}
       # This stack is the trusted-network dev rehearsal, so it opts into the
       # name picker; the shipped default is api-key (fail closed). This
-      # `environment` entry beats backend/.env — to run another mode here,
+      # `environment` entry beats backend/.env - to run another mode here,
       # set SKEIN_AUTH_MODE in the host shell, not only in that file.
       SKEIN_AUTH_MODE: ${SKEIN_AUTH_MODE:-trusted-header}
-      # Inside a container, "localhost" is the container — reach the host's
+      # Inside a container, "localhost" is the container - reach the host's
       # Ollama daemon via the host gateway (overrides backend/.env's value).
       SKEIN_OLLAMA_HOST: ${SKEIN_OLLAMA_HOST:-http://host.docker.internal:11434}
       # Mirror target inside the container; pairs with the volume above.
@@ -112,11 +112,11 @@ services:
         NEXT_PUBLIC_API_URL: "http://${SKEIN_HOST:-localhost}:8000"
         NEXT_PUBLIC_API_TOKEN: ${SKEIN_API_TOKEN:-}
         # The web app's own origin, for metadataBase. Carries the host port,
-        # which NEXT_PUBLIC_API_URL does not — the frontend port is a knob.
+        # which NEXT_PUBLIC_API_URL does not - the frontend port is a knob.
         NEXT_PUBLIC_SITE_URL: "http://${SKEIN_HOST:-localhost}:${SKEIN_FRONTEND_PORT:-3000}"
     init: true
     ports:
-      # Host port is a knob — if another app owns :3000 on the host, use
+      # Host port is a knob - if another app owns :3000 on the host, use
       # e.g. SKEIN_FRONTEND_PORT=3100 docker compose up --build -d
       - "${SKEIN_FRONTEND_PORT:-3000}:3000"
     depends_on:

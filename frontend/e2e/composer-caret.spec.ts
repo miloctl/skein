@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 // The composer is a controlled textarea whose value comes from the chat store.
 // A React state update inside onChange commits before the store carries the
-// new text, writes the old text back, and parks the caret at the end — so an
+// new text, writes the old text back, and parks the caret at the end - so an
 // edit in the middle of a draft lands every later character at the end.
 // Only a browser reproduces this: jsdom does not re-run React's controlled
 // value restore against a live caret.

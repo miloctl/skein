@@ -313,7 +313,7 @@ def test_the_document_is_recorded_in_the_ledger(fresh_db):
 
 def test_a_document_written_outside_the_root_is_refused(fresh_db):
     """The containment check is about a restored or hand-edited row, not about
-    create_document — it is what stops a stored string becoming a read or a
+    create_document - it is what stops a stored string becoming a read or a
     write of any file the server user can open."""
     doc = documents.create_document("Plan", "alpha", actor="agent")["artifact_id"]
     db.execute("UPDATE artifacts SET path = ? WHERE id = ?", ("/etc/passwd", doc))
@@ -324,7 +324,7 @@ def test_a_document_written_outside_the_root_is_refused(fresh_db):
 def test_an_approved_document_proposal_actually_applies(fresh_db):
     """The review applier passes origin="agent_verified" to EVERY registry
     handler. A service that cannot take it is a TypeError at apply, which the
-    generic handler turns into a pending reset — so the proposal boomerangs in
+    generic handler turns into a pending reset - so the proposal boomerangs in
     the inbox forever with no path to approval, and the person clicking
     approve is told nothing. Nothing else covers this: the gate coverage test
     only exercises the direct-apply path."""

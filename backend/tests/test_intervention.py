@@ -1,7 +1,7 @@
 """The manager's ranked queue: what it includes, what it orders first, and
 what it refuses to show a reader who cannot open the row.
 
-Composition only — every row restates one an engine already produced. The
+Composition only - every row restates one an engine already produced. The
 value is the ORDER and the fact that one page carries all four engines
 (services/intervention.py).
 """
@@ -17,7 +17,7 @@ def _age(conn, blocker_id: int) -> None:
     """Push a blocker past its own escalation clock.
 
     `sweep_escalations` compares created_at against `escalate_after_hours`, so
-    a freshly filed blocker never escalates however many times the sweep runs —
+    a freshly filed blocker never escalates however many times the sweep runs -
     a test that skipped this asserted on an empty list and passed for the wrong
     reason.
     """
@@ -50,7 +50,7 @@ def test_a_broken_commitment_outranks_an_untidy_one(client, fresh_db):
 def test_system_findings_stay_out_of_the_meeting_queue(client, fresh_db, monkeypatch):
     """job_stale is severity high, so without the audience filter a stale cron
     outranks an overdue customer promise in the Monday running order. The rule
-    still fires and still reaches Insights — it is only out of this queue."""
+    still fires and still reaches Insights - it is only out of this queue."""
     from app import config
     from app.services.insights import list_findings, run_findings
 
@@ -67,7 +67,7 @@ def test_system_findings_stay_out_of_the_meeting_queue(client, fresh_db, monkeyp
     # while the field guide was young enough that feature_unadopted could not
     # fire; the oldest cards passed their grace window on 2026-08-31 and the
     # proxy broke. feature_unadopted is team-audience by classification
-    # (services/intervention.py::_SYSTEM_AUDIENCE), so it belongs here — what
+    # (services/intervention.py::_SYSTEM_AUDIENCE), so it belongs here - what
     # must not appear is the audience this test is named for.
     system_ids = {f["id"] for f in list_findings() if f["audience"] == "system"}
     assert system_ids
@@ -77,7 +77,7 @@ def test_system_findings_stay_out_of_the_meeting_queue(client, fresh_db, monkeyp
 
 def test_a_skipped_finding_does_not_spend_the_findings_budget(client, fresh_db, monkeypatch):
     """The [:30] budget must be spent on rows that can render. Sliced before
-    the filters, thirty system findings emptied this arm — the same failure
+    the filters, thirty system findings emptied this arm - the same failure
     the disposition filter's comment already warns about, for a new filter."""
     # patched on insights, not intervention: the import is inside the
     # function body, so the name resolves there at call time
@@ -141,7 +141,7 @@ def test_adoption_findings_do_not_spend_the_findings_budget(client, fresh_db):
 def test_a_cleared_condition_leaves_the_queue_before_the_week_does(client, fresh_db):
     """Findings mint once per ISO week, so a review stall that settles on
     Tuesday sat in the Monday order until Sunday, naming proposals that no
-    longer pend — and a manager who checks and finds nothing learns to
+    longer pend - and a manager who checks and finds nothing learns to
     distrust the queue. Cheaply-verifiable conditions are re-read at queue
     time; the finding itself stays on /insights as history."""
     from app.services import collab, insights, review, users
@@ -235,14 +235,14 @@ def test_a_reader_outside_the_crew_sees_none_of_its_rows(client, fresh_db):
 
 def test_an_ancient_row_does_not_own_the_top_forever(client, fresh_db):
     """Age contributes, capped. Past the cap a thing is not getting more
-    urgent, it is getting ignored — and one forgotten row from last quarter
+    urgent, it is getting ignored - and one forgotten row from last quarter
     permanently at the top is how a ranked queue stops being read."""
     assert intervention._order("stale_wip", age=30) == intervention._order("stale_wip", age=3650)
 
 
 def test_a_finding_receipt_with_stored_rows_names_counts_not_dicts():
     """review_stall stores its pending proposals whole. str() on that list
-    printed a page of Python dicts into the meeting agenda — the receipt is
+    printed a page of Python dicts into the meeting agenda - the receipt is
     the count and the ids, and the rows themselves stay on /insights."""
     from app.services.intervention import _finding_receipt
 

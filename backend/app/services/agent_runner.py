@@ -1,6 +1,6 @@
 """The motor the delegation loop never had.
 
-Everything needed to carry a delegated task end to end was already built —
+Everything needed to carry a delegated task end to end was already built -
 claim, report_progress, submit_for_acceptance, the sponsor binding, the
 authority matrix, the inbox docs/FEATURES.md calls an "ambient wake-up view".
 There was no waker. Every job in the JOBS registry was deterministic and none
@@ -9,13 +9,13 @@ well-audited chat responses": every action started with a human typing.
 
 Two layers, and the split is the keyless rule:
 
-  sweep()  — deterministic. Notifies the SPONSOR about delegated work with no
+  sweep() - deterministic. Notifies the SPONSOR about delegated work with no
              worklog note for QUIET_DAYS, at most once per task per ISO week.
              No model, no tokens, works on SKEIN_MODEL_PROVIDER=mock. This is
              A3's morning sweep and it is the whole feature on a keyless
              deployment.
 
-  run()    — the LLM upgrade on top. One bounded turn per agent per day
+  run() - the LLM upgrade on top. One bounded turn per agent per day
              against its own inbox plus the per-engagement context pack,
              under the ceilings in config. Every write it makes still passes
              the same gate a chat turn's writes pass: the authority matrix
@@ -92,14 +92,14 @@ _WAKE = (
     " a task is genuinely finished. Do not create new tasks, and do not start"
     " anything you were not delegated. If a task is blocked, call raise_blocker"
     " with the task id and what you need, THEN note it in report_progress and"
-    " move on — a blocker said only in prose reaches nobody: the blocker"
+    " move on - a blocker said only in prose reaches nobody: the blocker"
     " register, My Day, and the escalation clock all read the record, not"
     " your reply."
 )
 
 
 def _delegated_at(task_id: int) -> str | None:
-    """When this task was last delegated, from the ledger — the one record of
+    """When this task was last delegated, from the ledger - the one record of
     the hand-off, since tasks carry no delegated_at column. The space after
     the id stops '#4 ->' matching '#40 ->'. None for a delegation that
     predates the chain, which then ages like any old work."""
@@ -148,7 +148,7 @@ def _due(agent: str, policy: PolicyEngine | None = None) -> list[dict]:
 
 def sweep(policy: PolicyEngine | None = None) -> dict:
     """Deterministic: tell each sponsor about delegated work that has gone
-    QUIET — no worklog note for QUIET_DAYS.
+    QUIET - no worklog note for QUIET_DAYS.
 
     The threshold is the feature. Without it this notifies every sponsor about
     every open delegated task every single day, which is a daily digest entry
@@ -213,7 +213,7 @@ def sweep(policy: PolicyEngine | None = None) -> dict:
                     continue
                 if int(task["id"]) in checked_in:
                     continue
-                # A delegation younger than the window is not quiet — it is
+                # A delegation younger than the window is not quiet - it is
                 # new. "No progress note for 2 days" on a task delegated an
                 # hour ago is false as stated, and the first thing a sponsor
                 # reads about their own fresh delegation must not be a nag.
@@ -223,7 +223,7 @@ def sweep(policy: PolicyEngine | None = None) -> dict:
                 notes = delegation.list_worklog(task["id"], limit=1, actor=agent)
                 last = notes[0] if notes else None
                 # a note INSIDE the window means the work is not quiet. No note at
-                # all is the loudest case, not the quietest — the agent has held
+                # all is the loudest case, not the quietest - the agent has held
                 # the task since it was delegated and recorded nothing.
                 if last and last["created_at"] >= cutoff:
                     continue
@@ -396,14 +396,14 @@ def run_one(
     """One bounded, unattended turn for one agent.
 
     Returns a reason rather than raising for every refusal an operator can
-    act on — the caller runs a fleet, and one agent over budget must not stop
+    act on - the caller runs a fleet, and one agent over budget must not stop
     the others.
     """
     from .settings import agent_automation_enabled
 
     if not agent_automation_enabled():
         # the operator switch (Settings → AI runtime): stops every unattended
-        # turn without a redeploy. It stops AUTOMATION only — authority,
+        # turn without a redeploy. It stops AUTOMATION only - authority,
         # policy, and review gates are not reachable through it either way
         return _paused(agent)
     if not explicit_key and agent not in config.AGENT_RUNNER:
@@ -416,13 +416,13 @@ def run_one(
     if config.EFFECTIVE_PROVIDER == "mock":
         # not an error: mock is a supported deployment, and sweep() above is
         # the whole feature there. Saying so keeps /health honest.
-        return _refused(agent, "no model provider — sweep only")
+        return _refused(agent, "no model provider - sweep only")
     if delegation.authority_level(agent, "task") == "forbidden":
         return _refused(agent, "forbidden on tasks")
     try:
         usage.assert_within_budget(agent)
     except usage.BudgetSpent as exc:
-        # a spent budget is a CEILING working, not a fault — the operator set it
+        # a spent budget is a CEILING working, not a fault - the operator set it
         return _refused(agent, str(exc))
 
     # Evaluate the current delegated work and claim this run in one write
@@ -430,7 +430,7 @@ def run_one(
     #
     # It does NOT pin the project: _due reads tasks with no lock, claim_job
     # writes a different table, and a relink committing between them changes
-    # the project after the policy decision. Deliberate — the delegated set
+    # the project after the policy decision. Deliberate - the delegated set
     # is variable and this runs once per agent per day, so holding every task
     # in it costs more than the staleness it prevents. The consequence is
     # bounded: one run proceeds under the previous project's policy, and the
@@ -560,7 +560,7 @@ def run_one(
                 " you reach that limit."
             )
             if config.AGENT_DAILY_TOKENS:
-                # The ceiling refuses the NEXT run, never this one mid-turn — so
+                # The ceiling refuses the NEXT run, never this one mid-turn - so
                 # the model is told what remains and told to converge near the
                 # limit, instead of exploring into a refusal it cannot see coming.
                 remaining = max(0, config.AGENT_DAILY_TOKENS - usage.spent_today(agent)["tokens"])
@@ -603,11 +603,11 @@ def run_one(
                         _drop_turn(agent, turn_token)
 
             # copy_context(), because a ContextVar does NOT cross a bare
-            # threading.Thread — the worker starts at the var's default. Without
+            # threading.Thread - the worker starts at the var's default. Without
             # this the turn ran as "agent" (the chat identity) rather than the
             # agent we woke: its my_agent_inbox read an empty inbox, every
             # report_progress was refused as "written by its delegate or sponsor
-            # only", and the gate evaluated authority against the WRONG row — the
+            # only", and the gate evaluated authority against the WRONG row - the
             # one most likely to have been promoted to autonomous. The chat path
             # is safe only because Starlette's run_in_threadpool copies context;
             # this spawn does not get that for free.
@@ -651,7 +651,7 @@ def run_one(
             out = {"agent": agent, "ran": True, "fault": False, "thread": thread, "reply": text}
             stop = str(getattr(reply, "stop_reason", ""))
             if stop.startswith("limit_") or stop == "cancelled":
-                # an SDK literal, never model text — safe for job_outcomes.detail
+                # an SDK literal, never model text - safe for job_outcomes.detail
                 out["stopped"] = stop
                 log.warning("agent run for %s stopped at %s", agent, stop)
             if outcome := _outcome(receipts.drain()):

@@ -75,7 +75,7 @@ export function Nav({ children }: { children?: React.ReactNode }) {
   const { navigation } = useFrontendExtensions();
   const pathname = usePathname();
   const user = useSyncExternalStore(subscribeUser, getUser, () => "anonymous");
-  // two independent numbers — see the poll below for why they cannot be one
+  // two independent numbers - see the poll below for why they cannot be one
   const [attention, setAttention] = useState({ inbox: 0, yours: 0, chats: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
   // fetched lazily whenever the menu opens. Keeping the first answer forever
@@ -86,7 +86,7 @@ export function Nav({ children }: { children?: React.ReactNode }) {
   } | null>(null);
   const idBtnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  // focus the first item once per open — not via a ref callback, which would
+  // focus the first item once per open - not via a ref callback, which would
   // steal focus back on every re-render (e.g. when the guide count arrives)
   useEffect(() => {
     if (menuOpen)
@@ -122,7 +122,7 @@ export function Nav({ children }: { children?: React.ReactNode }) {
       // two numbers, two readers: `inbox` is what the Inbox badge promises
       // (proposals + triage, the rows that page actually shows) and `yours` is
       // what is addressed to this person by name. The tab title carries
-      // `yours` — it is the only part of Skein visible from an editor, and it
+      // `yours` - it is the only part of Skein visible from an editor, and it
       // said "3" about a queue nobody had assigned to the reader.
       api<{ inbox: number; yours: number; chats?: number }>("/api/attention")
         .then((r) => {
@@ -161,7 +161,7 @@ export function Nav({ children }: { children?: React.ReactNode }) {
   // A MutationObserver, not a plain assignment: Next re-applies the route's
   // metadata title on every navigation, and whether that lands before or
   // after this effect is not ours to order. Observing the node means the
-  // count survives whoever writes last. Re-entry is bounded — the callback
+  // count survives whoever writes last. Re-entry is bounded - the callback
   // only writes when the text differs from what it wants.
   useEffect(() => {
     const el = document.querySelector("title");
@@ -173,10 +173,10 @@ export function Nav({ children }: { children?: React.ReactNode }) {
       ROUTE_TITLES[pathname] ??
       extension?.label ??
       (pathname.startsWith("/engagement/") ? "Engagement" : "Skein");
-    const mapped = routeLabel === "Skein" ? "Skein" : `${routeLabel} — Skein`;
+    const mapped = routeLabel === "Skein" ? "Skein" : `${routeLabel} - Skein`;
     const known = new Set([
       "Skein",
-      ...Object.values(ROUTE_TITLES).map((label) => `${label} — Skein`),
+      ...Object.values(ROUTE_TITLES).map((label) => `${label} - Skein`),
     ]);
     const clean = () => el.textContent?.replace(/^\(\d+\)\s+/, "") || "Skein";
     let chatTitle =
@@ -281,7 +281,7 @@ export function Nav({ children }: { children?: React.ReactNode }) {
   };
   const contents = <>
     <div className="flex h-[var(--nav-h)] shrink-0 items-center gap-2 px-3">
-      <Link href="/" aria-label="Skein — My Day" className="shell-brand flex min-w-0 items-center gap-2 font-display text-base font-semibold" onClick={closeDrawer}>
+      <Link href="/" aria-label="Skein - My Day" className="shell-brand flex min-w-0 items-center gap-2 font-display text-base font-semibold" onClick={closeDrawer}>
         <SkeinMark size={22} className="shrink-0 text-thread" /><span className="shell-wordmark">Skein</span>
       </Link>
       {!desktop && <button type="button" aria-label="Close navigation" className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-raised" onClick={closeDrawer}><NavigationIcon name="close" /></button>}
@@ -323,7 +323,7 @@ export function Nav({ children }: { children?: React.ReactNode }) {
                 }}
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
-                title={anonymous ? "Pick your name" : `You — ${user}`}
+                title={anonymous ? "Pick your name" : `You - ${user}`}
                 className="shell-identity shell-row relative w-full min-w-0 text-left"
               >
                 <span
@@ -454,9 +454,9 @@ export function Nav({ children }: { children?: React.ReactNode }) {
                     {!mode ? "Checking access…" : signedIn
                       ? "Signed in with a browser session"
                       : mode === "oidc" || mode === "api-key"
-                        ? "Signed out — sign in to open the workspace"
-                        : anonymous ? "No name picked — writes will not be yours"
-                          : "Name-only access — team-visible work is available"}
+                        ? "Signed out - sign in to open the workspace"
+                        : anonymous ? "No name picked - writes will not be yours"
+                          : "Name-only access - team-visible work is available"}
                   </p>
                 </div>
               )}

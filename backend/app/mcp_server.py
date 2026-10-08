@@ -1,4 +1,4 @@
-"""Skein as an MCP server — so the team's OTHER AI agents (Claude
+"""Skein as an MCP server - so the team's OTHER AI agents (Claude
 Code sessions, custom agents) can read/write the platform natively.
 
 Runs in-process against the same database (no HTTP hop):
@@ -12,11 +12,11 @@ Claude Code registration:
 
 Writes are attributed to SKEIN_MCP_USER (shown with origin=agent).
 Gating: EVERY writer here goes through the same authority gate as the
-chat-agent tools — with review mode on they queue in /review and build trust
+chat-agent tools - with review mode on they queue in /review and build trust
 scores. capture gates on the entity its text classifies to, so prefixing a
 message is not a way around the review inbox. The delegation trio (claim,
-report_progress, submit_for_acceptance) is direct by design — working your own
-delegation is not a proposal — and each one honors the forbidden kill switch.
+report_progress, submit_for_acceptance) is direct by design - working your own
+delegation is not a proposal - and each one honors the forbidden kill switch.
 """
 
 import contextlib
@@ -154,7 +154,7 @@ def _tool(annotations: ToolAnnotations) -> Callable:
             return result
 
         mcp.add_tool(run, name=fn.__name__, annotations=annotations)
-        TOOL_LINES.append(f"{fn.__name__} — {_first_sentence(fn.__doc__)}")
+        TOOL_LINES.append(f"{fn.__name__} - {_first_sentence(fn.__doc__)}")
         return fn
 
     return register
@@ -229,7 +229,7 @@ def _policy_refusal(
 ) -> str:
     """Return a JSON refusal, or an empty string when policy permits."""
     attributes: dict[str, Any] = {}
-    # Hold the row this decision is about before reading it — see
+    # Hold the row this decision is about before reading it - see
     # services/policy_context.py::hold_resource. It runs first inside the
     # transaction on the three WRITE tools that open one, which is what keeps
     # the lock order uniform there. The read tools call this with no ambient
@@ -330,7 +330,7 @@ def _policy_permits(
 
 @_tool(READ)
 # Takes no person parameter, and must not gain one: briefing.my_day answers
-# for whatever name it is handed — assigned questions, owned blockers, tasks,
+# for whatever name it is handed - assigned questions, owned blockers, tasks,
 # and the BODIES of unread notifications. One model-controlled argument
 # enumerated any teammate's inbox over a surface whose whole identity is an
 # environment variable. Pinned by tests/test_privacy.py.
@@ -376,7 +376,7 @@ def capture(text: str, share_with_team: bool = False) -> str:
     # proposal is applicable. A generic {"text": ...} was applicable by
     # nothing: every proposal failed at apply and reset to pending.
     # fb: BEFORE plan(). capture() has this guard, but the proposal path never
-    # calls capture() — review.approve_change applies the payload straight
+    # calls capture() - review.approve_change applies the payload straight
     # against the registry. Without this, a private feedback line became a
     # note proposal sitting in the TEAM-VISIBLE review queue, and approving it
     # wrote (and FTS-indexed) a public note. chat.py and session_log.py both
@@ -424,7 +424,7 @@ def create_task(
 @_tool(IDEMPOTENT_WRITE)
 def complete_task(task_id: int) -> str:
     """Mark a task done (queued for review unless this agent is autonomous).
-    For a task DELEGATED to you, use submit_for_acceptance instead — the
+    For a task DELEGATED to you, use submit_for_acceptance instead - the
     sponsor's verdict is the only thing that closes delegated work."""
     return gated_write(
         "task",
@@ -453,7 +453,7 @@ def claim_delegated_task(task_id: int) -> str:
 
 @_tool(WRITE)
 def report_progress(task_id: int, note: str) -> str:
-    """Append a worklog entry to your delegated task — the sponsor reads
+    """Append a worklog entry to your delegated task - the sponsor reads
     this before their acceptance verdict. Report as you go."""
     with db.transaction():
         if refusal := _policy_refusal(
@@ -469,12 +469,12 @@ def report_progress(task_id: int, note: str) -> str:
 @_tool(READ)
 def read_worklog(task_id: int, limit: int = 20) -> str:
     """Read the progress notes already on a delegated task. Read this before
-    continuing work you started on an earlier day — it is where you recorded
+    continuing work you started on an earlier day - it is where you recorded
     what you found, what you decided, and what you were waiting on."""
     if refusal := _policy_refusal("skein.mcp.worklog.read", "task", task_id):
         return refusal
     try:
-        # actor=_actor() is the door, and the limit is clamped in the service —
+        # actor=_actor() is the door, and the limit is clamped in the service -
         # this twin passed the model's number straight into LIMIT, where a
         # negative value is refused outright and a huge one is a full scan.
         # The requester's Viewer (remote_app sets it) makes this read match
@@ -498,7 +498,7 @@ def read_worklog(task_id: int, limit: int = 20) -> str:
 @_tool(WRITE)
 def submit_for_acceptance(task_id: int, summary: str) -> str:
     """Submit your delegated task for the sponsor's acceptance. ALWAYS a
-    proposal — never claim the task is done after calling this; say it
+    proposal - never claim the task is done after calling this; say it
     awaits the sponsor's verdict."""
     with db.transaction():
         if refusal := _policy_refusal(
@@ -701,7 +701,7 @@ def get_context_pack(engagement_id: int = 0) -> str:
     """The team context pack (org-brain): decisions, engagement health,
     lessons, conventions. Load before working on anything team-related.
     Pass engagement_id for the scoped single-engagement pack (cheaper,
-    focused — for delegated work)."""
+    focused - for delegated work)."""
     if refusal := _policy_refusal("skein.mcp.context.read", "engagement", engagement_id):
         return refusal
     policy = projection_policy.ProjectionPolicy(
@@ -874,7 +874,7 @@ def recall_memories(query: str = "") -> str:
     """Search the durable memories saved with remember; empty returns the
     most recent ones."""
     # the same two axes as the chat tool (tools/memory.py): the person, and
-    # the workspace tier — never a model-supplied name
+    # the workspace tier - never a model-supplied name
     with db.read_transaction():
         rows = memory.recall(query, user=_person(), engagement_id=None)
         contexts = domain_policy_context.engagement_linked_collection_contexts(
@@ -918,7 +918,7 @@ def _resource(uri: str) -> Callable:
 
 @_resource("skein://context-pack")
 def context_pack_resource() -> str:
-    """Versioned team context pack as markdown — mountable org-brain."""
+    """Versioned team context pack as markdown - mountable org-brain."""
     if refusal := _policy_refusal("skein.mcp.context.read", "context-pack"):
         return refusal
     policy = projection_policy.ProjectionPolicy(
@@ -994,7 +994,7 @@ def remote_app(registry: ExtensionRegistry):
     Stateless and JSON-answering, so any replica handles any message and
     nothing streams. Identity goes into the context variables the chat
     turn sets (routes/chat.py): the policy subject is the PERSON, the acting
-    identity is their `<name>-mcp` agent, and the requester is the person —
+    identity is their `<name>-mcp` agent, and the requester is the person -
     so a write lands with origin agent, actor `<name>-mcp`, requested_by
     the person, and that agent earns authority on its own matrix row. The
     lifespan (main.py) creates the session manager and enters its run()
@@ -1105,7 +1105,7 @@ def _configured_modules() -> tuple[SkeinModule, ...]:
     create_app. Without it, the documented `python -m app.mcp_server`
     composed CORE ONLY: the API process enforced workplace policy while the
     MCP process silently ran without the workplace rules, identities, and
-    tools — two policy boundaries for one deployment.
+    tools - two policy boundaries for one deployment.
     """
     from importlib import import_module
 
@@ -1118,7 +1118,7 @@ def _configured_modules() -> tuple[SkeinModule, ...]:
         # workplace policy the API process enforces, and nothing else at
         # runtime reports the split.
         print(
-            "skein-mcp: SKEIN_MCP_MODULES is not set — composing core only."
+            "skein-mcp: SKEIN_MCP_MODULES is not set - composing core only."
             " A workplace deployment must set it to its composition module.",
             file=sys.stderr,
         )
@@ -1140,7 +1140,7 @@ def _configured_modules() -> tuple[SkeinModule, ...]:
 
 
 def main(modules: Sequence[SkeinModule] = ()) -> None:
-    # a long-lived side process must never apply schema — that is the API
+    # a long-lived side process must never apply schema - that is the API
     # server's job (migrations + startup jobs belong to one owner)
     pending = db.pending_migrations()
     if pending:
@@ -1162,7 +1162,7 @@ def main(modules: Sequence[SkeinModule] = ()) -> None:
 
         print(f"skein-mcp: {exc}.", file=sys.stderr)
         raise SystemExit(1) from exc
-    # reserve THIS process's identity as kind=agent before any request — the
+    # reserve THIS process's identity as kind=agent before any request - the
     # API server only reserves its own env's SKEIN_MCP_USER, and a human
     # picking this name first would permanently shadow the agent
     from .services.users import ensure_agent_identity

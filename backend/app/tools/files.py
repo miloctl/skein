@@ -2,7 +2,7 @@
 
 Read is a plain tool. Both writes go through the gate, so a document an agent
 creates or changes carries the same authority level, review inbox row and
-receipt as any other agent write. Nothing here can name a path — the service
+receipt as any other agent write. Nothing here can name a path - the service
 owns every filename, and both calls address an artifact by id.
 """
 
@@ -20,14 +20,14 @@ from ._gate import gated_write
 
 @tool
 def read_artifact(artifact_id: int) -> str:
-    """Read the text of an artifact — a report, a digest, or a document.
+    """Read the text of an artifact - a report, a digest, or a document.
 
     Args:
         artifact_id: The id of the artifact to read.
     """
     # scope.NOBODY, the workspace tier: every agent surface reads at that tier
     # (services/scope.py::Viewer). A person's attached file is private, so it
-    # is unreadable here BY CONSTRUCTION — the one path that reaches an upload
+    # is unreadable here BY CONSTRUCTION - the one path that reaches an upload
     # is the person attaching it to their own turn (routes/chat.py).
     #
     # Both raises are answered as JSON rather than left to propagate: a tool
@@ -104,7 +104,7 @@ def edit_document(artifact_id: int, old_text: str, new_text: str) -> str:
     """Replace one exact run of text in a shared document.
 
     An uploaded file is never changed, and a file somebody attached is
-    private — a document made from one cannot be shared with the team, so
+    private - a document made from one cannot be shared with the team, so
     answer about it in the conversation instead. source_id links a document to
     another SHARED artifact it was made from.
 

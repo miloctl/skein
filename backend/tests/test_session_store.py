@@ -37,7 +37,7 @@ def test_round_trip_and_ordering(fresh_db):
     repo = DatabaseSessionRepository()
     _seed_session(repo)
     _seed_agent(repo)
-    for i in (2, 0, 1):  # written out of order — the store owns ordering
+    for i in (2, 0, 1):  # written out of order - the store owns ordering
         repo.create_message("s1", "default", _msg(i, f"m{i}"))
     assert [m.message_id for m in repo.list_messages("s1", "default")] == [0, 1, 2]
     assert [m.message_id for m in repo.list_messages("s1", "default", limit=1, offset=1)] == [1]
@@ -75,7 +75,7 @@ def test_update_requires_a_row_and_keeps_created_at(fresh_db):
 
 def test_the_session_lock_serializes_appenders(fresh_db):
     """What replaced session_log's per-thread lock dict: writers doing
-    read-last-id-then-append inside db.transaction() never lose a write —
+    read-last-id-then-append inside db.transaction() never lose a write -
     and unlike the lock, the guarantee holds across processes, because
     BEGIN IMMEDIATE serializes on the database, not the interpreter."""
     repo = DatabaseSessionRepository()
@@ -91,7 +91,7 @@ def test_the_session_lock_serializes_appenders(fresh_db):
                     # The transaction is NOT the lock. Deriving the next id
                     # from a read and writing it back is only atomic while
                     # something serializes the pair, and a plain SELECT takes
-                    # nothing — agents/session_log.py holds this same lock for
+                    # nothing - agents/session_log.py holds this same lock for
                     # the same reason.
                     db.name_lock(db.LOCK_SESSION, "s1")
                     stored = repo.list_messages("s1", "default")
@@ -155,7 +155,7 @@ def test_deleting_a_thread_takes_its_persona_sessions(fresh_db):
 def test_create_agent_twice_keeps_the_thread_history(fresh_db):
     """create_agent is last-writer-wins on the AGENT payload only. An OR
     REPLACE here deletes the old row to resolve the conflict, and
-    session_messages CASCADEs off that PK — so the second concurrent first
+    session_messages CASCADEs off that PK - so the second concurrent first
     turn on a thread wiped the whole conversation the first one saved."""
     repo = DatabaseSessionRepository()
     _seed_session(repo)

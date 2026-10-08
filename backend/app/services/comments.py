@@ -93,7 +93,7 @@ def add_comment(
         # a tier change between this read and the insert would file a comment
         # wider than its thread (CLAUDE.md, "A read takes no lock")
         parent = db.query_one(
-            f"SELECT * FROM {table} WHERE id = ? FOR UPDATE",  # noqa: S608 — closed table map
+            f"SELECT * FROM {table} WHERE id = ? FOR UPDATE",  # noqa: S608 - closed table map
             (pid,),
         )
         if not parent:
@@ -173,7 +173,7 @@ def _tell_the_thread(
     link = _LINK[kind](pid, cid)
     same_thread = f"?task={pid}#comment-%" if kind == "task" else link
     writers = db.query(
-        f"SELECT DISTINCT created_by FROM comments WHERE {KEY[kind]} = ? AND id <> ?",  # noqa: S608 — closed key map
+        f"SELECT DISTINCT created_by FROM comments WHERE {KEY[kind]} = ? AND id <> ?",  # noqa: S608 - closed key map
         (pid, cid),
     )
     people = {str(parent.get(column) or "") for column in _PARTIES[kind]}
@@ -260,7 +260,7 @@ def list_comments(
     # answers exactly like an absent one
     pfrag, pp = scope.visible_filter(viewer, table)
     if not party and not db.query_one(
-        f"SELECT id FROM {table} WHERE id = ? AND {pfrag}",  # noqa: S608 — closed table map, bound marks
+        f"SELECT id FROM {table} WHERE id = ? AND {pfrag}",  # noqa: S608 - closed table map, bound marks
         (pid, *pp),
     ):
         raise scope.missing(table, pid)
@@ -268,7 +268,7 @@ def list_comments(
     # the newest page, oldest first: the wake prompt sends the agent here for
     # the NEW comment, and a page that kept the oldest would drop exactly that one
     rows = db.query(
-        "SELECT * FROM (SELECT id, created_by, origin, body, created_at, edited_at,"  # noqa: S608 — closed key map, bound marks
+        "SELECT * FROM (SELECT id, created_by, origin, body, created_at, edited_at,"  # noqa: S608 - closed key map, bound marks
         f" deleted_at, deleted_by, visibility FROM comments WHERE {KEY[kind]} = ? AND {frag}"
         " ORDER BY id DESC LIMIT ?) newest ORDER BY id",
         (pid, *params, limit),
@@ -302,7 +302,7 @@ def get_comment(comment_id: int, viewer: scope.Viewer) -> dict:
     """One readable comment with its parent, for the edit and delete routes."""
     frag, params = scope.visible_filter(viewer, "comments")
     row = db.query_one(
-        f"SELECT * FROM comments WHERE id = ? AND {frag}",  # noqa: S608 — bound marks
+        f"SELECT * FROM comments WHERE id = ? AND {frag}",  # noqa: S608 - bound marks
         (comment_id, *params),
     )
     if not row:
@@ -403,7 +403,7 @@ def refuse_forbidden(agent: str, kind: str) -> None:
     for entity in (kind, "comment"):
         if authority_level(agent, entity) == "forbidden":
             # delegation._check_not_forbidden's words, for one condition
-            raise ValueError(f"'{agent}' is forbidden on {entity}s — ask a human to lift it")
+            raise ValueError(f"'{agent}' is forbidden on {entity}s - ask a human to lift it")
 
 
 def unanswered_for(agent: str, task_ids: list[int], limit: int = 20) -> list[dict]:
@@ -426,7 +426,7 @@ def unanswered_for(agent: str, task_ids: list[int], limit: int = 20) -> list[dic
     # than its task stays out. A deleted answer is no answer, so the question
     # it answered comes back.
     rows = db.query(
-        "SELECT c.id, c.task_id, c.created_by, c.body, c.created_at, c.edited_at"  # noqa: S608 — marks only
+        "SELECT c.id, c.task_id, c.created_by, c.body, c.created_at, c.edited_at"  # noqa: S608 - marks only
         " FROM comments c JOIN tasks t ON t.id = c.task_id"
         f" WHERE c.task_id IN ({marks}) AND c.created_by <> ? AND c.deleted_at IS NULL"
         " AND (c.visibility = 'workspace'"

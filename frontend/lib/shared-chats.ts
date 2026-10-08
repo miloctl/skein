@@ -16,7 +16,7 @@ type SharedChatMember = {
   role: "steward" | "member";
   joined_at: string;
   kind?: "agent";
-  // human members only — agents carry no cursor
+  // human members only - agents carry no cursor
   last_read_message_id?: number;
 };
 
@@ -91,7 +91,7 @@ export function announceSharedChatActivity() {
 }
 
 // Same-tab writers dispatch a synthetic new Event("storage") for ANY
-// localStorage change — the sidebar toggle (lib/chat-layout.ts), theme
+// localStorage change - the sidebar toggle (lib/chat-layout.ts), theme
 // adoption (lib/theme.ts), the manage toggle. Acting on that form wiped the
 // open private room on a sidebar click. Only a real cross-tab StorageEvent
 // carries a key; same-tab identity changes arrive as skein-identity-change

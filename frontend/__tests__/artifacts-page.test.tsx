@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Reports is a master/detail pair driven by `?id=`, so the two ways to change
- *  the selection — clicking a row and pressing Back — must agree. They did not:
+ *  the selection - clicking a row and pressing Back - must agree. They did not:
  *  the newest report opened without writing the URL, so the first history entry
  *  was a bare /artifacts and Back left the pane loading forever with nothing
  *  selected. */

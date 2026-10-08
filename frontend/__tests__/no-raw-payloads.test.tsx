@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *  the Approvals diff rendered a task list as `[2]`, the health card
  *  promised "each rating shows why" and showed nothing for a green
  *  engagement, and the slip forecast printed "likely <date>" off zero
- *  completed milestones — no information dressed as a prediction. */
+ *  completed milestones - no information dressed as a prediction. */
 
 // Every endpoint the pages read needs its real SHAPE: returning [] for the
 // forecast makes `forecast.basis` throw, and the page renders nothing at all.
@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // are the payloads of an EMPTY deployment, which is exactly the state a
 // running instance with seed data cannot produce, and the defects this file
 // pins are all "a page made a claim with no data behind it". The cost is
-// drift — `/api/portfolio/flow` silently fell three keys behind
+// drift - `/api/portfolio/flow` silently fell three keys behind
 // services/portfolio.py::flow_metrics before anyone noticed, because the page
 // reads them optionally. When a key is added there, add it here; the test
 // stays green either way, so nothing else will tell you.

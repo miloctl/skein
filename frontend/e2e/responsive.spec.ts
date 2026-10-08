@@ -3,7 +3,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /** The half of the app the smoke walks never saw: every page, at phone width,
  *  and in dark. smoke.spec.ts covers seven pages, light, at one desktop width,
- *  plus /portfolio in dark — so a defect that only appears at 360px or only in
+ *  plus /portfolio in dark - so a defect that only appears at 360px or only in
  *  dark could not be caught by anything here. Four of those shipped at once:
  *  a `<select>` with no name, a `<p>` inside a `<ul>`, three keyboard-
  *  unreachable scroll regions, and a header that wrapped to a third row and
@@ -36,7 +36,7 @@ const PAGES = [
   "/settings",
 ];
 
-// 22 characters, which is an ordinary name — deps.py caps at 64. The header
+// 22 characters, which is an ordinary name - deps.py caps at 64. The header
 // bug was invisible against the 3-character seeded user, so the phone walks
 // carry the long one: content extremes are where layout invariants break.
 const LONG_NAME = "annamaria-vandenberghe";
@@ -48,7 +48,7 @@ type Problem = { page: string; what: string; detail: string };
 async function probe(page: Page) {
   // fonts BEFORE geometry: a pack re-cuts the type, and until its webfont
   // arrives the header is measured in fallback metrics. That briefly wraps it
-  // to three rows, which read as a 56px --nav-h drift in phosphor and hermes —
+  // to three rows, which read as a 56px --nav-h drift in phosphor and hermes -
   // a defect in the measurement, not in the app.
   await page.evaluate(() => document.fonts.ready);
   return page.evaluate(() => {
@@ -61,7 +61,7 @@ async function probe(page: Page) {
         "Skein CSS did not load. Check the production build and asset responses.",
       );
     const navH = parseFloat(navHToken) * 16;
-    // a deliberate scroll container is not overflow — the nav's own scroller,
+    // a deliberate scroll container is not overflow - the nav's own scroller,
     // the review table, the flock diagram. Only their ANCESTORS would be.
     const scrollers = new Set(
       [...document.querySelectorAll("*")].filter((el) =>
@@ -136,14 +136,14 @@ function walk(label: string, opts: { phone: boolean; dark: boolean }) {
       if (p.anonymous)
         add(
           "identity",
-          "rendered the anonymous path — the walk proves nothing",
+          "rendered the anonymous path - the walk proves nothing",
         );
       if (p.overflowPx > 1)
         add("overflow", `${p.overflowPx}px sideways · ${p.overflowCulprit}`);
       if (Math.abs(p.headerDrift) > 1)
         add("header", `${p.headerDrift}px off --nav-h`);
       if (opts.phone && !p.coarse)
-        add("harness", "pointer is not coarse — the 16px floor cannot apply");
+        add("harness", "pointer is not coarse - the 16px floor cannot apply");
       if (p.coarse && p.smallInputs)
         add("inputs", `${p.smallInputs} under 16px on a touch pointer`);
 
@@ -263,7 +263,7 @@ test("navigation names the current identity at phone width", async ({ page }) =>
 });
 
 /** The header is sticky, so a target scrolled to the top of the viewport lands
- *  under it. axe cannot see this — it is a scroll position, not markup — and
+ *  under it. axe cannot see this - it is a scroll position, not markup - and
  *  the skip link was the worst case, putting #content 110px under the header
  *  for the one control that exists to reach the content. globals.css answers
  *  with scroll-margin-top on :target and [tabindex="-1"]. */
@@ -449,7 +449,7 @@ test("changed inline actions meet the 24px target minimum", async ({ page }) => 
 
 /** A LAYOUT test, deliberately not a contrast one: check_theme_contrast.py
  *  already sweeps 7 packs x 6 colorways x 3 surfaces x both modes, plus all
- *  360 custom hues, on every lint run — a browser adds nothing there. What it
+ *  360 custom hues, on every lint run - a browser adds nothing there. What it
  *  cannot see is reflow. Phosphor and Atelier bump --fs-xs from 12px to 13px
  *  and are the widest text in the app; Ledger, Phosphor and Hermes square
  *  every radius and carry different selvage heights, which feed the --nav-h
@@ -461,7 +461,7 @@ test("every fabric pack reflows at 360px without breaking the page", async ({
   await page.setViewportSize({ width: 360, height: 800 });
   const problems: Problem[] = [];
   // a pack re-cuts the type, so a font that fails to load is measured in
-  // fallback metrics — which is a wider header, not a missing one
+  // fallback metrics - which is a wider header, not a missing one
   page.on("response", (r) => {
     if (r.status() >= 400)
       problems.push({
@@ -495,7 +495,7 @@ test("every fabric pack reflows at 360px without breaking the page", async ({
       await page.waitForLoadState("networkidle").catch(() => {});
       // wait for HYDRATION, not a timeout: the name comes from localStorage
       // through useSyncExternalStore, so until it renders the header is a
-      // different width than the one being measured — which reported a 56px
+      // different width than the one being measured - which reported a 56px
       // --nav-h drift for phosphor and hermes against an app that was fine.
       await page
         .waitForFunction(
@@ -554,7 +554,7 @@ test("every fabric pack reflows at 360px without breaking the page", async ({
  *  derived from them carry white text on the destructive and approving
  *  buttons. check_theme_contrast.py proves the RATIOS; this proves the tokens
  *  actually resolve per colorway in a browser, which a stylesheet parse
- *  cannot — a mistyped hex in one colorway block computes to nothing and the
+ *  cannot - a mistyped hex in one colorway block computes to nothing and the
  *  button renders transparent with white text on the page beneath. */
 test("every colorway resolves its fill tokens", async ({ page }) => {
   test.setTimeout(120_000);
@@ -660,7 +660,7 @@ test("extreme content does not break the shell", async ({ page }) => {
   expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });
 
-/** The three answers a screen owes: loading, empty, error — and never two at
+/** The three answers a screen owes: loading, empty, error - and never two at
  *  once. The repo treats a false empty state as its most expensive defect
  *  (__tests__/agents-silent-catches.test.tsx, false-claims.test.tsx), but
  *  those mock at the api() layer in jsdom. This forces the states in a real
@@ -683,7 +683,7 @@ test("a dead backend says so, and claims nothing", async ({ page }) => {
   const problems: Problem[] = [];
   await page.goto("/");
   await page.evaluate(() => window.localStorage.setItem("skein-user", "ava"));
-  // every API call fails at the transport layer — the `isUnreachable` branch
+  // every API call fails at the transport layer - the `isUnreachable` branch
   await page.route("**/api/**", (route) => route.abort("failed"));
 
   for (const [path, claim] of Object.entries(CLAIMS)) {
@@ -726,7 +726,7 @@ test("a backend that stops answering says so, and Try again recovers", async ({ 
   await expect(page.getByRole("button", { name: /ava/i }).first()).toBeVisible();
 });
 
-/** Loading, and TRUE empty — the two states the dead-backend walk cannot
+/** Loading, and TRUE empty - the two states the dead-backend walk cannot
  *  reach. Empty needs a SHAPED body, not []: __tests__/no-raw-payloads.test.tsx
  *  records that returning a bare array where an object is expected makes a
  *  page render nothing at all, which passes an "is the claim absent" check for
@@ -809,7 +809,7 @@ test("a truly empty workspace says so without breaking", async ({ page }) => {
     await page.goto(path);
     await page.waitForLoadState("networkidle").catch(() => {});
     const text = await page.evaluate(() => document.body.innerText);
-    // an empty workspace is allowed to claim emptiness — what it may NOT do
+    // an empty workspace is allowed to claim emptiness - what it may NOT do
     // is render a machine payload or an error it did not receive
     if (/\[object Object\]|\bundefined\b|\bNaN\b/.test(text))
       problems.push({
@@ -827,12 +827,12 @@ test("a truly empty workspace says so without breaking", async ({ page }) => {
   expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
 });
 
-/** Focus rings, walked with REAL Tab presses — el.focus() does not match
+/** Focus rings, walked with REAL Tab presses - el.focus() does not match
  *  :focus-visible in Chromium, so a programmatic walk reports every element as
  *  ringless and proves nothing. Scoped deliberately: globals.css sets one
  *  global 2px outline and check_theme_contrast.py already holds --thread to
  *  >=5.5:1 on every pack surface, so the COLOUR is settled. What is not
- *  settled is whether an overflow ancestor eats the ring — /settings has
+ *  settled is whether an overflow ancestor eats the ring - /settings has
  *  .pack-tile (overflow-hidden) and /agents has the flock diagram's
  *  overflow-x-auto box. */
 for (const path of ["/settings", "/agents"]) {
@@ -896,7 +896,7 @@ for (const path of ["/settings", "/agents"]) {
     }
     expect(
       seen.size,
-      "tabbed nowhere — the walk proves nothing",
+      "tabbed nowhere - the walk proves nothing",
     ).toBeGreaterThan(5);
     expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
   });

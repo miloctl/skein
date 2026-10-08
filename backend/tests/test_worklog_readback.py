@@ -20,7 +20,7 @@ def _delegated(fresh_db, agent="research-agent", sponsor="tester"):
 
 
 def test_the_tool_is_registered(fresh_db):
-    """ALL_TOOLS is what the agent is built with — a tool defined and not
+    """ALL_TOOLS is what the agent is built with - a tool defined and not
     registered is invisible to the model, which is the state this fixes."""
     assert read_worklog in ALL_TOOLS
 
@@ -66,7 +66,7 @@ def test_the_limit_is_bounded(fresh_db):
     delegation.claim_task(task_id, actor="research-agent")
     delegation.report_progress(task_id, "only note", actor="research-agent")
     assert len(json.loads(read_worklog(task_id, limit=10_000))["worklog"]) == 1
-    # 0 and negatives must not become "no rows" — they clamp to at least one
+    # 0 and negatives must not become "no rows" - they clamp to at least one
     assert len(json.loads(read_worklog(task_id, limit=0))["worklog"]) == 1
 
 
@@ -84,7 +84,7 @@ def test_the_inbox_carries_the_last_note_per_open_task(fresh_db):
 
 def test_the_rest_door_never_serves_worklog_text(fresh_db):
     """GET /api/agents/{agent}/inbox takes the agent name off the URL and
-    answers any CurrentUser — the same reason notification bodies are stripped
+    answers any CurrentUser - the same reason notification bodies are stripped
     there. A worklog note quotes the task's own text."""
     from app.services import scope
 

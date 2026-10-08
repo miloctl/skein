@@ -1,10 +1,10 @@
 """Tiny in-process, per-user sliding-window rate caps for flood-prone write
-endpoints (capture, ingest). Not a security control — a DoS-annoyance guard
+endpoints (capture, ingest). Not a security control - a DoS-annoyance guard
 for a single-process trusted-network deployment.
 
 The per-person WINDOWS are process-local: restarting resets them, and a
 second process gets its own, so a person's effective cap is the limit times
-the process count. The LIMITS are not — three of them are stored in
+the process count. The LIMITS are not - three of them are stored in
 app_settings and shared across every process (see TUNED below, and
 services/tuning.py). Do not read the process-local note as covering both.
 
@@ -33,7 +33,7 @@ class RateLimited(ValueError):
 
     Subclasses ValueError so the agent gate (tools/_gate.py) and the mock
     agent keep catching it as the plain-string refusal they hand to the
-    model. main.py maps it to 429 with a Retry-After header — as a bare
+    model. main.py maps it to 429 with a Retry-After header - as a bare
     ValueError it answered 400, which made a refused-for-now request
     wire-identical to a malformed one, so no client could back off.
     """
@@ -50,7 +50,7 @@ def client_addr(request) -> str:
     SKEIN_TRUST_PROXY_HOPS. Each trusted proxy APPENDS the peer address it
     saw, so the rightmost N entries are ours and entry -N is the client as
     the outermost trusted proxy saw it; everything left of that is
-    caller-typed text. At 0 hops the header is ignored — trusting it on a
+    caller-typed text. At 0 hops the header is ignored - trusting it on a
     direct connection lets any caller pick their own bucket key, which
     unmakes the cap."""
     hops = config.TRUST_PROXY_HOPS
@@ -74,7 +74,7 @@ LIMITS = {
     "memory": 10,
     # its own bucket, not the shared `write` one: the private journal is the
     # single store that backup, export, FTS, MCP and every agent surface
-    # structurally never open, so nothing else would notice a flood — and a
+    # structurally never open, so nothing else would notice a flood - and a
     # manager who spends the write budget planning a week must still be able
     # to record a 1:1 note. Same reasoning that gave `forge` its own bucket.
     "private": 20,
@@ -86,13 +86,13 @@ LIMITS = {
     # every MCP tool call, reads included: bodies share the thread pool with
     # the sync REST handlers, and a client looping on list_tasks starves them
     "mcp": 120,
-    "write": 30,  # generic create-endpoint cap — content rows per person
+    "write": 30,  # generic create-endpoint cap - content rows per person
     "artifact": 4,  # digest/readout/handoff each write a file per call
     # its own bucket rather than `write`: one upload can be 8 MB of body and a
     # file on the volume, so it is metered against disk and bandwidth rather
     # than against the content rows a person files in a planning hour
     "upload": 12,
-    "verify": 2,  # full-chain walk over an unpruned table — the priciest read
+    "verify": 2,  # full-chain walk over an unpruned table - the priciest read
     "export": 2,  # one snapshot materializes every portable work table
     # a person's own export reads every record they wrote and every chat
     "my_export": 2,
@@ -111,17 +111,17 @@ LIMITS = {
     # budget, and a busy monorepo pushes more than a person types.
     "forge": 120,
     # every delivery, counted by ADDRESS before the signature is checked. The
-    # `forge` bucket above cannot cover an unsigned caller — it is keyed on a
-    # name we only trust after verifying — so without this a caller holding no
+    # `forge` bucket above cannot cover an unsigned caller - it is keyed on a
+    # name we only trust after verifying - so without this a caller holding no
     # credential buys an HMAC over the whole body at line rate.
     "forge_addr": 600,
 }
-# X-User is client-supplied — bound the key space. 4096 rather than the
+# X-User is client-supplied - bound the key space. 4096 rather than the
 # original 1024 leaves room for a team plus every agent identity that writes
 # without a requester behind it (MCP, the scheduler).
 MAX_KEYS = 4096
 # What the cap counts, per surface. A signed-out caller has no name, so the
-# signin cap counts addresses — and the refusal must not claim otherwise.
+# signin cap counts addresses - and the refusal must not claim otherwise.
 # Behind a reverse proxy, SKEIN_TRUST_PROXY_HOPS is what makes an address
 # mean a caller: at the default 0 every browser shares the proxy's address,
 # and so one signin bucket for the whole deployment.
@@ -129,7 +129,7 @@ MAX_KEYS = 4096
 # needs: REST creates key on the caller, and tools/_gate.py keys on the human
 # who asked. The one path where that is not a person is MCP and the scheduler,
 # where no human stands behind the write and the key falls back to the agent
-# name — the refusal is read there by a model, not by the person it names.
+# name - the refusal is read there by a model, not by the person it names.
 PER = {
     "signin": "per address",
     "forge": "for the whole integration",
@@ -180,7 +180,7 @@ def _tuned(surface: str, fallback: int) -> int:
         got = override_of(knob)
         return got if got is not None else fallback
     except Exception:
-        # the cap must survive a database that cannot answer — degrading to
+        # the cap must survive a database that cannot answer - degrading to
         # the code default keeps the guard ON, where raising would 500 a
         # write because a SETTINGS lookup failed
         return fallback
@@ -195,7 +195,7 @@ def check(surface: str, user: str, cost: int = 1) -> None:
     the merge (routes/chat.py), so charging it as a single chat turn let one
     message buy several turns of model spend inside the same cap. THIS CALL is
     all-or-nothing: an over-budget one takes no slots. That is not a claim
-    about a whole request — the flock path already spent one slot at the top of
+    about a whole request - the flock path already spent one slot at the top of
     the route before it knew the flock's size, and that slot stays spent.
     """
     limit = LIMITS.get(surface)
@@ -207,7 +207,7 @@ def check(surface: str, user: str, cost: int = 1) -> None:
     cost = max(1, cost)
     if cost > limit:
         # unreachable today (the flock cost caps at MAX_MEMBERS + 1, below
-        # every limit) — but a full window of waiting never makes room for
+        # every limit) - but a full window of waiting never makes room for
         # this request, and window[need - 1] below would index past the deque
         raise RateLimited(
             f"Skein refused this request. One request cannot use {cost}"
@@ -225,7 +225,7 @@ def check(surface: str, user: str, cost: int = 1) -> None:
         for k in [k for k, w in _hits.items() if k != key and w and now - w[-1] > WINDOW_SECONDS]:
             del _hits[k]
         if key not in _hits and len(_hits) >= MAX_KEYS:
-            # evict the longest-idle window instead of refusing — a name
+            # evict the longest-idle window instead of refusing - a name
             # flood must not lock out the next REAL teammate's first write
             oldest = min((k for k in _hits if k != key), key=lambda k: _hits[k][-1], default=None)
             if oldest is not None:
@@ -239,7 +239,7 @@ def check(surface: str, user: str, cost: int = 1) -> None:
             # limit of 1 or more) but reachable the moment cost > limit, and it
             # is permanent: the shed loop skips empty windows, it counts toward
             # MAX_KEYS, and the eviction below reads _hits[k][-1] on every
-            # surface's key — which is an IndexError on an empty one, surfacing
+            # surface's key - which is an IndexError on an empty one, surfacing
             # as a 500 somewhere unrelated.
             if not window:
                 del _hits[key]
@@ -253,7 +253,7 @@ def check(surface: str, user: str, cost: int = 1) -> None:
 
 def _refusal(surface: str, limit: int, cost: int, wait: int) -> RateLimited:
     unit = "second" if wait == 1 else "seconds"
-    # "of them" pointed at the LIMIT, the nearest number — name the noun
+    # "of them" pointed at the LIMIT, the nearest number - name the noun
     # instead, because the word `slots` appears nowhere a reader of this
     # sentence has been
     uses = f" This request uses {cost} slots." if cost > 1 else ""

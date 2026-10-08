@@ -1,7 +1,7 @@
 """Promises made TO the team.
 
 The ledger recorded one direction. A manager's week is full of the other one
-— "legal will send the redlines Thursday" — and those lived in memory or
+- "legal will send the redlines Thursday" - and those lived in memory or
 nowhere. The ones that go quiet are the ones that hurt, and the person waiting
 is usually the person least able to escalate.
 """
@@ -21,7 +21,7 @@ def _overdue(client, text: str, who: str = "legal", days: int = 3) -> int:
 
 def test_awaiting_capture_files_a_received_promise(client):
     got = client.post(
-        "/api/capture", json={"text": "awaiting: legal — the redlines by 2026-09-01"}
+        "/api/capture", json={"text": "awaiting: legal - the redlines by 2026-09-01"}
     ).json()
     assert got["kind"] == "awaiting"
     row = db.query_one("SELECT * FROM promises WHERE id = ?", (got["id"],))
@@ -33,11 +33,11 @@ def test_awaiting_capture_files_a_received_promise(client):
 
 
 def test_the_party_can_be_more_than_one_word(client):
-    """A vendor is "acme corp", not "acme" — and the outside parties with
+    """A vendor is "acme corp", not "acme" - and the outside parties with
     multi-word names are the ones services/stakeholders.py exists to gather.
     A one-word rule dropped `to_whom` on every one of them."""
     got = client.post(
-        "/api/capture", json={"text": "awaiting: acme corp — the signed SOW by 2026-09-01"}
+        "/api/capture", json={"text": "awaiting: acme corp - the signed SOW by 2026-09-01"}
     ).json()
     row = db.query_one("SELECT * FROM promises WHERE id = ?", (got["id"],))
     assert row["to_whom"] == "acme corp"
@@ -45,12 +45,12 @@ def test_the_party_can_be_more_than_one_word(client):
 
 
 def test_a_dash_inside_a_sentence_is_not_a_party(client):
-    """ "the redlines — soon" is one thought. Splitting it files a promise
+    """ "the redlines - soon" is one thought. Splitting it files a promise
     against a party called "the redlines", and the chaser nudges about it."""
-    got = client.post("/api/capture", json={"text": "awaiting: the redlines — soon"}).json()
+    got = client.post("/api/capture", json={"text": "awaiting: the redlines - soon"}).json()
     row = db.query_one("SELECT * FROM promises WHERE id = ?", (got["id"],))
     assert row["to_whom"] == ""
-    assert row["promise"] == "the redlines — soon"
+    assert row["promise"] == "the redlines - soon"
 
 
 def test_a_promise_the_team_made_is_still_the_default(client):
@@ -111,7 +111,7 @@ def test_two_silent_cycles_reach_the_team(client):
 def test_the_team_escalation_names_nobody(client):
     """`to_whom` is free text and nothing stops it being a teammate. The
     team-wide message reaches every viewer, so naming the party there would
-    publish a named person's missed past commitment to the whole roster —
+    publish a named person's missed past commitment to the whole roster -
     which is what services/forge.py refuses for the same reason."""
     pid = _overdue(client, "the migration doc", who="dana")
     promises.chase_received()
@@ -128,7 +128,7 @@ def test_the_team_escalation_names_nobody(client):
     assert "dana" not in team
 
     # the PERSONAL nudge goes to the row's own author and still names the
-    # party — that reader is the one chasing, and needs to know who to chase
+    # party - that reader is the one chasing, and needs to know who to chase
     mine = " ".join(
         n["message"] for n in db.query("SELECT * FROM notifications WHERE \"user\"='ava'")
     )
@@ -172,7 +172,7 @@ def test_a_settled_promise_is_not_chased(client):
 
 def test_a_received_promise_with_no_date_is_recorded_and_never_nudged(client):
     """The chaser runs on the due date. Recording one without a date is still
-    worth doing — it is on the list — but there is nothing to be late for."""
+    worth doing - it is on the list - but there is nothing to be late for."""
     promises.add_promise("the redlines", to_whom="legal", direction="received", actor="ava")
     assert promises.chase_received()["nudged"] == 0
 
@@ -189,7 +189,7 @@ def test_a_promise_the_team_made_is_never_chased_by_this_rule(client):
 def test_a_scoped_promise_is_chased_but_never_escalated_to_the_team(client):
     """The personal nudge goes to the row's own author and leaks nothing at
     any tier. The escalation is a team-wide message quoting the promise text,
-    so a crew or private row must never reach it — and the author must still
+    so a crew or private row must never reach it - and the author must still
     be chased."""
     pid = _overdue(client, "the confidential redlines")
     db.execute("UPDATE promises SET visibility = 'private' WHERE id = ?", (pid,))
@@ -208,7 +208,7 @@ def test_a_scoped_promise_is_chased_but_never_escalated_to_the_team(client):
 
 def test_a_received_promise_never_reads_as_one_the_team_made(client):
     """`direction` defaults every OLD row to 'given', but a NEW received row
-    also defaults to audience='external' — so every reader that meant "what we
+    also defaults to audience='external' - so every reader that meant "what we
     owe" had to learn the difference. The readout is the one that matters most:
     it leaves, and a promise made TO the team listed under our external
     promises tells a stakeholder the opposite of the truth."""

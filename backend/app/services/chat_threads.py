@@ -1,7 +1,7 @@
 """Named chat threads with folders, plus the UI transcript log.
 
 The transcript (chat_messages) is the provider-agnostic history the chat
-sidebar rehydrates from — written by the chat route for mock and real
+sidebar rehydrates from - written by the chat route for mock and real
 providers alike, so history is keyless-first. It is the UI's copy; the
 Strands session files remain the model's own conversation memory.
 
@@ -64,7 +64,7 @@ DEFAULT_PREFIX = "default-"
 # ":" is outside _THREAD_ID's charset, so routes/chat.py's sanitizer strips it
 # from anything a caller sends. That is the whole guarantee: a persona session
 # id cannot be typed, only minted here from a base the caller already owns.
-# "--" held this role and was forgeable — `abc--growth-mentor` sanitized clean,
+# "--" held this role and was forgeable - `abc--growth-mentor` sanitized clean,
 # named no thread row, and claim_thread waved it through to the session of
 # whoever owned `abc`.
 PERSONA_SEP = ":"
@@ -82,7 +82,7 @@ def transcript_header(author_kind: str, author: str, message_id: int) -> str:
 
 
 def default_thread_id(owner: str) -> str:
-    """The thread a caller that names none gets — one per person.
+    """The thread a caller that names none gets - one per person.
 
     The literal 'default' was ONE row shared by every caller that omitted a
     thread id (the ChatRequest field default, so an omitted id and an explicit
@@ -90,7 +90,7 @@ def default_thread_id(owner: str) -> str:
     model-side session, so a scripted client answered out of whoever posted
     last. Hashed rather than the name itself: two roster names that differ
     only in characters the thread-id charset strips would collide on one row.
-    The hash is derived, not secret — claim_thread refuses a mismatched
+    The hash is derived, not secret - claim_thread refuses a mismatched
     claim on this shape, because the roster is readable and a guessable id
     that the first caller owns is a squat.
     """
@@ -107,7 +107,7 @@ def claim_thread(thread_id: str, owner: str) -> str:
     So naming another person's thread id answered the caller out of that
     person's history: the transcript write was refused and their sidebar
     stayed empty, which is why nothing on any surface showed what had gone
-    out. Claiming here is also what makes an orphaned session unreachable —
+    out. Claiming here is also what makes an orphaned session unreachable -
     a stream cancelled between build_agent and the first log_message leaves
     session rows behind with no thread row to guard them.
 
@@ -158,14 +158,14 @@ def _title_from(text: str) -> str:
 
 
 # TITLE_PROMPT forbids each of these, which is the reason to strip them: a
-# prompt names a failure because models produce it anyway. Order matters —
+# prompt names a failure because models produce it anyway. Order matters -
 # the prefix comes off first, then the emphasis, then the quotes, or
 # 'Name: "Ship it"' keeps its opening quote after the closing one is gone.
 _TITLE_LABEL = re.compile(r"^(?:title|name)\s*[:\-]\s*", re.I)
 # the SINGLE curly pair is escaped because ruff rejects those two marks in
 # source as ambiguous with the ASCII quote (RUF001 in a string, RUF003 in
 # this comment, which is why they are named here and not shown); the double
-# pair is escaped only to keep the four together. A cloud model answers with them often — the straight
+# pair is escaped only to keep the four together. A cloud model answers with them often - the straight
 # pair alone leaves “Ship it” quoted in the sidebar.
 _TITLE_QUOTES = "\"'" + "\u201c\u201d\u2018\u2019"
 
@@ -184,7 +184,7 @@ def pending_auto_title(thread_id: str, owner: str) -> tuple[str, str] | None:
     """(current title, first user message) for a thread that still carries the
     title _title_from derived, or None when no summary must run.
 
-    The title IS the guard — no column records where a title came from. A
+    The title IS the guard - no column records where a title came from. A
     thread the owner renamed through set_thread below no longer matches
     _title_from, so a summary that finishes after the rename finds no match
     and drops. Without this read the rename would be overwritten by a model
@@ -203,7 +203,7 @@ def pending_auto_title(thread_id: str, owner: str) -> tuple[str, str] | None:
         (thread_id,),
     )
     # EXACTLY one user message, so a thread is summarized once and never again.
-    # Every failure here leaves the title still matching _title_from — a
+    # Every failure here leaves the title still matching _title_from - a
     # timeout, an empty answer, a model that echoes the derived line back.
     # Without this bound each of those retries on every later turn, and the
     # thread pays one model call per turn for the rest of its life.
@@ -219,7 +219,7 @@ def set_auto_title(thread_id: str, owner: str, previous: str, title: str) -> boo
     thread while the model ran: their name wins and the summary is dropped.
 
     updated_at is left alone on purpose. It orders the chat list, and the turn
-    that triggered this summary already touched it — bumping it again here
+    that triggered this summary already touched it - bumping it again here
     would reorder the list for a change the owner never made.
     """
     _check_id(thread_id)
@@ -284,7 +284,7 @@ def log_message(thread_id: str, owner: str, role: str, content: str) -> None:
 
 
 # The sidebar's own bound. Most-recently-touched first, so the cap drops the
-# threads nobody has opened in longest — the least wrong ones to drop, not
+# threads nobody has opened in longest - the least wrong ones to drop, not
 # none: past this number the oldest thread does leave the sidebar, and only a
 # delete removes its rows.
 THREAD_LIMIT = 500
@@ -322,7 +322,7 @@ def _own(thread_id: str, owner: str) -> dict:
 
 
 def thread_contains(thread_id: str, needle: str) -> bool:
-    """Existence-only content probe (no ownership check) — the chat route
+    """Existence-only content probe (no ownership check) - the chat route
     uses it to emit a persona masthead once per persona per thread on EVERY
     provider, including mock (which never creates a session dir). Transcripts
     are logged under the BASE thread id, so this must be probed there."""
@@ -359,7 +359,7 @@ def get_message_page(
         # A global ID probe distinguishes another owner's cursor from an absent one.
         raise db.NotFound("No chat message was found.")
     rows = db.query(
-        "SELECT id, role, content, created_at FROM chat_messages WHERE thread_id = ?"  # noqa: S608 — fixed fragments, bound cursor
+        "SELECT id, role, content, created_at FROM chat_messages WHERE thread_id = ?"  # noqa: S608 - fixed fragments, bound cursor
         + (" AND id < ?" if before is not None else "")
         + " ORDER BY id DESC LIMIT ?",
         (thread_id, *([before] if before is not None else []), limit + 1),
@@ -389,7 +389,7 @@ def create_folder(owner: str, name: str) -> dict:
 
 def list_folders(owner: str) -> list[str]:
     """Union of registered folders and any legacy folder still on a thread."""
-    # Bounded like the two lists beside it. This one grows on a second axis —
+    # Bounded like the two lists beside it. This one grows on a second axis -
     # the UNION picks up every distinct folder string ever set on a thread, so
     # it counts names that no chat_folders row remembers.
     rows = db.query(
@@ -423,7 +423,7 @@ def _snap_folder(owner: str, wanted: str) -> str:
     api_keys.active_key_count exists to avoid, one file over.
     """
     # Folded in Python, not in SQL. PostgreSQL's lower() is Unicode-aware, so
-    # it would fold "Été"/"été" together — but it still is not users.fold(),
+    # it would fold "Été"/"été" together - but it still is not users.fold(),
     # which also applies NFKC and strips zero-width joiners. One folding rule, in one place, or a
     # name can be the same person here and a different one on the roster.
     #
@@ -445,7 +445,7 @@ def _snap_folder(owner: str, wanted: str) -> str:
 
 
 def thread_model(thread_id: str, *, raw: bool = False) -> str:
-    """The /model pick for a solo chat, or empty. Ignored — never guessed —
+    """The /model pick for a solo chat, or empty. Ignored - never guessed -
     when the menu no longer offers it, the same rule as the admin pick.
     `raw` returns the stored id even then, so /model can REPORT the stale
     pick instead of silently answering "team model"."""
@@ -546,7 +546,7 @@ def update_thread(
             # owner cannot read (services/scope.py::Viewer.for_actor).
             efrag, ep = scope.visible_filter(scope.Viewer.for_actor(owner), "engagements")
             if not db.query_one(
-                f"SELECT 1 FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 — scope.visible_filter emits only bound marks
+                f"SELECT 1 FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
                 (engagement_id, *ep),
             ):
                 raise db.NotFound(scope.missing_text("engagements", engagement_id))
@@ -578,7 +578,7 @@ def update_thread(
 
 def delete_thread(thread_id: str, owner: str) -> dict:
     """Remove the thread, its transcript, the model-side sessions (including
-    per-persona session variants) AND its flock traces — a deleted chat is
+    per-persona session variants) AND its flock traces - a deleted chat is
     gone."""
     _own(thread_id, owner)
     # A turn in flight closes by logging its reply and its session. Deleted
@@ -615,7 +615,7 @@ def remove_thread(thread_id: str) -> None:
     delete_thread_sessions(thread_id)
     # the pre-045 file store, until a cleanup release drops the directory:
     # leftover files must go too, or they linger for a thread that is gone.
-    # Only the legacy separator here — the file store predates PERSONA_SEP,
+    # Only the legacy separator here - the file store predates PERSONA_SEP,
     # so no file on disk carries the new one.
     for pattern in (f"session_{thread_id}", f"session_{thread_id}{_LEGACY_PERSONA_SEP}*"):
         for path in config.SESSIONS_DIR.glob(pattern):
@@ -768,7 +768,7 @@ def _shared_details(thread_id: str, person: str, *, resource_filter=None) -> dic
             "joined_at": row["joined_at"],
             # Read cursors feed the room's "Seen by" line. They go only to
             # members (this whole payload is membership-gated) and only for
-            # humans — an agent's cursor never moves and would read as a
+            # humans - an agent's cursor never moves and would read as a
             # participant who never looks.
             **(
                 {"kind": "agent"}
@@ -780,7 +780,7 @@ def _shared_details(thread_id: str, person: str, *, resource_filter=None) -> dic
     ]
     engagement = (
         db.query_one(
-            f"SELECT id, name, project_class, visibility FROM engagements"  # noqa: S608 — fixed scope fragment
+            f"SELECT id, name, project_class, visibility FROM engagements"  # noqa: S608 - fixed scope fragment
             f" WHERE id = ? AND {scope.WORKSPACE_ONLY}",
             (thread["engagement_id"],),
         )
@@ -871,7 +871,7 @@ def list_shared_chats(person: str) -> list[dict]:
 def unread_shared_count(person: str) -> int:
     """The Chat nav badge's number: unread messages across this person's
     active shared-chat memberships, plus their pending invitations. Callers
-    pass a STRONG identity's name or "" — a weak identity cannot read shared
+    pass a STRONG identity's name or "" - a weak identity cannot read shared
     chats, so its badge must read 0, not count rooms it cannot open."""
     if not person:
         return 0
@@ -1561,7 +1561,7 @@ def update_shared_chat(
             linked = None
             if engagement_id:
                 linked = db.query_one(
-                    f"SELECT id FROM engagements WHERE id = ? AND {scope.WORKSPACE_ONLY} FOR UPDATE",  # noqa: S608 — fixed scope fragment
+                    f"SELECT id FROM engagements WHERE id = ? AND {scope.WORKSPACE_ONLY} FOR UPDATE",  # noqa: S608 - fixed scope fragment
                     (engagement_id,),
                 )
                 if not linked:

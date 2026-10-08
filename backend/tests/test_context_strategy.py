@@ -21,7 +21,7 @@ def _restore_config():
     # scrub BEFORE reloading: fixture finalization order can run this while
     # a test's monkeypatch.setenv is still live, and reloading with the env
     # set bakes that test's strategy into the module for whichever test the
-    # worker runs next — on xdist, a once-in-four flake on the toggle test.
+    # worker runs next - on xdist, a once-in-four flake on the toggle test.
     # monkeypatch undoes its env afterwards either way.
     for key in [k for k in os.environ if k.startswith("SKEIN_CONTEXT_")]:
         os.environ.pop(key)
@@ -50,7 +50,7 @@ def test_an_unknown_strategy_degrades_to_sliding_and_says_so(monkeypatch):
 )
 def test_a_non_numeric_knob_degrades_to_its_default(monkeypatch, env, attr, default):
     """int()/float() on operator input at import time would take the whole
-    REST API down — the same trap SKEIN_MAX_TOKENS documents."""
+    REST API down - the same trap SKEIN_MAX_TOKENS documents."""
     cfg = _reload(monkeypatch, **env)
     assert getattr(cfg, attr) == default
     assert next(iter(env)) in cfg.CONTEXT_STRATEGY_ERROR
@@ -62,7 +62,7 @@ def test_a_non_numeric_knob_degrades_to_its_default(monkeypatch, env, attr, defa
         # negative window: the SDK RAISES at construction, so every chat turn
         # would fail while /health stayed green
         ({"SKEIN_CONTEXT_WINDOW_MESSAGES": "-5"}, "CONTEXT_WINDOW_MESSAGES", 40),
-        # zero window: clears history on every reduction — a chat with no memory
+        # zero window: clears history on every reduction - a chat with no memory
         ({"SKEIN_CONTEXT_WINDOW_MESSAGES": "0"}, "CONTEXT_WINDOW_MESSAGES", 40),
         # the SDK silently CLAMPS to 0.1-0.8, so the operator would believe a
         # number that is not in effect
@@ -76,7 +76,7 @@ def test_a_non_numeric_knob_degrades_to_its_default(monkeypatch, env, attr, defa
         ({"SKEIN_CONTEXT_PRESERVE_RECENT": "5000"}, "CONTEXT_PRESERVE_RECENT", 10),
         ({"SKEIN_CONTEXT_PIN_FIRST": "5000"}, "CONTEXT_PIN_FIRST", 0),
         # NaN fails every comparison, so a bare </> check passes it straight
-        # to the SDK's clamp — the exact bug these bounds exist to refuse
+        # to the SDK's clamp - the exact bug these bounds exist to refuse
         ({"SKEIN_CONTEXT_SUMMARY_RATIO": "nan"}, "CONTEXT_SUMMARY_RATIO", 0.3),
     ],
 )
@@ -285,7 +285,7 @@ def _stored_state(thread_id: str) -> dict:
 
 def test_the_sdk_really_does_reject_a_foreign_manager_state():
     """The reason _reconcile_session_strategy exists. If this ever stops
-    raising, the reconcile can go — but it must not be removed on a hunch."""
+    raising, the reconcile can go - but it must not be removed on a hunch."""
     from strands.agent.conversation_manager import (
         SlidingWindowConversationManager,
         SummarizingConversationManager,
@@ -309,7 +309,7 @@ def test_changing_the_strategy_rewrites_an_existing_thread(fresh_db, monkeypatch
     assert state["__name__"] == "SummarizingConversationManager"
     # CARRIED, not reset. Resetting replays the whole thread into the next
     # model call, which overflows, and the recovery summarizes a full history
-    # in one call and overflows again — several turns fail in a row on exactly
+    # in one call and overflows again - several turns fail in a row on exactly
     # the long threads this exists to save.
     assert state["removed_message_count"] == 3
 
@@ -347,7 +347,7 @@ def test_the_session_bridge_seeds_the_configured_manager(fresh_db, monkeypatch):
 
 
 def test_concurrent_bridge_writes_keep_every_exchange(fresh_db, monkeypatch):
-    """next_id came from the LAST message on disk, with no lock — two commands
+    """next_id came from the LAST message on disk, with no lock - two commands
     on one thread read the same id and wrote message_<n>.json over each other,
     and both raced to create the session. Measured at 34 of 180 messages
     surviving before the per-thread lock."""
@@ -379,17 +379,17 @@ def test_concurrent_bridge_writes_keep_every_exchange(fresh_db, monkeypatch):
     assert not failures, f"bridge raised under contention: {failures[:3]}"
     rows = fresh_db.query("SELECT message_id FROM session_messages WHERE session_id = 't-race'")
     # each exchange writes a user message and an assistant message, except
-    # where one folds into a stranded user turn — so the floor is the exchange
+    # where one folds into a stranded user turn - so the floor is the exchange
     # count, and the ceiling is twice it. Losing writes lands far below both.
     assert len(rows) >= workers * per_worker, (
-        f"{len(rows)} messages stored for {workers * per_worker} exchanges — writes were lost"
+        f"{len(rows)} messages stored for {workers * per_worker} exchanges - writes were lost"
     )
 
 
 def test_build_agent_reconciles_a_mismatched_session(fresh_db, monkeypatch):
     """The CALL SITE, not just the function. Without the reconcile call in
     build_agent, this raises ValueError('Invalid conversation manager state.')
-    — the original bricking bug, which every other test here would miss."""
+    - the original bricking bug, which every other test here would miss."""
     from app.agents import team_agent
 
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
@@ -453,7 +453,7 @@ class _FakeModel:
 
 def test_the_summarizer_prompt_refuses_to_launder_pasted_instructions():
     """The summarizer runs with no tools and outside the platform system
-    prompt, and its output is persisted as a `user` message — the one place
+    prompt, and its output is persisted as a `user` message - the one place
     pasted third-party text can come back looking like a standing order."""
     from app.agents.team_agent import SUMMARIZER_PROMPT
 
@@ -486,7 +486,7 @@ def test_health_reports_which_tier_the_strategy_came_from(client, fresh_db):
 
 
 def test_the_toggle_is_rate_capped(client, fresh_db):
-    """Each call appends to the activity ledger, which is never pruned — an
+    """Each call appends to the activity ledger, which is never pruned - an
     uncapped write permanently inflates the chain the integrity check walks.
     Skein surfaces a spent cap as 429 (ratelimit.RateLimited, main.py)."""
     headers = _key()
@@ -518,7 +518,7 @@ def test_leaving_summarize_never_restores_an_assistant_first_history(fresh_db, m
     """Under summarize the prepended summary is a user message and is what
     keeps the restored list legal. Dropping it while carrying the offset can
     start the history on an assistant turn, which anthropic and bedrock reject
-    outright — the thread then fails every turn until it outgrows the window."""
+    outright - the thread then fails every turn until it outgrows the window."""
     from app.agents import team_agent
     from app.agents.session_store import DatabaseSessionRepository
 
@@ -563,7 +563,7 @@ def test_several_faults_read_as_sentences(monkeypatch):
 
 def _seed_tool_messages(thread_id: str) -> None:
     """[user, assistant(toolUse), user(toolResult), assistant, user, assistant]
-    — the ordinary shape for a tool-driven agent, and a legal summarize split
+    - the ordinary shape for a tool-driven agent, and a legal summarize split
     at index 3 because the tool pair sits wholly inside the summarized range."""
     from strands.types.session import SessionMessage
 
@@ -589,7 +589,7 @@ def _seed_tool_messages(thread_id: str) -> None:
 
 
 def test_alignment_skips_an_orphaned_toolresult(fresh_db, monkeypatch):
-    """A lone toolResult IS a user message, so a role-only check lands on it —
+    """A lone toolResult IS a user message, so a role-only check lands on it -
     and the SDK then deletes it as an orphan on restore, putting the assistant
     turn first again. The role check alone is not the test."""
     from app.agents import team_agent
@@ -637,7 +637,7 @@ def test_the_strategy_fault_does_not_assert_which_strategy_runs(monkeypatch):
 
 def test_an_absurdly_long_number_does_not_kill_the_import(monkeypatch):
     """math.isfinite converts to a C double first, so a 309-digit int raises
-    OverflowError — and an uncaught raise in config takes down every route,
+    OverflowError - and an uncaught raise in config takes down every route,
     the ICS feed, and backups with it."""
     cfg = _reload(monkeypatch, SKEIN_CONTEXT_WINDOW_MESSAGES="9" * 400)
     assert cfg.CONTEXT_WINDOW_MESSAGES == 40

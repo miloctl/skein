@@ -1,10 +1,10 @@
 /** The keyless half of the @ picker's specialist rows. On the mock provider
- *  a mid-sentence @slug reaches nothing — MockAgent has no tool loop, so no
- *  consult can happen — and a picker that offers one promises an answer the
+ *  a mid-sentence @slug reaches nothing - MockAgent has no tool loop, so no
+ *  consult can happen - and a picker that offers one promises an answer the
  *  deployment cannot give. The leading position stays offered: /as is
  *  deterministic on every provider. mention-picker-groups.test.tsx pins the
  *  real-provider side. Its own module because the status fetch is cached at
- *  module scope — one provider per test file. */
+ *  module scope - one provider per test file. */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 

@@ -1,5 +1,5 @@
 """The team zone (SKEIN_TZ): which day "today" means, and which hour a ritual
-fires. Storage stays UTC — these pin that the two never get confused."""
+fires. Storage stays UTC - these pin that the two never get confused."""
 
 import importlib
 from datetime import UTC, date, datetime, timedelta
@@ -25,7 +25,7 @@ def test_a_bad_zone_degrades_to_utc_and_says_so(monkeypatch):
     """The model-provider discipline: a typo must not take down the API.
 
     A well-shaped name with no zone behind it is a SPELLING fault, and it must
-    not be reported as the shape fault below — an operator who reads "not a
+    not be reported as the shape fault below - an operator who reads "not a
     Region/City name" about America/New_Yrok goes looking for the wrong
     mistake."""
     cfg = _reload(monkeypatch, "Mars/Olympus_Mons")
@@ -74,7 +74,7 @@ def test_scheduler_runs_in_the_team_zone(monkeypatch):
     is 07:00 where the team works, not 07:00 UTC.
 
     Asserts against the REAL wiring. A test that builds its own CronTrigger
-    tests APScheduler, and a test that greps the source pins the spelling —
+    tests APScheduler, and a test that greps the source pins the spelling -
     both pass with the feature reverted, which was the state this replaced."""
     _reload(monkeypatch, "America/New_York")
     from app import main
@@ -116,13 +116,13 @@ def test_the_digest_fires_at_seven_local_not_seven_utc(monkeypatch):
     winter = CronTrigger(hour=7, minute=0, timezone="America/New_York").get_next_fire_time(
         None, datetime(2026, 1, 8, 0, 0, tzinfo=UTC)
     )
-    # EST is UTC-5 — the same wall-clock hour, a different UTC hour. A fixed
+    # EST is UTC-5 - the same wall-clock hour, a different UTC hour. A fixed
     # offset would have gotten one of these two wrong.
     assert winter.astimezone(UTC).hour == 12
 
 
 def test_a_fixed_offset_zone_name_is_refused(monkeypatch):
-    """tzdata really does carry "EST", and ZoneInfo("EST") resolves — to a
+    """tzdata really does carry "EST", and ZoneInfo("EST") resolves - to a
     zone that is UTC-5 all year. A team that writes the abbreviation they say
     out loud would get rituals an hour late for the eight months of DST, with
     /health reporting green."""
@@ -135,7 +135,7 @@ def test_a_fixed_offset_zone_name_is_refused(monkeypatch):
 def test_utc_needs_no_zone_database(monkeypatch):
     """The fallback must not itself require tzdata. ZoneInfo("UTC") is an
     ordinary tzdata lookup, so on a slim image with no /usr/share/zoneinfo it
-    raises INSIDE the handler that exists to recover — and a raise at module
+    raises INSIDE the handler that exists to recover - and a raise at module
     scope means `import app.config` fails and the whole REST API is dead at
     boot, which is the opposite of degrading."""
     cfg = _reload(monkeypatch, "")
@@ -165,7 +165,7 @@ def test_the_offset_is_read_per_date_not_once(monkeypatch):
 
 def test_a_daily_job_claims_once_per_team_day(monkeypatch):
     """Claim keys are team days now. Two firings inside one local day must
-    collapse to one claim, and the day must roll at LOCAL midnight — not at
+    collapse to one claim, and the day must roll at LOCAL midnight - not at
     20:00 local, which is what a UTC-keyed claim does west of UTC."""
     _reload(monkeypatch, "America/New_York")
     evening = datetime(2026, 8, 8, 23, 0, tzinfo=ZoneInfo("America/New_York"))
@@ -189,7 +189,7 @@ def test_a_daily_job_claims_once_per_team_day(monkeypatch):
 def test_an_event_tonight_belongs_to_tonight(monkeypatch):
     """events.starts_at is stored NAIVE UTC (schedule.py::_canon). A local
     date bound against it excludes tonight's events from today's list and
-    includes last night's — the failure that motivated local_event_window."""
+    includes last night's - the failure that motivated local_event_window."""
     _reload(monkeypatch, "America/New_York")
     start, end = db.local_event_window(date(2026, 8, 8))
     tonight = "2026-08-09T00:30"  # 20:30 on the 8th in New York
@@ -262,7 +262,7 @@ def test_the_404_handler_still_matches_db_notfound(client):
     app/main.py registers its 404 handler against the db.NotFound CLASS
     OBJECT. Anything that reloads app.db mints a new class, the handler stops
     matching, and every NotFound falls through to the ValueError handler as a
-    400 — silently, in one xdist worker, for the rest of the run. It cost a
+    400 - silently, in one xdist worker, for the rest of the run. It cost a
     ~33% flake on tests/test_turn_cost.py before it was found.
     """
     from app import db as db_mod

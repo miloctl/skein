@@ -29,11 +29,11 @@ def test_standup_chain_roster_is_participation_based(fresh_db):
     users.ensure_user("anonymous")  # pre-name-pick frontend traffic
     users.ensure_user("bot", kind="agent")  # agents don't break the chain
 
-    # nobody has ever posted: no roster, no chain — and no permanent zero
+    # nobody has ever posted: no roster, no chain - and no permanent zero
     assert pulse.standup_chain() == {"chain": 0, "humans": 0}
 
     # posts land on the most recent COMPLETED weekday, so the chain
-    # assertions hold on all 7 days — asserting on a standup posted today
+    # assertions hold on all 7 days - asserting on a standup posted today
     # needs a weekday guard, which skips the assertion on 2 of every 7 CI days
     def post_on_last_weekday(author: str, text: str) -> None:
         collab.post_standup(author, today=text)
@@ -73,7 +73,7 @@ def test_pulse_tally_team_aggregated(client, fresh_db):
 
 
 def test_pulse_votes_are_unattributable(client, fresh_db):
-    """The promise is 'never per person' — no username may co-occur with a
+    """The promise is 'never per person' - no username may co-occur with a
     verdict on ANY egress surface: raw feedback endpoint, activity ledger,
     admin export."""
     import json as j
@@ -113,7 +113,7 @@ def test_standup_chain_counts_backdated_weekdays_and_breaks_at_a_gap(fresh_db):
         d -= datetime.timedelta(days=1)
         if d.weekday() < 5:
             weekdays.append(d)
-    # standups on the 3 newest, a gap on the 4th, one more on the 5th —
+    # standups on the 3 newest, a gap on the 4th, one more on the 5th -
     # pins the lookback window, the weekend rewind, and the gap break
     for day in [*weekdays[:3], weekdays[4]]:
         collab.post_standup("a", today="x")

@@ -1,4 +1,4 @@
-# Example only — copy into your private deploy repo and replace the
+# Example only - copy into your private deploy repo and replace the
 # example.com values. Dev keeps the keyless posture: mock provider,
 # trusted-header auth, no Secret required.
 apiVersion: kustomize.config.k8s.io/v1beta1

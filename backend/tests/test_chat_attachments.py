@@ -2,7 +2,7 @@
 
 Three things have to hold at once: the bytes reach the model on the turn that
 carries them, the person's own transcript shows which file was part of the
-question, and the stored session never keeps the bytes — a thread that held
+question, and the stored session never keeps the bytes - a thread that held
 an 8 MB PDF would replay it to the provider on every later turn.
 """
 
@@ -137,7 +137,7 @@ def test_mock_file_turn_keeps_specialist_capture_disabled(client):
 
 def test_a_text_file_reaches_a_keyless_provider_as_its_content(client, monkeypatch):
     """mock declares no attachment support, and a note is still readable as
-    prose — so the deterministic core carries real content, not a placeholder."""
+    prose - so the deterministic core carries real content, not a placeholder."""
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "mock")
     aid = _upload(client, "notes.md", b"the roof leaks")
     blocks, titles = _attachment_prompt("what is wrong?", [aid], "tester")
@@ -179,7 +179,7 @@ def test_a_provider_that_takes_documents_gets_the_bytes(client, monkeypatch):
 def test_a_format_the_provider_refuses_inlines_as_text_instead_of_400ing(client, monkeypatch):
     """A provider's document support is per FORMAT, not per kind. Anthropic's
     API takes pdf and plain text, so a csv sent as a document block is the same
-    turn-killing 400 config.attachment_support exists to prevent — one level
+    turn-killing 400 config.attachment_support exists to prevent - one level
     down. Text formats inline everywhere, which is also a better answer."""
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
     aid = _upload(client, "rows.csv", b"name,size\nroof,2")
@@ -231,7 +231,7 @@ def test_a_provider_that_cannot_read_the_type_says_so(client, monkeypatch):
 def test_an_image_is_not_sent_to_a_model_that_was_never_declared_to_take_one(client, monkeypatch):
     """The bug this split exists for. ollama's formatter HAS an image branch,
     so the provider claimed images and a text model answered `this model does
-    not support image input` (400) — killing the turn instead of degrading."""
+    not support image input` (400) - killing the turn instead of degrading."""
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODEL_ID", "glm-5.2:cloud")
     monkeypatch.setattr(config, "MODELS", {})
@@ -251,7 +251,7 @@ def test_a_model_entry_turns_images_on_for_a_vision_model(client, monkeypatch):
 
 
 def test_a_model_entry_can_refuse_what_its_provider_allows(client, monkeypatch):
-    """A declared empty list is a decision, not an absent one — how an
+    """A declared empty list is a decision, not an absent one - how an
     operator turns attachments off for one old model on a capable provider."""
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
     monkeypatch.setattr(config, "MODEL_ID", "claude-old")
@@ -284,7 +284,7 @@ def test_a_vision_sidecar_describes_an_image_the_chat_model_cannot_read(client, 
 
 def test_a_silent_vision_model_leaves_the_turn_standing(client, monkeypatch):
     """Every failure inside the sidecar returns empty, and the reader gets the
-    file's name — a turn must never die over an attachment the model could
+    file's name - a turn must never die over an attachment the model could
     simply have been told about."""
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
     monkeypatch.setattr(config, "MODELS", {})
@@ -418,7 +418,7 @@ def test_the_transcript_counts_its_own_files(client):
 def test_the_stored_session_keeps_the_name_and_drops_the_bytes():
     """The bytes belong to ONE turn. Persisted, they would sit in the row for
     the life of the thread and be replayed to the provider on every later
-    turn — an 8 MB PDF billed once per message thereafter."""
+    turn - an 8 MB PDF billed once per message thereafter."""
     payload = {
         "message": {
             "role": "user",

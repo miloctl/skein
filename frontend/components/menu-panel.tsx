@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
 /** Floating disclosure panel: focuses its first control, closes on Escape.
- *  Deliberately NOT role="menu" — plain buttons with Tab-through. */
+ *  Deliberately NOT role="menu" - plain buttons with Tab-through. */
 export function MenuPanel({
   label,
   onClose,

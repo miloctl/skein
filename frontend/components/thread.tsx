@@ -41,7 +41,7 @@ import {
  *  page, or a teammate's note can carry an instruction, and the model repeats
  *  what it read. A rendered `![](https://host/?d=...)` fetches that URL the
  *  moment the line paints, so whatever the agent just read leaves in the query
- *  string with no click and no tool call — tools/_gate.py governs writes and
+ *  string with no click and no tool call - tools/_gate.py governs writes and
  *  never sees a read leaving this way. The reference renders as inert text
  *  instead of an <img>. next.config.ts pins img-src as the backstop for a
  *  renderer that regresses. */
@@ -56,9 +56,9 @@ const InertImage = ({ src, alt }: ComponentPropsWithoutRef<"img">) => (
  *  rel, the opened page reads window.opener and can navigate this tab to a
  *  page that imitates it. react-markdown's defaultUrlTransform already drops a
  *  javascript: href before this renders. The underline is the only thing that
- *  marks a link here — prose-chat gives `a` no color of its own. */
+ *  marks a link here - prose-chat gives `a` no color of its own. */
 const SafeLink = ({ href, children }: ComponentPropsWithoutRef<"a">) => {
-  // A RELATIVE href is one of ours — the receipt line's own [open in Inbox]
+  // A RELATIVE href is one of ours - the receipt line's own [open in Inbox]
   // (/review) is the common one, and sending that to a new tab spawns a second
   // copy of the app instead of navigating. window.opener is not reachable
   // same-origin anyway, so the guard buys nothing there.
@@ -80,7 +80,7 @@ const MARKDOWN_COMPONENTS = { img: InertImage, a: SafeLink };
 
 /** A ```mermaid fence renders as a diagram. Streaming means this component
  *  sees every half-written prefix of the fence, and mermaid rejects most of
- *  them — MermaidDiagram falls back to showing the source, so the block reads
+ *  them - MermaidDiagram falls back to showing the source, so the block reads
  *  as code until the last token lands and it becomes a picture. */
 const MERMAID_BY_LANGUAGE = {
   mermaid: {
@@ -101,7 +101,7 @@ export const MarkdownText = () => (
 
 /** One attached file, in the composer and on the sent message. The name is a
  *  filename the uploader chose, so it is rendered as text and never as a
- *  link — services/uploads.py strips the control and bidi characters that
+ *  link - services/uploads.py strips the control and bidi characters that
  *  would let it disguise itself, and nothing here re-introduces markup. */
 const AttachmentChip = () => {
   // the NAME in the label: with two files staged, "Remove this file" on both
@@ -153,7 +153,7 @@ const UserMessage = () => (
  *  is derived from the thread's own last user message, so no backend frame and
  *  nothing in the stored transcript carries it.
  *
- *  The Empty slot renders for ANY status, not only while running — so a turn
+ *  The Empty slot renders for ANY status, not only while running - so a turn
  *  that died before its first token (backend down, rate cap, a 404 thread)
  *  showed pulsing dots and "Thinking…" forever, claiming progress during
  *  exactly the incident the copy rules say must never be dressed up. The
@@ -246,7 +246,7 @@ type SlashCommand = {
   description: string;
   // set only on @mention rows: the roster name to splice at the @token, and
   // the section it is listed under. A pick with `mention` never rewrites the
-  // whole composer the way a command pick does — the @ sits mid-sentence.
+  // whole composer the way a command pick does - the @ sits mid-sentence.
   mention?: string;
   group?: string;
 };
@@ -295,7 +295,7 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
     name: "flocks",
     args: "",
     description:
-      "List the flocks — groups of personas you can call at one time",
+      "List the flocks - groups of personas you can call at one time",
   },
   {
     name: "as",
@@ -311,7 +311,7 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
 
 // Promise-cached for the life of the page: these catalogs change only on a
 // server restart, and RuntimeProvider's key={threadId} remounts the Composer
-// on every thread switch — uncached, each switch costs two requests. The
+// on every thread switch - uncached, each switch costs two requests. The
 // authConfig() shape (lib/auth.ts): a failed read is not cached, so the
 // next mount retries.
 let commandsCache: Promise<SlashCommand[]> | null = null;
@@ -345,7 +345,7 @@ function personaList(): Promise<Persona[]> {
 type Person = { name: string; kind: string };
 
 // the charset services/mentions.py::_MENTION can tokenize. A roster name is
-// free-form — ensure_user only strips and truncates — so "O'Brien" and "José"
+// free-form - ensure_user only strips and truncates - so "O'Brien" and "José"
 // are real names the picker used to offer: the apostrophe and the accent end
 // the token, the backend matches nobody, and the turn guard cannot report a
 // miss it never saw either. Filtering on spaces alone missed both.
@@ -356,7 +356,7 @@ const MENTIONABLE = /^[a-z0-9][a-z0-9._-]*$/i;
 // picker missing a brand-new name costs one manual @type; a fetch per thread
 // switch costs a request on every switch, in every open tab.
 // Whether a mid-sentence @slug can reach the bench at all: the orchestrator
-// consults only on a real provider, and the mock has no tool loop — offering
+// consults only on a real provider, and the mock has no tool loop - offering
 // a specialist there promises an answer the keyless path cannot give. The
 // leading-@ rows never read this: /as is deterministic on every provider.
 // A failed fetch leaves it unresolved and the rows hidden, which fails
@@ -387,7 +387,7 @@ function peopleList(): Promise<Person[]> {
 
 // Only the fields the argument popup reads. /api/flocks also carries the
 // resolved member cards and the synthesis flag, which the composer never
-// shows — a flock is picked by slug here, not inspected.
+// shows - a flock is picked by slug here, not inspected.
 type Flock = { slug: string; description: string; emoji: string };
 
 // the menu GET /api/settings/model serves every named person (the same
@@ -460,8 +460,8 @@ const Composer = () => {
   // state: a setState in onChange commits BEFORE the chat store carries the
   // new text, and that commit writes the old text back into the controlled
   // textarea, which parks the caret at the end of every mid-text edit
-  // (e2e/composer-caret.spec.ts). onChange only records the snapshot — the
-  // chat store's own re-render reads it — and onSelect, where the text is
+  // (e2e/composer-caret.spec.ts). onChange only records the snapshot - the
+  // chat store's own re-render reads it - and onSelect, where the text is
   // unchanged, is the one that notifies.
   const caret = useRef({ snapshot: { text, start: text.length, end: text.length }, notify: () => {} });
   const selection = useSyncExternalStore(
@@ -523,7 +523,7 @@ const Composer = () => {
     }
     // Page help lives in the HEADER, so on /chat it is open while this
     // composer is already mounted and a ?compose= link would never re-run the
-    // read above. It hands the text over directly — same cap, same report.
+    // read above. It hands the text over directly - same cap, same report.
     const onPrefill = (event: Event) =>
       prefill((event as CustomEvent<string>).detail);
     window.addEventListener("skein-chat-compose", onPrefill);
@@ -562,7 +562,7 @@ const Composer = () => {
           setModels(
             menu.map((m) => ({
               slug: m.id,
-              description: [m.label !== m.id ? m.label : "", m.detail].filter(Boolean).join(" — "),
+              description: [m.label !== m.id ? m.label : "", m.detail].filter(Boolean).join(" - "),
             })),
           );
           setLevels(reasoningRoster(menu));
@@ -578,7 +578,7 @@ const Composer = () => {
       .then((list) => {
         setPersonas(list);
         setBench(list);
-        // /agents bench cards link to /chat?as=<slug> — enter that
+        // /agents bench cards link to /chat?as=<slug> - enter that
         // persona's session directly (the chip shows the mode)
         const slug = new URLSearchParams(window.location.search).get("as");
         if (slug) {
@@ -595,7 +595,7 @@ const Composer = () => {
   }, []);
 
   // two popup modes: the command token ("/bri"), and the slug argument right
-  // after a command that takes one — the hard-to-recall half of the
+  // after a command that takes one - the hard-to-recall half of the
   // invocation. A command absent from argRosters gets no argument popup.
   const argRosters: Record<string, ArgItem[]> = {
     as: personas,
@@ -677,7 +677,7 @@ const Composer = () => {
         ? []
         : // an exact match leads, whatever the catalog order. `flock` is a
           // strict prefix of `flocks`, so prefix order alone put `/flocks`
-          // first for someone who had typed `/flock` in full — Tab rewrote it
+          // first for someone who had typed `/flock` in full - Tab rewrote it
           // and Enter SENT the wrong command. agents/commands.py carries the
           // same note for the backend did-you-mean, which has the same hazard.
           commands
@@ -703,7 +703,7 @@ const Composer = () => {
   });
 
   // the listbox has its own scroller (max-h-72 below), so ArrowUp can walk the
-  // selection out of view — activedescendant moves, the row does not
+  // selection out of view - activedescendant moves, the row does not
   useEffect(() => {
     if (open)
       document
@@ -770,7 +770,7 @@ const Composer = () => {
       // The popup is closed, so this arrow belongs to input history on the
       // Input below. Recall can land a bare slash command ("/briefing" is a
       // shipped suggestion), which reopens this popup and would then swallow
-      // the NEXT arrow — leaving the person stuck on one entry with no way
+      // the NEXT arrow - leaving the person stuck on one entry with no way
       // back to their draft. Staying closed until they type again is what
       // keeps recall walking.
       if (arrow) setRecalling(true);
@@ -790,7 +790,7 @@ const Composer = () => {
       if (active) run(active);
     } else if (e.key === "Tab") {
       e.preventDefault();
-      // a mention completes the same way it is picked — "/name " would be a
+      // a mention completes the same way it is picked - "/name " would be a
       // command that does not exist
       if (active?.mention) run(active);
       else if (active)
@@ -807,20 +807,20 @@ const Composer = () => {
         <div className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-line bg-card shadow-float">
           {/* OUTSIDE the listbox: a paragraph is not a role a listbox may own,
               and aria-activedescendant means a screen reader reads only the
-              active option — so the one line that teaches the keys reached
+              active option - so the one line that teaches the keys reached
               nobody. Spoken now through aria-describedby on the input. */}
           <p
             id="cmd-hint"
             className="border-b border-line px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3"
           >
             {at
-              ? "Mentions — ↵ or tab to insert"
-              : "Commands — ↵ to run, tab to complete"}
+              ? "Mentions - ↵ or tab to insert"
+              : "Commands - ↵ to run, tab to complete"}
           </p>
           {/* max-h + scroll, NOT the outer overflow-hidden alone: the popup is
               anchored bottom-full above a sticky composer, so a roster longer
               than the space above it put rows off the top of the window with
-              no way to reach them — measured at -106px on a 520px viewport,
+              no way to reach them - measured at -106px on a 520px viewport,
               while ArrowUp still walked the selection onto them. */}
           <div
             id="cmd-list"
@@ -898,7 +898,7 @@ const Composer = () => {
             </button>
           </span>
           <span className="text-ink-3">
-            every message goes to this specialist — × returns to the Chief of
+            every message goes to this specialist - × returns to the Chief of
             Staff
           </span>
         </div>
@@ -1019,7 +1019,7 @@ export function Thread() {
   // the same store the Composer reads: a sticky persona (set by /agents'
   // bench cards via ?as=, and restored from sessionStorage for every new
   // thread) prefixes freeform messages with `/as <slug>`, so the empty
-  // state's "goes to the Chief of Staff" is false exactly then — while the
+  // state's "goes to the Chief of Staff" is false exactly then - while the
   // chip above the composer says so on the same screen
   const activePersona = useSyncExternalStore(
     subscribePersona,
@@ -1048,7 +1048,7 @@ export function Thread() {
             </p>
             <p className="mt-2 text-sm text-ink-3">
               Track milestones, log questions, record decisions, post standups,
-              and plan projects — ask in your own words.
+              and plan projects - ask in your own words.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-2">
               {SUGGESTIONS.map((s) => (

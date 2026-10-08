@@ -1,6 +1,6 @@
 """The activity feed: one sentence per ledger row, scoped to agents, the
 system, and the viewer's own actions. The scope is the anti-surveillance rule
-made structural — another human's rows must never appear, and the restriction
+made structural - another human's rows must never appear, and the restriction
 lives in the service so no route can widen it."""
 
 import threading
@@ -16,7 +16,7 @@ def _seed_people(fresh_db):
 
 
 def test_scoping_is_the_point(fresh_db):
-    """ava sees her own rows, the agent's, and the system's — never ben's."""
+    """ava sees her own rows, the agent's, and the system's - never ben's."""
     _seed_people(fresh_db)
     db.log_activity("ava", "save_note", "#1 mine")
     db.log_activity("ben", "save_note", "#2 his")
@@ -33,7 +33,7 @@ def test_scoping_is_the_point(fresh_db):
 
 def test_a_deactivated_human_is_still_a_human(fresh_db):
     """Deactivation removes someone from the roster, not from the
-    anti-surveillance rule — their history stays theirs."""
+    anti-surveillance rule - their history stays theirs."""
     _seed_people(fresh_db)
     db.log_activity("ben", "save_note", "#1 his")
     users.set_active("ben", False, actor="ava")
@@ -60,7 +60,7 @@ def test_registered_actions_render_sentences(fresh_db):
 
 def test_an_unregistered_action_degrades_honestly(fresh_db):
     """A new log_activity call without a registry entry renders as the raw
-    action name — clearly generic, never a fabricated verb, never a raise."""
+    action name - clearly generic, never a fabricated verb, never a raise."""
     _seed_people(fresh_db)
     db.log_activity("bot", "brand_new_action", "payload")
     entry = activity.feed("ava")["entries"][0]
@@ -97,7 +97,7 @@ def test_cursor_pages_without_gaps_or_repeats(fresh_db):
 
 def test_cursor_is_stable_while_new_rows_arrive(fresh_db):
     """seq only grows, so a page taken before new appends still returns the
-    same older rows — the reason the cursor is seq and not OFFSET."""
+    same older rows - the reason the cursor is seq and not OFFSET."""
     _seed_people(fresh_db)
     for i in range(4):
         db.log_activity("bot", "capture", f"#{i}")
@@ -135,7 +135,7 @@ def test_limit_is_bounded(fresh_db):
 
 def test_the_verb_registry_and_the_logged_actions_agree(fresh_db):
     """Both directions. A renamed action with a stale registry entry silently
-    degrades every future row of that verb to the generic form — and a NEW
+    degrades every future row of that verb to the generic form - and a NEW
     action nobody registered renders generic from its first day, which for a
     year meant supersede_decision and set_user_active read as raw slugs in
     the feed. One check per direction, so the failure names the fix."""
@@ -148,7 +148,7 @@ def test_the_verb_registry_and_the_logged_actions_agree(fresh_db):
         text = path.read_text(encoding="utf-8")
         logged |= set(re.findall(r'log_activity\(\s*[^,]+,\s*"([a-z_]+)"', text))
         for m in re.finditer(r"log_activity\(\s*$", text, re.M):
-            # multiline call: the action is the first string AFTER a comma —
+            # multiline call: the action is the first string AFTER a comma -
             # the first string outright is often the actor ("system")
             tail = text[m.end() : m.end() + 200]
             found = re.search(r',\s*"([a-z_]+)"', tail)
@@ -171,7 +171,7 @@ def test_the_route_scopes_to_the_header_user(client, fresh_db):
 
 def test_rename_leaves_the_ledger_alone(fresh_db):
     """rename rewrote activity.actor in bulk, and every chained digest covers
-    its actor — one rename permanently broke verify_chain at the renamed
+    its actor - one rename permanently broke verify_chain at the renamed
     person's earliest row, with the external anchor making re-chaining
     impossible by design. History stays under the old name."""
     _seed_people(fresh_db)
@@ -240,7 +240,7 @@ def test_limit_clamp_value(fresh_db):
 def test_rename_carries_the_field_guide_state(fresh_db):
     """The ledger-immutability fix removed the accidental self-heal: activity
     used to be renamed, so predicates re-tied under the new name. Now the
-    unlock STATE moves instead — a renamed veteran must not watch their guide
+    unlock STATE moves instead - a renamed veteran must not watch their guide
     reset toward zero."""
     from app.services import fieldguide
 

@@ -23,11 +23,11 @@ type Health = {
 type Conflict = { person: string; total_percent: number; detail: string };
 
 /** Cycle time for reading. The service rounds to 0.1 day, so same-day work
- *  arrived as 0.0 and the headline read "median 0d · avg 0d" — a broken-
+ *  arrived as 0.0 and the headline read "median 0d · avg 0d" - a broken-
  *  looking claim about the team's fastest weeks. Under a day, hours; a 0.0
  *  is anything under 72 minutes, so it says "under 2h" rather than a zero. */
 function cycleTime(days: number | null): string {
-  if (days === null) return "—";
+  if (days === null) return "-";
   if (days >= 1) return `${days}d`;
   const hours = Math.round(days * 24);
   return hours > 0 ? `${hours}h` : "under 2h";
@@ -87,7 +87,7 @@ function Throughput({ weeks }: { weeks: Record<string, number> }) {
         Finished per week
       </h3>
       {/* the bars carry no number a screen reader can use, and the scale is
-          the whole point of them — say it once, in text */}
+          the whole point of them - say it once, in text */}
       <p className="text-xs text-ink-3">Each bar is drawn against the busiest week.</p>
       <ul className="mt-1 space-y-0.5">
         {rows.map(([week, n]) => (
@@ -169,7 +169,7 @@ export default function Portfolio() {
     busyRef.current = busy;
   }, [busy]);
   // Three states per card, not two. A card whose fetch FAILED is still null,
-  // so a null-means-loading check leaves it saying "Loading…" forever — a
+  // so a null-means-loading check leaves it saying "Loading…" forever - a
   // claim that work is in progress after the work stopped. The toast alone
   // does not cover it: six loads share one region, so a dead backend names
   // one card and leaves five lying.
@@ -212,15 +212,15 @@ export default function Portfolio() {
     );
 
   useEffect(load, [load]);
-  // `#promise-7` from My Day, the manager queue and the delta brief — the
+  // `#promise-7` from My Day, the manager queue and the delta brief - the
   // rows arrive from the fetch above, so the fragment alone scrolls nowhere.
   useHashTarget(promises);
 
-  // Mutations: never silent — failures land in the status region, and every
+  // Mutations: never silent - failures land in the status region, and every
   // mutation re-fetches so the page shows reality, which can be a teammate's
   // concurrent edit rather than this tab's own write.
   // `busy` no longer DISABLES a control: disabling the element that has focus
-  // blurs it, and re-enabling never brings focus back — a keyboard reader was
+  // blurs it, and re-enabling never brings focus back - a keyboard reader was
   // dropped to the top of the document on every action. The guard moved into
   // the handlers, and the buttons carry aria-busy instead.
   // A thunk, never a started promise: a promise argument has already sent
@@ -253,7 +253,7 @@ export default function Portfolio() {
         <Link href="/planning#planning-this-week" className="underline underline-offset-2">Plan the week</Link>.
       </p>
       <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-      <Card title="Engagement health — each call shows why" className="md:col-span-2">
+      <Card title="Engagement health - each call shows why" className="md:col-span-2">
         {errors.health && health !== null && (
           <p className="mb-2 text-sm text-danger">Last refresh failed. Skein shows the state from the last good load. {errors.health}</p>
         )}
@@ -261,7 +261,7 @@ export default function Portfolio() {
           pending("health")
         ) : health.length === 0 ? (
           <p className="text-sm text-ink-3">
-            No active engagements — accept a request on Inbox → Requests to
+            No active engagements - accept a request on Inbox → Requests to
             start one.
           </p>
         ) : (
@@ -341,7 +341,7 @@ export default function Portfolio() {
           <>
             <p className="mb-2 text-xs text-ink-3">
               {/* with nothing completed the model has no slip to apply, so
-                  every "likely" date below just repeats the due date — say
+                  every "likely" date below just repeats the due date - say
                   that, instead of dressing no information as a prediction */}
               {forecast.basis.milestones_measured === 0
                 ? "No milestone has been completed yet, so these dates repeat the due date. They become a forecast after the team finishes some work."
@@ -370,7 +370,7 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title="Promises — external + yours to the team">
+      <Card title="Promises - external + yours to the team">
         {errors.promises && promises !== null && (
           <p className="mb-2 text-sm text-danger">Last refresh failed. Skein shows the state from the last good load. {errors.promises}</p>
         )}
@@ -384,7 +384,7 @@ export default function Portfolio() {
           pending("promises")
         ) : promises.length === 0 ? (
           <p className="text-sm text-ink-3">
-            None recorded — capture one with “promised: …”.
+            None recorded - capture one with “promised: …”.
           </p>
         ) : (
           <ul className="space-y-2 text-sm">
@@ -464,7 +464,7 @@ export default function Portfolio() {
         ) : /* a payload with no month is a payload this card cannot read.
                Reaching into it renders nothing and throws instead, and an
                exception here takes down HEALTH, CONFLICTS and the week plan
-               with it — one card must never cost the page. */
+               with it - one card must never cost the page. */
         !usage?.month ? (
           <p className="text-sm text-ink-3">Loading…</p>
         ) : usage.month.calls === 0 ? (
@@ -490,7 +490,7 @@ export default function Portfolio() {
                 {usage.month.unpriced_calls.toLocaleString()} call
                 {usage.month.unpriced_calls === 1 ? " has" : "s have"} no price.
                 The estimated cost does not include {usage.month.unpriced_calls === 1 ? "it" : "them"}.
-                {/* the fix is an env var — whoever runs the server acts on
+                {/* the fix is an env var - whoever runs the server acts on
                     it, and for everyone else it is a wall of config they
                     cannot touch */}
                 {manage
@@ -531,7 +531,7 @@ export default function Portfolio() {
         )}
       </Card>
 
-      <Card title="Flow — cycle time from real task history">
+      <Card title="Flow - cycle time from real task history">
         {errors.flow && flow !== null && (
           <p className="mb-2 text-sm text-danger">Last refresh failed. Skein shows the state from the last good load. {errors.flow}</p>
         )}
@@ -564,7 +564,7 @@ export default function Portfolio() {
                 <ul className="ml-4 list-disc text-xs text-ink-3">
                   {flow.stale_wip.map((s) => (
                     <li key={s.id}>
-                      #{s.id} {s.title} — {s.days_stale}d (@{s.assignee || "unassigned"})
+                      #{s.id} {s.title} - {s.days_stale}d (@{s.assignee || "unassigned"})
                     </li>
                   ))}
                 </ul>
@@ -618,7 +618,7 @@ export default function Portfolio() {
                     : "The ritual is complete."}
                 </p>
                 {/* the id is null when the claim outlives its report (see
-                    services/rituals.py::_existing_week_artifact) — a link to
+                    services/rituals.py::_existing_week_artifact) - a link to
                     `?id=null` opens Reports on an artifact that cannot load */}
                 {ritualOut.artifactId === null ? (
                   <p>The report for this week is no longer stored.</p>

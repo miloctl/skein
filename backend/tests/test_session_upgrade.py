@@ -35,7 +35,7 @@ def test_upgrade_target_must_match_its_ownership_name():
 
 
 def test_upgrade_refuses_optimized_python():
-    result = subprocess.run(  # noqa: S603 — this interpreter and the repository's test driver
+    result = subprocess.run(  # noqa: S603 - this interpreter and the repository's test driver
         [sys.executable, "-O", str(SCRIPT), "--help"],
         capture_output=True,
         text=True,

@@ -1,7 +1,7 @@
 """Who may CHANGE a scoped row.
 
 scope.visible_filter covers reading. It does nothing for a write, and every
-mutation here finds its row by a caller-supplied id — `UPDATE notes SET ...
+mutation here finds its row by a caller-supplied id - `UPDATE notes SET ...
 WHERE id = ?` matches a private note whoever asks. Ids are sequential small
 integers, so this is enumeration, not obscurity.
 
@@ -49,7 +49,7 @@ def crew_world(fresh_db):
 
 def _seed(cid, n=0):
     """One crew row of every kind that has an id-addressed mutation. `n` keeps
-    the engagement name unique — create_engagement refuses a duplicate, and
+    the engagement name unique - create_engagement refuses a duplicate, and
     the author test re-seeds once per call."""
     from app import ratelimit
 
@@ -187,14 +187,14 @@ def test_a_non_reader_cannot_change_a_crew_row(crew_world):
         except db.NotFound:
             refused.append(label)
         except Exception as exc:  # the point is WHICH exception, so catch broadly
-            pytest.fail(f"{label} raised {type(exc).__name__}: {exc} — expected NotFound")
+            pytest.fail(f"{label} raised {type(exc).__name__}: {exc} - expected NotFound")
         else:
             pytest.fail(f"{label} let a non-reader change a crew row")
     assert len(refused) == len(_mutations(r))
 
 
 def test_the_author_can_still_change_their_own_crew_row(crew_world):
-    """The guard must not lock the crew out of its own work — a refusal that
+    """The guard must not lock the crew out of its own work - a refusal that
     catches everyone is not a check, it is an outage."""
     # one fresh set per call: resolve, settle and disposition are terminal, and
     # delete_note removes the row a later entry in the list would edit
@@ -237,7 +237,7 @@ def test_the_refusal_does_not_confirm_the_row_exists(fresh_db):
 
 def test_a_deleted_scoped_row_leaves_no_body_in_the_ledger(fresh_db):
     """The chain is append-only and externally anchored, so a body written to
-    activity.detail is written for good — there is no later redaction."""
+    activity.detail is written for good - there is no later redaction."""
     users.ensure_user("ava")
     nid = collab.save_note("topic", "ZZBODYZZ", author="ava", actor="ava", visibility="private")[
         "id"
@@ -284,7 +284,7 @@ def test_a_superseded_crew_decision_keeps_its_tier(fresh_db):
 
 
 def test_a_scoped_blocker_gets_no_team_wide_funeral(fresh_db):
-    """The funeral is addressed to "team" — every person on the roster — and
+    """The funeral is addressed to "team" - every person on the roster - and
     it quotes the blocker's own title."""
     from datetime import UTC, datetime, timedelta
 
@@ -308,13 +308,13 @@ def _sql_text(node) -> str:
 
     Walking bare Constants instead splits `f"DELETE FROM {t} WHERE ..."` into
     "DELETE FROM " and " WHERE ...", so the table name vanishes and the
-    statement matches nothing — the exact shape that would slip past.
+    statement matches nothing - the exact shape that would slip past.
 
     The hole keeps its braces AND gains its expression, because the two scans
     need different halves of it. The mutation scan matches `{` to catch a table
     name it cannot resolve (`FROM {t}`). The read scan matches the expression
     to tell a spliced tier filter (`WHERE {WORKSPACE_ONLY}`) from any other
-    interpolation — rendered as a bare `{}` the two are the same string, and
+    interpolation - rendered as a bare `{}` the two are the same string, and
     every filtered read looks exactly like every leaking one.
 
     `+` concatenation is folded here too. Python merges ADJACENT literals at
@@ -341,8 +341,8 @@ def _statements(tree) -> list[tuple[str, str]]:
     """Every string in a module, paired with the function that owns it.
 
     Module-level SQL is owned by `<module>`. A scan that only walked
-    FunctionDef bodies read `portfolio._WAIT_SATISFIED` — three SELECTs held
-    in a module constant and spliced into queries below — as zero SQL, so a
+    FunctionDef bodies read `portfolio._WAIT_SATISFIED` - three SELECTs held
+    in a module constant and spliced into queries below - as zero SQL, so a
     leak parked in a constant was invisible to both scans.
 
     A nested function is owned by its OUTERMOST enclosing function, because
@@ -402,11 +402,11 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
     # were the only ones matched, so `INSERT OR REPLACE INTO tasks` (which
     # deletes the row and re-inserts it) and `INSERT INTO tasks ... ON
     # CONFLICT(id) DO UPDATE` both walked past. The upsert shape is already in
-    # this codebase — crews.add_member and search.index_record use it — so it
+    # this codebase - crews.add_member and search.index_record use it - so it
     # is the one a next author reaches for by example.
     stmt = re.compile(rf"\b(?:UPDATE|DELETE FROM)(?:\s+OR\s+\w+)?\s+(?:{names}|\{{)", re.I)
     # An upsert carries no WHERE at all, so the id gate below cannot apply to
-    # it — the row is addressed by the conflict target or by an explicit id
+    # it - the row is addressed by the conflict target or by an explicit id
     # column. Gated on `id` appearing somewhere in the statement, so an
     # `ON CONFLICT(name)` upsert is not claimed as id-addressed.
     upsert = re.compile(
@@ -420,7 +420,7 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
     # parameter: `def edit(row: int)` with `UPDATE tasks ... WHERE id = ?`
     # took a caller-supplied id and matched nothing.
     # `\bid`, and only after WHERE. Any `*_id` column matched create_engagement's
-    # `UPDATE milestones SET engagement_id = ? WHERE project = ?` — a write keyed
+    # `UPDATE milestones SET engagement_id = ? WHERE project = ?` - a write keyed
     # on a NAME, which is the one shape this test must not claim. A word
     # boundary before `id` cannot match inside `engagement_id`, because the
     # preceding underscore is a word character.
@@ -454,7 +454,7 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
         " _EXEMPT_FUNCTIONS with the reason."
     )
     # the other direction. An exemption that names no live function is a
-    # carve-out nobody can audit — "submit_for_acceptance" named nothing at
+    # carve-out nobody can audit - "submit_for_acceptance" named nothing at
     # all, and a bare "delete_note" exempted private_notes.delete_note too
     assert not set(_EXEMPT_FUNCTIONS) - seen, (
         f"exemptions naming no function: {sorted(set(_EXEMPT_FUNCTIONS) - seen)}."
@@ -527,7 +527,7 @@ _EXEMPT_FUNCTIONS = {
     # An upload is owned like a CHAT THREAD, not like a scoped content row:
     # services/uploads.py keys every read and write on created_by against the
     # resolved name, which is the one filter that works in trusted-header mode
-    # too. scope.assert_editable would be the wrong check here — it resolves
+    # too. scope.assert_editable would be the wrong check here - it resolves
     # crews and tiers for a row this one deliberately never shares, and its
     # private tier is unreadable to a nameless viewer, so the uploader could
     # not reach their own file.
@@ -611,7 +611,7 @@ _EXEMPT_FUNCTIONS = {
     "handoff.py::generate_handoff": (
         "the engagement is filtered through the caller's viewer before anything"
         " runs, and the artifact row updated is the one this call resolved by"
-        " PATH inside that engagement's own directory — not a row id a caller"
+        " PATH inside that engagement's own directory - not a row id a caller"
         " named. It is an upsert of a file this call just overwrote, so the row"
         " and the file stay one to one"
     ),
@@ -621,7 +621,7 @@ _EXEMPT_FUNCTIONS = {
 def test_recall_answers_one_person_out_of_their_own_memories(fresh_db):
     """memory_prompt injects whatever recall returns into a system prompt,
     where nothing later tells the asker's own memories from anyone else's.
-    Both axes — the user and the tier — apply to every branch."""
+    Both axes - the user and the tier - apply to every branch."""
     users.ensure_user("ava")
     users.ensure_user("bo")
     memory.remember("ava likes rust", user="ava", actor="ava")
@@ -652,7 +652,7 @@ def test_recall_with_no_person_returns_only_team_wide_memories(fresh_db):
 
 def test_a_private_memory_never_reaches_a_system_prompt(fresh_db):
     """The agent path passes NOBODY, so a private memory is not injected even
-    for its own author — recall has no strong identity to check there."""
+    for its own author - recall has no strong identity to check there."""
     users.ensure_user("ava")
     memory.remember("ZZSECRETZZ", user="ava", actor="ava", visibility="private")
     assert "ZZSECRETZZ" not in memory.memory_prompt("ava")
@@ -661,7 +661,7 @@ def test_a_private_memory_never_reaches_a_system_prompt(fresh_db):
 def test_a_private_capture_that_reads_as_a_blocker_still_lands(fresh_db):
     """capture.py hardcodes owner=actor, so without the author self-exemption
     in assert_readable_by every private capture that classified as a blocker
-    was refused — naming a remedy ("leave the owner empty") the caller has no
+    was refused - naming a remedy ("leave the owner empty") the caller has no
     way to take."""
     from app.services import capture
 
@@ -673,7 +673,7 @@ def test_a_private_capture_that_reads_as_a_blocker_still_lands(fresh_db):
 
 def test_a_private_standup_with_blockers_text_is_not_rolled_back(fresh_db):
     """post_standup forks its blockers text into a blocker with owner=author,
-    inside the standup's own transaction — a refusal there loses the standup
+    inside the standup's own transaction - a refusal there loses the standup
     too, not just the blocker."""
     users.ensure_user("ava")
     collab.post_standup(
@@ -741,7 +741,7 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
 
 # ---------------------------------------------------------------------------
 # The read side. test_every_id_addressed_mutation_is_listed covers mutations,
-# and it found almost nothing — the reads are where the leaks were: nine of
+# and it found almost nothing - the reads are where the leaks were: nine of
 # them in one review round, every one a place somebody had to remember.
 #
 # A read of a CLASSIFIED table has to do one of three things: take a `viewer`,
@@ -814,7 +814,7 @@ _UNFILTERED_READS = {
     ),
     "usage.py::sole_delegation_engagement": (
         "reads only which ENGAGEMENT an agent's open delegations resolve to,"
-        " for cost attribution — no row content reaches any caller, the"
+        " for cost attribution - no row content reaches any caller, the"
         " result is an integer written to usage_log, and the one surface"
         " that renders it (engagement_costs) re-applies the viewer's own"
         " filter and masks names it may not show. Splicing WORKSPACE_ONLY"
@@ -834,7 +834,7 @@ _UNFILTERED_READS = {
     "documents.py::_check_source": (
         "reads ONLY the visibility of a candidate source in order to REFUSE"
         " it. No column reaches a caller, and a source that is not workspace"
-        " is rejected — which is the opposite of a leak"
+        " is rejected - which is the opposite of a leak"
     ),
     "documents.py::_document_row": (
         "loads the artifact an agent named so the edit can refuse anything"
@@ -850,7 +850,7 @@ _UNFILTERED_READS = {
         " no column of the row reaches a caller"
     ),
     "uploads.py::list_uploads": (
-        "one person's OWN uploads, keyed on created_by — the surface that"
+        "one person's OWN uploads, keyed on created_by - the surface that"
         " makes the quota usable. A viewer filter would return nothing here:"
         " an upload carries the private tier, and scope.visible_filter drops"
         " the author arm for a nameless viewer"
@@ -870,7 +870,7 @@ _UNFILTERED_READS = {
         " route cannot tell a caller that somebody else's row exists"
     ),
     "policy_context.py::hold_resource": (
-        "takes a row lock and returns NOTHING — no column of the row reaches a"
+        "takes a row lock and returns NOTHING - no column of the row reaches a"
         " caller, so there is no tier to leak. It exists so a policy decision"
         " and the write it authorizes see one state; filtering it by viewer"
         " would let an unheld row change under a decision that was allowed to"
@@ -931,27 +931,27 @@ _UNFILTERED_READS = {
     "promises.py::_chase_received_locked": (
         "a job, so no viewer exists. It reads every tier ON PURPOSE: the"
         " personal nudge goes to the row's own author and leaks nothing at any"
-        " tier. What LEAVES is guarded twice — the team-wide escalation fires"
+        " tier. What LEAVES is guarded twice - the team-wide escalation fires"
         " only for a workspace-tier row, and it names no party, because"
         " `to_whom` is free text that nothing stops from being a teammate"
     ),
     "playbooks.py::_exists": (
         "returns one BIT and never a column. close_out_diff uses it only to"
         " tell a deleted row from one hidden from this caller, because those"
-        " two must not produce the same sentence — a hidden ritual reported as"
+        " two must not produce the same sentence - a hidden ritual reported as"
         " skipped is both a leak and a false claim. Split out under its own"
         " name so this entry cannot excuse close_out_diff's real reads"
     ),
     "playbooks.py::_snapshot": (
         "reads back the rows instantiate JUST created, by id, inside its own"
-        " transaction — there is no viewer at kickoff, and the tier of a row"
+        " transaction - there is no viewer at kickoff, and the tier of a row"
         " this function itself wrote cannot exclude it from its own plan"
     ),
     "playbooks.py::snapshot_for": (
         "reads one artifacts row for a PATH and nothing else, and the path is"
         " useless on its own. close_out_diff is the caller that opens it, and"
         " it re-reads every id through a viewer filter AND refuses the whole"
-        " diff when any row comes back hidden — a snapshot title is never"
+        " diff when any row comes back hidden - a snapshot title is never"
         " emitted on the strength of the snapshot alone"
     ),
     "engagements.py::_playbook_lesson_locked": (
@@ -984,7 +984,7 @@ _UNFILTERED_READS = {
     ),
     "delegation.py::list_worklog": (
         "the `party` branch only, and it is gated per task on that task's own"
-        " delegated_agent/sponsor columns — the same two identities"
+        " delegated_agent/sponsor columns - the same two identities"
         " report_progress lets WRITE there. It exists because an agent holds"
         " no crew membership, so the tier filter refused a crew worklog the"
         " agent was writing. A private task can never carry a delegate"
@@ -995,16 +995,16 @@ _UNFILTERED_READS = {
         "TWO reads, and this scanner keys on the FUNCTION, so both need the"
         " reason here. Allocations: percent per person per week plus the"
         " engagement NAME, masked by scope.visible_name against the caller's"
-        " viewer — the same treatment allocation_conflicts gives that column."
+        " viewer - the same treatment allocation_conflicts gives that column."
         " Absences: person and dates are the honest core of unavailability,"
         " and the KIND is masked to 'away' on any non-workspace row, matching"
         " absences.away_today. Reading only the first query is how the"
-        " absence leak got here — visible_name anywhere in a body satisfies"
+        " absence leak got here - visible_name anywhere in a body satisfies"
         " this scan for every other query in it."
     ),
     "insights.py::forecast_calibration": (
         "julianday differences between a snapshot's forecast_date and a"
-        " milestone's completed_at. No title, no id, no name — the same shape"
+        " milestone's completed_at. No title, no id, no name - the same shape"
         " as slip_forecast below, which reads the same table"
     ),
     "portfolio.py::slip_forecast": (
@@ -1032,12 +1032,12 @@ _UNFILTERED_READS = {
     ),
     "intervention.py::_question_still_open": (
         "reads only whether one question, named by id from a finding the"
-        " queue already policy-filtered, is still open — a boolean that"
+        " queue already policy-filtered, is still open - a boolean that"
         " decides if a cleared condition keeps presenting as a current call."
         " No column reaches a caller"
     ),
     "review.py::season_readout": (
-        "COUNT(*) of accepted delegations for the season card — no row"
+        "COUNT(*) of accepted delegations for the season card - no row"
         " content reaches any caller, and the count must be the season's"
         " whole truth: spliced WORKSPACE_ONLY would undercount crew"
         " delegations and the exit-trigger read would claim less flow than"
@@ -1064,14 +1064,14 @@ _UNFILTERED_READS = {
         "the tasks waiting on this blocker, to tell their assignees it cleared."
         " An assignee is a name work.py:186 and work.py:348 already checked as"
         " a reader (assert_readable_by), so the title goes to somebody who can"
-        " open it — the same rule sweep_escalations follows."
+        " open it - the same rule sweep_escalations follows."
     ),
     "search.py::visible_hits": (
         "reads the tier columns for a page of hits, batched by table, and then"
-        " applies scope.can_read to each — it IS the filter for FTS results,"
+        " applies scope.can_read to each - it IS the filter for FTS results,"
         " which carry no tier of their own"
     ),
-    "search.py::_tier_of": "reads the tier itself — the thing every filter asks for",
+    "search.py::_tier_of": "reads the tier itself - the thing every filter asks for",
     "search.py::_is_private": "same, and it is the guard that keeps a private row unindexed",
     # --- write paths: the SELECT feeds the guard, not a response ---
     "engagements.py::create_engagement": "reads its own name, NOCASE, to refuse a duplicate",
@@ -1090,16 +1090,16 @@ _UNFILTERED_READS = {
     "engagements.py::_experiment_lesson": "same",
     # --- jobs that carry their own rule ---
     "blockers.py::_sweep_escalations_locked": (
-        "escalates every tier on purpose — a crew blocker that silently never"
+        "escalates every tier on purpose - a crew blocker that silently never"
         " escalates is worse than one nobody is told about. The notify and the"
         " ledger line inside it ARE tier-gated."
     ),
     "collab.py::_sweep_stale_decisions_locked": "same rule, same two gates inside",
     "digest.py::publish_digest": "upserts its own artifact row, keyed on the file path",
     "rituals.py::_write_artifact": "same",
-    "readout.py::exec_readout": "same — and its body is built from filtered readers",
+    "readout.py::exec_readout": "same - and its body is built from filtered readers",
     # --- deliberate carve-outs, argued where the code lives ---
-    "absences.py::away_today": "capacity must be honest — see the comment there",
+    "absences.py::away_today": "capacity must be honest - see the comment there",
     "absences.py::weekday_overlap": "same",
     "my_data.py::list_private": (
         "lists the caller's own private rows by author, the one reader a private"
@@ -1128,7 +1128,7 @@ _UNFILTERED_READS = {
     ),
     "retention.py::prune": (
         "its orphan-reaping NOT IN subqueries decide what to DELETE, so a"
-        " filter there does not hide rows — it deletes live ones"
+        " filter there does not hide rows - it deletes live ones"
     ),
 }
 
@@ -1138,7 +1138,7 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
 
     Nine leaks in one review round were all this shape: a SELECT on a scoped
     table in a function with no viewer and no WORKSPACE_ONLY. Four of them sat
-    under a comment claiming the table carried no settable tier — true when
+    under a comment claiming the table carried no settable tier - true when
     written, false by the time it shipped. A comment cannot hold this; CI can.
     """
     import pathlib
@@ -1155,14 +1155,14 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
     is_sql = re.compile(r"\b(?:SELECT|INSERT|UPDATE|DELETE)\b", re.I)
     # the tier filter as it appears in SQL: the WORKSPACE_ONLY constant, a
     # visible_filter call spliced inline, or the name a caller bound its
-    # fragment to. Bare `viewer` is NOT proof — a function can take the
+    # fragment to. Bare `viewer` is NOT proof - a function can take the
     # parameter and never use it, which is a leak that reads as filtered.
     #
     # visible_name counts, and it is the one entry here that MASKS rather than
     # excludes: the rows all stay and one column is replaced. It is accepted
     # because the capacity surfaces have to sum every tier to stay honest (see
     # scope.visible_name). Reach for it only when the row's existence is
-    # already public and its NAME is the secret — on any other query it
+    # already public and its NAME is the secret - on any other query it
     # answers this scan while leaking every other column.
     filtered = re.compile(r"\b(?:WORKSPACE_ONLY|visible_filter|visible_name)\b")
     by_id = re.compile(r"\bWHERE\s+\w*\.?id\s*=\s*\?")
@@ -1174,7 +1174,7 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
         # NOT _EXEMPT_FILES: that set excuses digest.py and rituals.py from the
         # MUTATION scan, because their only writes are artifact upserts keyed
         # on a file path. Their reads are the egress builders this test exists
-        # for. admin.py is the one file excused here — it is the whole-database
+        # for. admin.py is the one file excused here - it is the whole-database
         # export surface, gated on AdminUser and enumerated in admin.TABLES.
         if path.name == "admin.py":
             continue
@@ -1196,7 +1196,7 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
             # intermediates: list_decisions does `frag, vp = visible_filter(...)`
             # and then `where, params = [frag], list(vp)`, so the statement
             # splices `where` and the call appears nowhere near it. One hop is
-            # not enough — the second assignment names only the first.
+            # not enough - the second assignment names only the first.
             changed = True
             while changed:
                 changed = False
@@ -1220,7 +1220,7 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
             bound.setdefault(fn.name, set()).update(names)
         # a function that guards with assert_editable reads its row to feed the
         # guard. That escape is per STATEMENT and only for a read keyed on the
-        # id the guard then checks — held at function level it excused every
+        # id the guard then checks - held at function level it excused every
         # other query beside it, which is how the leaks got in.
         guarded = {
             fn.name
@@ -1305,7 +1305,7 @@ def test_publishing_a_crew_pack_is_no_weaker_a_door_than_reading_one(fresh_db):
     with pytest.raises(db.NotFound):  # and a non-member
         context_pack.publish_pack(actor="bo", crew_id=cid, viewer=scope.Viewer("bo", True))
     assert context_pack.publish_pack(actor="ava", crew_id=cid, viewer=ava)["version"] == 1
-    # the TEAM pack stays open — it carries workspace rows only
+    # the TEAM pack stays open - it carries workspace rows only
     assert context_pack.publish_pack(actor="scheduler")["version"] >= 1
 
 
@@ -1347,7 +1347,7 @@ def test_a_crew_pack_is_a_separate_artifact_file(fresh_db):
 
 def test_a_crew_member_can_open_the_pack_for_their_own_engagement(fresh_db):
     """Locked to the workspace tier, a member saw their engagement in
-    GET /api/engagements and got "not found" asking for its pack — a correct
+    GET /api/engagements and got "not found" asking for its pack - a correct
     refusal with a misleading sentence."""
     from app.services import context_pack, crews, engagements
 
@@ -1384,9 +1384,9 @@ def test_a_handoff_artifact_carries_its_engagements_tier(fresh_db):
     )
     assert row == {"visibility": "crew", "crew_id": cid}
     titles = lambda v: sorted(a["title"] for a in handoff.list_artifacts(viewer=v))  # noqa: E731
-    assert titles(author) == ["Handoff — open", "Handoff — scoped"]
-    assert titles(scope.Viewer("bo", True)) == ["Handoff — open"]
-    assert titles(scope.NOBODY) == ["Handoff — open"]
+    assert titles(author) == ["Handoff - open", "Handoff - scoped"]
+    assert titles(scope.Viewer("bo", True)) == ["Handoff - open"]
+    assert titles(scope.NOBODY) == ["Handoff - open"]
 
 
 def _key(owner):
@@ -1398,7 +1398,7 @@ def _key(owner):
 
 def test_a_milestone_and_an_event_take_a_tier_over_rest(client, fresh_db):
     """Both services accepted one before any surface offered it. Neither has a
-    create form in this UI — REST, the CLI and the agent tools are the whole
+    create form in this UI - REST, the CLI and the agent tools are the whole
     surface."""
     users.ensure_user("ava")
     from app.services import crews

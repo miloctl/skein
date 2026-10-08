@@ -243,7 +243,7 @@ def test_the_last_steward_guard_holds_under_concurrency(fresh_db):
 
 
 def test_removal_resolves_the_roster_name(fresh_db):
-    """add_member resolves case-insensitively, so removal must too — one
+    """add_member resolves case-insensitively, so removal must too - one
     condition, one resolution rule."""
     users.ensure_user("ava")
     users.ensure_user("Bo")
@@ -254,7 +254,7 @@ def test_removal_resolves_the_roster_name(fresh_db):
 
 
 def test_assert_writable_is_the_phase_three_write_guard(fresh_db):
-    """Without it a writer scopes a row into a crew they are not in — either
+    """Without it a writer scopes a row into a crew they are not in - either
     injecting it into that crew's reading list, or hiding it from everyone
     including themselves."""
     users.ensure_user("ava")
@@ -276,7 +276,7 @@ def test_assert_writable_is_the_phase_three_write_guard(fresh_db):
 
 def test_a_member_removed_by_body_survives_a_slash_in_the_name(client, fresh_db):
     """A roster name may hold any character, and starlette matches no path
-    segment containing `/` even percent-encoded — the person was addable and
+    segment containing `/` even percent-encoded - the person was addable and
     then unremovable by any request a client could form."""
     from app.services.api_keys import create_key
 
@@ -330,7 +330,7 @@ def test_crew_membership_records_provenance(fresh_db):
 
 def test_a_deactivated_crew_takes_nobody_new(fresh_db):
     """crews_of keeps returning a deactivated crew so its rows stay readable, so
-    adding a member to one would hand them every row already scoped to it —
+    adding a member to one would hand them every row already scoped to it -
     the opposite of what retiring means."""
     users.ensure_user("ava")
     users.ensure_user("bo")
@@ -361,7 +361,7 @@ def test_a_key_holder_cannot_take_a_crew_from_its_steward(client, fresh_db):
     """_is_admin returns True for EVERY strong caller in a default
     trusted-header deployment (the scarcity fallback). Applied to crews that
     let any key holder make themselves steward and evict the one who was
-    there — in three calls, on a boundary that decides what a person reads."""
+    there - in three calls, on a boundary that decides what a person reads."""
     users.ensure_user("ava")
     crew = crews.create_crew("Platform", actor="ava")
     hdr = _key(client, "mallory")
@@ -421,7 +421,7 @@ def test_a_crew_edit_is_refused_in_the_service_not_only_the_route(fresh_db):
     """Crew membership decides what every person reads, so the guard belongs
     to the data and not to one door. All three mutators used to be authorized
     only by routes/api.py::_crew_admin_override, which meant a caller that was
-    not that route — a future tool, a CLI command, a job — wrote with no check
+    not that route - a future tool, a CLI command, a job - wrote with no check
     at all, and a steward demoted between the route's check and the service's
     transaction still landed the write."""
     users.ensure_user("ava")
@@ -431,7 +431,7 @@ def test_a_crew_edit_is_refused_in_the_service_not_only_the_route(fresh_db):
     crews.add_member(cid, "bo", actor="ava")
 
     # a member who is not a steward, and a stranger: both refused, and by the
-    # SERVICE — these calls never touch a route
+    # SERVICE - these calls never touch a route
     for who in ("bo", "mallory"):
         for call in (
             lambda a=who: crews.add_member(cid, "mallory", actor=a),
@@ -468,8 +468,8 @@ def test_the_steward_refusal_is_403_and_names_no_crew_detail(client, fresh_db):
 def test_concurrent_fold_equal_names_make_only_one_crew(fresh_db):
     """Two spellings that fold to one name cannot both become crews.
 
-    The unique index is on lower(name), and folding is users.fold — NFKC plus
-    zero-width stripping — which no collation reproduces, so the index cannot
+    The unique index is on lower(name), and folding is users.fold - NFKC plus
+    zero-width stripping - which no collation reproduces, so the index cannot
     back the collision scan up. Measured without the name lock: NFC and NFD
     "Café Crew" both passed the scan and both inserted, leaving two crews that
     render identically in the picker that decides who can read a row."""

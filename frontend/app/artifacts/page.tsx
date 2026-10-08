@@ -20,7 +20,7 @@ import { timeAgo } from "@/lib/time";
  *
  *  The digest, the Monday brief, the Friday close-out, the exec readout and
  *  handoff packages were all being written daily and weekly to files under
- *  data/artifacts/ with a row pointing at each one — and no surface read them
+ *  data/artifacts/ with a row pointing at each one - and no surface read them
  *  back. The digest in particular had NO reader at all: the scheduler wrote it
  *  at 07:00 every day and the only way to see one was to shell into the
  *  container. The two that did have buttons dumped raw markdown into a <pre>.
@@ -112,7 +112,7 @@ function ThreadLink({ thread }: { thread: EntityRef }) {
 
 export default function ArtifactsPage() {
   // null until the fetch settles: [] would render "No report yet" during the
-  // first paint and again after a failed load — a verdict about data that
+  // first paint and again after a failed load - a verdict about data that
   // never arrived (the idiom app/portfolio/page.tsx records).
   const [list, setList] = useState<Artifact[] | null>(null);
   const [listError, setListError] = useState("");
@@ -122,7 +122,7 @@ export default function ArtifactsPage() {
   const [openId, setOpenId] = useState<number | null>(null);
   // Both carry the id they belong to. A second click while the first read is
   // in flight resolves in whatever order the network returns, and keying the
-  // result means a late arrival is ignored at RENDER time — no clearing on the
+  // result means a late arrival is ignored at RENDER time - no clearing on the
   // way in, which is what would make this a cascading-render effect.
   const [body, setBody] = useState<{ id: number; data: Body } | null>(null);
   const [bodyRequest, setBodyRequest] = useState(0);
@@ -177,7 +177,7 @@ export default function ArtifactsPage() {
         }
       })
       .catch((e) => {
-        // stays null: [] would render "No report yet" beside the failure — a
+        // stays null: [] would render "No report yet" beside the failure - a
         // verdict about data that never arrived, which is the exact thing the
         // null-until-settled state above exists to prevent
         setListError(loadError(e));
@@ -233,7 +233,7 @@ export default function ArtifactsPage() {
 
 
 
-  // only the result that belongs to the report currently open — a body or an
+  // only the result that belongs to the report currently open - a body or an
   // error left over from the previous pick renders as neither
   const shown = body?.id === openId ? body.data : null;
   const failure = bodyError?.id === openId ? bodyError.message : "";
@@ -327,8 +327,8 @@ export default function ArtifactsPage() {
         </div>
       ) : null}
 
-      {/* One state at a time. The failure is not "still loading" — it is where
-          the loading stopped — and printing both leaves the reader waiting for
+      {/* One state at a time. The failure is not "still loading" - it is where
+          the loading stopped - and printing both leaves the reader waiting for
           a list that is never coming (__tests__/loading-states.test.tsx). */}
       {listError ? (
         <p className="text-sm text-danger">{listError}</p>

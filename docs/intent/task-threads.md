@@ -374,7 +374,7 @@ status}`:
 One commit per slice, each passing `./scripts/lint.sh` and both full suites, with a CHANGELOG
 `## Unreleased` entry. Every new test fails against the code before its slice (CLAUDE.md).
 
-### Slice 1 — The thread for people (backend)
+### Slice 1 - The thread for people (backend)
 
 The migration, the service (no wake, no thread notices), the eight routes,
 `_HANDLER_POLICY`, `mentions.scan(parent=)`, `search._ENTITY_TABLE`, the three VERBS, the
@@ -394,7 +394,7 @@ Failing first, in `backend/tests/test_comments.py`:
 - `comment tier <= parent tier` holds after `share_with_team` on the parent. Deleting a private
   task through Your data removes its comments.
 
-### Slice 2 — The task panel, the deep link, the knot
+### Slice 2 - The task panel, the deep link, the knot
 
 `comment-thread.tsx`, the mount in `task-peek.tsx`, `openTaskPeek(taskId, anchor)`, and
 `PeekLink` for `?task=` notice rows. The first user-facing slice, so the card ships here:
@@ -420,7 +420,7 @@ the deleter and no text, and an edited row says "edited". `decision #41` in a bo
 only when `refs` carries it. A `?task=12#comment-9` notice row renders `PeekLink`, not
 next/link.
 
-### Slice 3 — The sponsor steers
+### Slice 3 - The sponsor steers
 
 The wake rule (D6), `woke` in the POST answer, the composer hint, the status line. Failing
 first: a human comment with @delegate on an open task queues exactly one `agent_wakeups` row
@@ -429,7 +429,7 @@ agent-origin @delegate, and an edit that adds @delegate queue nothing. An @agent
 the delegate gets a notice and no wake. A crew task's delegate is woken, though `scan` cannot
 reach it.
 
-### Slice 4 — The agent answers
+### Slice 4 - The agent answers
 
 The two tools, `as_delegate`, the D5 registries, `_creates_in_a_crew`, the gate-coverage and
 flock-turn entries, `WAKE_TOOLS`, `_WAKE`, `agent_inbox.new_comments`, SECURITY.md "Agent
@@ -447,13 +447,13 @@ writes", and the tool counts (63 to 65 in README.md and FEATURES.md). Failing fi
   lists it again after Ana edits it. The REST inbox carries no body. Every tool that `_WAKE`
   names is in `WAKE_TOOLS`.
 
-### Slice 5 — Thread notices (owner)
+### Slice 5 - Thread notices (owner)
 
 D7. Failing first: Dana answers Raj without @raj, and Raj gets one notice. A second comment
 while it is unread adds none. A mentioned person gets one notice, not two. A crew non-member
 and agents get none. A comment on a decision tells its decider.
 
-### Slice 6 — Decision and blocker threads in the UI (owner)
+### Slice 6 - Decision and blocker threads in the UI (owner)
 
 The D10 mounts in `app/charter/page.tsx` and the Blockers section of `app/dashboard/page.tsx`.
 The `threads` card's `how:` gains "On Team → Charter, or on a row in Work → Browse → Blockers,

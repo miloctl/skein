@@ -11,11 +11,11 @@ type Suggestion = { id: string; feature: string; pitch: string; link: string };
 
 /** One quiet line on My Day: a single untried feature, rotating weekly.
  *  Dismissing suppresses that suggestion permanently (server-side, follows
- *  the person). Uses the side-effect-free /hint endpoint — the full guide
+ *  the person). Uses the side-effect-free /hint endpoint - the full guide
  *  GET would consume the "newly tied" strip before the page ever shows it. */
 export function GuideHint() {
   const [s, setS] = useState<Suggestion | null>(null);
-  // a click must beat a slow in-flight fetch — a dismissed suggestion
+  // a click must beat a slow in-flight fetch - a dismissed suggestion
   // resurrected by a late response would make × look broken
   const dismissed = useRef(false);
   const line = useRef<HTMLParagraphElement>(null);
@@ -34,7 +34,7 @@ export function GuideHint() {
       <span>
         <span aria-hidden>🧶 </span>
         Something you have not tried yet:{" "}
-        <span className="font-medium text-ink-2">{s.feature}</span> — {s.pitch}
+        <span className="font-medium text-ink-2">{s.feature}</span> - {s.pitch}
       </span>
       {s.id === "first_watch" ? (
         <button type="button" onClick={startFirstWatch} className="underline hover:text-ink-2">
@@ -75,7 +75,7 @@ export function GuideHint() {
               reportStatus(`Skein does not suggest ${prev.feature} again.`, "confirmation"),
             )
             .catch(() => {
-              // the dismissal didn't stick — showing it again is the truth
+              // the dismissal didn't stick - showing it again is the truth
               dismissed.current = false;
               setS(prev);
             });

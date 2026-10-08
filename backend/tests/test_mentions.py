@@ -146,7 +146,7 @@ def test_a_self_mention_is_silent_for_a_mixed_case_name(fresh_db):
     from app.services import users, work
 
     users.ensure_user("Mira")
-    # the roster returns canonical case and `skip` holds lower case — every
+    # the roster returns canonical case and `skip` holds lower case - every
     # other test uses an all-lowercase name, so this comparison is unpinned
     work.create_task("Fix login", description="note to self @Mira", actor="Mira")
     assert _unread("Mira") == []

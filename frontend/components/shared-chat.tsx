@@ -291,7 +291,7 @@ export function SharedChat({
         setHasOlder(rows.length === PAGE_SIZE || (afterStart > 0 && rows.length > 0));
         latestId.current = rows.at(-1)?.id ?? 0;
         // A deep link marks read only through the linked message. The rows
-        // after it were fetched for the transcript, not seen — marking them
+        // after it were fetched for the transcript, not seen - marking them
         // read would clear unread the reader never looked at.
         markRead(
           target
@@ -387,7 +387,7 @@ export function SharedChat({
       } catch (caught) {
         if (!live) return;
         const said = actionError(caught);
-        // A transient detail fault leaves the loaded room in place — only a
+        // A transient detail fault leaves the loaded room in place - only a
         // definite not-found means access ended. Same policy as the message
         // poll below; anything else here left a permanent backend-unreachable
         // alert over a composer that works.
@@ -457,7 +457,7 @@ export function SharedChat({
           latestId.current = fresh[fresh.length - 1].id;
           const newest = fresh.filter((row) => !ownSent.current.has(row.id)).at(-1);
           for (const id of ownSent.current) if (id <= latestId.current) ownSent.current.delete(id);
-          // The message id keeps consecutive same-author strings distinct —
+          // The message id keeps consecutive same-author strings distinct -
           // identical state makes React skip the DOM write, and a live
           // region that does not mutate announces nothing.
           if (newest) {
@@ -576,7 +576,7 @@ export function SharedChat({
       );
       setMessages((current) => mergeMessages(current, [tombstone]));
       setDeleteConfirm(null);
-      // The trigger button is gone with the deleted text — land focus on the
+      // The trigger button is gone with the deleted text - land focus on the
       // tombstoned message so keyboard position is not lost.
       setTimeout(
         () => document.getElementById(`shared-message-${messageId}`)?.focus(),
@@ -818,7 +818,7 @@ export function SharedChat({
     : [];
   // An @mention calls an agent only at the start of the message (pinned by
   // the backend's leading-mention check). A mid-message mention silently
-  // does nothing — surface that before the send, not after.
+  // does nothing - surface that before the send, not after.
   const agentSlugs = agents.map((member) => member.person);
   // Enter on a partial slug must complete instead of sending "@bac", which
   // calls nobody (the backend wants the full slug).
@@ -973,7 +973,7 @@ export function SharedChat({
                       Agent to add
                       <select
                         // The detail poll can drop the drafted slug from
-                        // availablePersonas (another steward added it) — a
+                        // availablePersonas (another steward added it) - a
                         // stale value renders blank while the button re-adds.
                         value={
                           availablePersonas.some((persona) => persona.slug === agentDraft)
@@ -1226,7 +1226,7 @@ export function SharedChat({
         </section>
       ) : null}
 
-      {/* the live region stays mounted while empty — one that first appears
+      {/* the live region stays mounted while empty - one that first appears
           already populated is frequently not announced at all */}
       <div
         aria-live="polite"

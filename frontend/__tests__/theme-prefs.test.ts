@@ -19,7 +19,7 @@ import {
 
 /** Theme prefs are the one piece of state that must never take the page
  *  down: every reader falls back to a working default on garbage, and a
- *  rejected theme code leaves ZERO residue — a half-applied code is a theme
+ *  rejected theme code leaves ZERO residue - a half-applied code is a theme
  *  no picker can reproduce or undo. */
 
 const mocks = vi.hoisted(() => ({

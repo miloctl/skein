@@ -351,7 +351,7 @@ frontend suites, and adds a CHANGELOG `## Unreleased` entry. Each new test
 must fail against the code before the change. GitLab payloads come from
 `gitlab_payloads.py` under the D14 exception.
 
-### Slice 1 — Record the approval, and GitLab push and merge request events move tasks
+### Slice 1 - Record the approval, and GitLab push and merge request events move tasks
 
 - CLAUDE.md "Runtime isolation" and `docs/intent/work-durability.md` (D9).
   In work-durability, "Signed Gitea replay boundary" becomes "Forge replay
@@ -382,7 +382,7 @@ reused `Idempotency-Key` with other bytes answers 400, and the same bytes
 under a new key get an alias receipt and move nothing. Gitea and GitLab
 deliveries for one URL keep separate namespaces.
 
-### Slice 2 — A `Closes-Task` line in a description closes the task (B1)
+### Slice 2 - A `Closes-Task` line in a description closes the task (B1)
 
 - `forge.py`: `_TRAILER` and the fourth scan (D7).
 - `docs/FEATURES.md` "Branch-aware git flow" (273): the forge reads what
@@ -396,7 +396,7 @@ stay None. The bounded-and-linear test covers `_TRAILER`. A merged Gitea
 pull request and the GitLab merge request fixture, each on a non-task branch
 with the trailer, close the task.
 
-### Slice 3 — A red GitLab pipeline on the default branch files a blocker (B2)
+### Slice 3 - A red GitLab pipeline on the default branch files a blocker (B2)
 
 - `db.py` `LOCK_CI_SOURCE`, `ci.py` (D8), and in `forge.py` the pipeline
   rows of `parse_gitlab` plus the `kind == "pipeline"` branch in
@@ -410,7 +410,7 @@ it. Running, cancelled, tag and merge-request-ref pipelines do nothing. With
 default branch `develop`, a red `develop` run files. A policy DENY writes
 nothing and leaves no receipt.
 
-### Slice 4 — Connect GitLab from Settings
+### Slice 4 - Connect GitLab from Settings
 
 - Settings → Connections (`frontend/app/settings/page.tsx:2196-2211`): the
   section title becomes "Code forge webhooks (optional)". Add a `CopyLine`
@@ -444,7 +444,7 @@ nothing and leaves no receipt.
 Test: a new `frontend/__tests__/settings-connections.test.tsx` finds the
 GitLab URL and the name `SKEIN_GITLAB_WEBHOOK_TOKEN` in Connections.
 
-### Slice 5 — `skein context --write` keeps the rest of the file
+### Slice 5 - `skein context --write` keeps the rest of the file
 
 - `cli/skein_cli.py`: the D10 merge, and `--force` on the `context` parser
   (1338-1346).
@@ -457,7 +457,7 @@ no markers is refused, and `--force` appends. Broken markers are refused
 with and without `--force`. An end marker inside the pack text does not end
 the block. A symlink stays a symlink.
 
-### Slice 6 — The engagement comes from the marker, and pack text is flattened (B3)
+### Slice 6 - The engagement comes from the marker, and pack text is flattened (B3)
 
 - `cli/skein_cli.py`: `engagement=` in the start marker, the refresh from
   the marker (D11), `tier=workspace` on every write, and the `--engagement`

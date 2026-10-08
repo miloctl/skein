@@ -30,7 +30,7 @@ spec:
       # compromised container unnecessary namespace credentials.
       automountServiceAccountToken: false
       # 210s: an agent chat turn tolerates 180s of member silence
-      # (routes/chat.py) — the default 30s grace kills mid-turn transcripts.
+      # (routes/chat.py) - the default 30s grace kills mid-turn transcripts.
       terminationGracePeriodSeconds: 210
       securityContext:
         runAsNonRoot: true
@@ -55,7 +55,7 @@ spec:
           env:
             # Components rather than one stored URL, so the password stays in
             # the Secret and the host stays in the ConfigMap. The backend
-            # refuses to start without them (config.py) — there is no default
+            # refuses to start without them (config.py) - there is no default
             # that could quietly serve an empty database instead.
             - name: SKEIN_DB_HOST
               valueFrom:
@@ -69,7 +69,7 @@ spec:
                   key: SKEIN_DB_PORT
             # The APPLICATION role, not the bootstrap superuser that
             # initialised the cluster. A superuser can COPY ... FROM PROGRAM,
-            # which runs shell commands on the database pod — see the reason
+            # which runs shell commands on the database pod - see the reason
             # written out in base/postgres.yaml. /health reports it if this
             # ever points at a superuser again.
             - name: SKEIN_DB_USER
@@ -85,7 +85,7 @@ spec:
             # No SKEIN_DATABASE_URL here on purpose: the backend composes the
             # conninfo from these components (config._database_url), so a
             # generated password holding @ : / % ? or # never breaks URI
-            # parsing. Do not reintroduce a URI built by interpolation —
+            # parsing. Do not reintroduce a URI built by interpolation -
             # scripts/reference-deployment-contract.sh refuses the render.
             - name: SKEIN_DB_NAME
               valueFrom:
@@ -104,7 +104,7 @@ spec:
                 name: skein-secrets
                 optional: true
           # Startup runs migrations plus catch-up jobs (a full DB backup and
-          # configured mirror copy on the first boot of a day) before uvicorn answers —
+          # configured mirror copy on the first boot of a day) before uvicorn answers -
           # /health included. The startup probe carries that whole window;
           # liveness without it kills the pod mid-migration into a
           # crash-loop that can never finish.
@@ -169,7 +169,7 @@ spec:
       port: 8000
       targetPort: http
 ---
-# Block storage only (RWO). No database lives here any more — this volume
+# Block storage only (RWO). No database lives here any more - this volume
 # holds artifacts, exports, and local backup copies. RWO limits cross-node
 # mounting, not pod count. `replicas: 1` and `strategy: Recreate` are the
 # boundaries that keep file readers and the scheduler single.
@@ -188,7 +188,7 @@ spec:
       storage: 360Gi
 ---
 # The mirror only earns its place on a storage backend independent of
-# skein-data — same class, same array means one fault takes both copies and
+# skein-data - same class, same array means one fault takes both copies and
 # the anchor-log comparison proves nothing. Pick the class in the overlay,
 # or accept the reduced guarantee in writing (deploy/k8s/README.md).
 apiVersion: v1

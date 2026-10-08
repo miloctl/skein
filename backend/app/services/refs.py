@@ -1,14 +1,14 @@
 """Entity references inside a generated sentence.
 
-Skein's deterministic producers write receipts as prose — "milestone #4 'Cutover'
+Skein's deterministic producers write receipts as prose - "milestone #4 'Cutover'
 overdue since 2026-08-01", "task #12 'Wire the gate' waiting on blocker #3". The
 prose is the right output for an artifact, which is markdown on disk and has
 nowhere to put a link. It is the wrong output for a screen: a reader given a row
 id and no way to open it goes hunting by eye, which is the cost this whole layer
 exists to remove.
 
-Rather than rewrite every producer to emit structured rows — thirty call sites,
-each with an artifact reader that still needs the sentence — this parses the
+Rather than rewrite every producer to emit structured rows - thirty call sites,
+each with an artifact reader that still needs the sentence - this parses the
 grammar the producers already share. One grammar, one place, and a receipt gains
 its links on the day its producer is written rather than the day somebody
 remembers to convert it.
@@ -16,7 +16,7 @@ remembers to convert it.
 The grammar is `<entity> #<id>`, case-insensitive, where `<entity>` is a word
 this file knows. An unknown word is NOT a reference: `PR #42` and `sprint #3`
 name somebody else's numbering, and a link that opens the wrong row is worse
-than no link. `#42` bare is deliberately not matched either — git trailers give
+than no link. `#42` bare is deliberately not matched either - git trailers give
 it the task meaning, but a receipt that means a task says "task".
 """
 
@@ -34,7 +34,7 @@ ResourceFilter = Callable[[str, int, dict[str, str]], bool]
 #
 # Kept in step with frontend/lib/entity-ref.ts, which turns these into hrefs.
 # A word added here and not there renders as plain text, which is the safe
-# direction — the reverse invents a link to a page that cannot show the row.
+# direction - the reverse invents a link to a page that cannot show the row.
 TARGETS = {
     "task": "task",
     "milestone": "milestone",
@@ -71,11 +71,11 @@ _REF = re.compile(r"\b(" + "|".join(TARGETS) + r")\s+#(\d+)\b", re.IGNORECASE)
 
 # A row's own title, as every producer quotes it: `task #12 'Wire the gate' …`
 # (wording.quoted, which the generators and receipt producers call). The title
-# is free text a person typed and it must NOT be parsed — a task called
+# is free text a person typed and it must NOT be parsed - a task called
 # "Follow up on decision #4" otherwise linked its receipt to whatever decision
 # holds id 4, which is the wrong-row link this whole module exists to avoid.
 # [^'\n], not [^']: artifact bodies are multi-line, and an unbalanced
-# apostrophe on one line must not pair across lines — that swallowed the next
+# apostrophe on one line must not pair across lines - that swallowed the next
 # line's genuine reference and could expose a quoted title as parseable frame.
 _QUOTED = re.compile(r"'[^'\n]*'")
 
@@ -97,7 +97,7 @@ def refs(text: str, *, quoted: bool = True) -> list[dict]:
     # blanked, not removed: the offsets must keep matching the original string,
     # because `splitReceipt` walks the same sentence to place the links. It
     # matches the FIRST occurrence of each reference, so when the frame and a
-    # quoted title both name one row the link lands on the quoted copy — the
+    # quoted title both name one row the link lands on the quoted copy - the
     # right target, one occurrence early, and the only cost of parsing here
     # rather than shipping offsets on every receipt.
     frame = _QUOTED.sub(lambda m: " " * len(m.group(0)), text or "") if quoted else text or ""
@@ -178,7 +178,7 @@ def readable_refs(
             visible, params = "TRUE", []
         marks = ", ".join("?" for _ in ids)
         for title_row in db.query(
-            f"SELECT id, {column} AS title FROM {table}"  # noqa: S608 — constant map
+            f"SELECT id, {column} AS title FROM {table}"  # noqa: S608 - constant map
             f" WHERE id IN ({marks}) AND {visible}",
             (*ids, *params),
         ):

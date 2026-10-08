@@ -9,8 +9,8 @@ import Markdown, { type Options } from "react-markdown";
  *  components/thread.tsx, which is the props it hands the markdown primitive.
  *
  *  The primitive itself reads its text from assistant-ui's message-part
- *  context and takes no text prop, so it is shimmed onto react-markdown — the
- *  same parser it wraps — and everything under test (the components map, the
+ *  context and takes no text prop, so it is shimmed onto react-markdown - the
+ *  same parser it wraps - and everything under test (the components map, the
  *  URL sanitizer) is the real code. */
 
 const MARKDOWN = vi.hoisted(() => ({ text: "" }));
@@ -18,7 +18,7 @@ const MARKDOWN = vi.hoisted(() => ({ text: "" }));
 vi.mock("@assistant-ui/react-markdown", () => ({
   MarkdownTextPrimitive: (props: Options & { className?: string }) => {
     // className is the primitive's own prop, and react-markdown asserts
-    // against it — the shim drops it so the parser sees only what it defines
+    // against it - the shim drops it so the parser sees only what it defines
     const parserProps = { ...props };
     delete parserProps.className;
     return <Markdown {...parserProps}>{MARKDOWN.text}</Markdown>;

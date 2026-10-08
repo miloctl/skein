@@ -2,7 +2,7 @@
 // the runtime adapter both read it: once a persona is active, freeform
 // messages are invisibly prefixed with "/as <slug> " so the backend contract
 // (and per-persona sessions, identity, masthead) is unchanged. Slash
-// commands are never prefixed — they stay deterministic and thread-free.
+// commands are never prefixed - they stay deterministic and thread-free.
 
 export type Persona = {
   slug: string;
@@ -13,7 +13,7 @@ export type Persona = {
 };
 
 // persona is per-conversation state, and the thread id survives reloads
-// (sessionStorage) — so the persona must too, or a refresh silently drops
+// (sessionStorage) - so the persona must too, or a refresh silently drops
 // you back to the Chief of Staff mid-conversation with no notice
 const STICKY_KEY = "skein-chat-persona";
 
@@ -77,7 +77,7 @@ export function outgoing(text: string): string {
   }
   // "@" as well as "/": a leading @slug invokes one specialist for one message
   // (routes/chat.py rewrites it into the /as form), and prefixed with the
-  // sticky persona it never reaches that rewrite — the picker offered
+  // sticky persona it never reaches that rewrite - the picker offered
   // "Specialists → growth-mentor" and the message went to whoever was sticky.
   // Deliberately EVERY leading @, not only a bench slug: this runs before the
   // send, where a person and a specialist are indistinguishable. "@mira ..."

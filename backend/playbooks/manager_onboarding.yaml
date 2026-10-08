@@ -29,7 +29,7 @@ milestones:
   - title: "Share back what I learned"
     description: >
       Month-2 ritual: present the themes from the listening tour back to the
-      team before changing anything. Corrections welcome — that is the point.
+      team before changing anything. Corrections welcome - that is the point.
     due_after_days: 45
     tasks:
       - title: "Write the share-back doc (themes, not attributions)"

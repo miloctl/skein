@@ -147,7 +147,7 @@ def test_human_digest_caps_at_twenty_rows():
 def test_user_text_cannot_forge_a_section_in_a_report(client):
     """Artifacts used to render inside a `<pre>`, where a `#` was a visible
     `#`. frontend/components/artifact-markdown.tsx turns a leading `#` into a
-    real heading, so a title carrying one wrote a section nobody wrote — and a
+    real heading, so a title carrying one wrote a section nobody wrote - and a
     screen reader navigating by heading got a partly forged outline."""
     from app import db
     from app.services import collab, digest, work

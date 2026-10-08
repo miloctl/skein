@@ -3,7 +3,7 @@
 A memory is injected into every future conversation's system prompt, which
 makes it the highest-leverage write in the app. Until it carried an engagement,
 a fact learned on one piece of work was recalled into every conversation about
-every other one — so the useful ones were diluted by the irrelevant ones and
+every other one - so the useful ones were diluted by the irrelevant ones and
 nobody could tell which was which.
 """
 
@@ -108,7 +108,7 @@ def test_an_approved_outcome_carries_its_source(client, fresh_db):
 def test_a_crew_engagements_memory_keeps_the_crew_tier(client, fresh_db):
     """A parent-to-child crossing: the memory takes the ENGAGEMENT's tier, not
     the workspace default. Without it the proposal is readable and approvable
-    by everyone, and the approved row is indexed for search team-wide — a crew
+    by everyone, and the approved row is indexed for search team-wide - a crew
     engagement's memory reaching the whole roster twice over."""
     from app import db
     from app.services import crews, engagements, review, users
@@ -144,7 +144,7 @@ def test_a_crew_engagements_memory_keeps_the_crew_tier(client, fresh_db):
 
     # ...but it MUST reach the prompt of somebody inside it. This is the whole
     # point of filing one, and the tier that protects it from the roster also
-    # hides it from the default NOBODY viewer — so an injection path that does
+    # hides it from the default NOBODY viewer - so an injection path that does
     # not carry a viewer produces a row that steers no conversation at all.
     prompt = memory.memory_prompt(
         "insider", engagement_id=eng["id"], viewer=scope.Viewer("insider", True)

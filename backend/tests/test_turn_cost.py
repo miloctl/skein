@@ -2,7 +2,7 @@
 cost estimates, the honest unpriced counts, and the budget findings rule.
 
 Costs are ESTIMATES from the operator's price table, computed at write time so
-a later price change never rewrites history. No price means cost NULL — never
+a later price change never rewrites history. No price means cost NULL - never
 zero, because zero would silently understate spend."""
 
 import importlib
@@ -191,7 +191,7 @@ def test_usage_endpoint_shape(client, fresh_db):
 
 
 def test_the_thread_list_carries_the_link(client, fresh_db):
-    """The sidebar drives three behaviors off engagement_id — the update path
+    """The sidebar drives three behaviors off engagement_id - the update path
     returned it while the LIST path silently dropped it, so the link was
     invisible and unclearable from the UI."""
     from app.services import engagements as eng
@@ -214,7 +214,7 @@ def test_the_thread_list_carries_the_link(client, fresh_db):
 )
 def test_prices_refuse_values_the_operator_never_wrote(monkeypatch, raw):
     """inf would 500 /api/usage at render (JSONResponse forbids NaN/inf), and
-    true would price a model at $1.00 — both silently, both wrong."""
+    true would price a model at $1.00 - both silently, both wrong."""
     monkeypatch.setenv("SKEIN_MODEL_PRICES", raw)
     cfg = importlib.reload(config)
     assert cfg.MODEL_PRICES == {}
@@ -224,7 +224,7 @@ def test_prices_refuse_values_the_operator_never_wrote(monkeypatch, raw):
 def test_engagement_costs_since_overrides_the_trailing_window(fresh_db, monkeypatch):
     """The discriminating case the first version of this test missed: a turn
     INSIDE the trailing 30 days but BEFORE the bound must be excluded. (The
-    first version seeded 40 days back — outside both windows — so it passed
+    first version seeded 40 days back - outside both windows - so it passed
     against the unfixed code and pinned nothing.)"""
     from datetime import datetime, timedelta
 
@@ -246,7 +246,7 @@ def test_engagement_costs_since_overrides_the_trailing_window(fresh_db, monkeypa
 def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
     """A finding that says THIS month is over budget must not name last
     month's biggest spender as its evidence. Seeds the prior month at one hour
-    before the month start — inside the trailing-30d window on most calendar
+    before the month start - inside the trailing-30d window on most calendar
     days, so the buggy trailing-window receipt would include it."""
     from datetime import datetime, timedelta
 
@@ -277,7 +277,7 @@ def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
 
 def test_engagement_names_dedupe_case_insensitively(fresh_db):
     """The chat panel snaps case-insensitively against the OPEN list only, so
-    a case-variant of a CLOSED engagement's name reached create() — which was
+    a case-variant of a CLOSED engagement's name reached create() - which was
     case-sensitive, silently forking usage rollups across near-duplicates."""
     engagements.create_engagement("Alpha", actor="ava")
     engagements.update_engagement(1, status="closed", conclusion="stopped", actor="ava")
@@ -319,9 +319,9 @@ class _MeteredAgent:
 
 def test_usage_logs_the_base_thread_and_the_agents_own_model(client, fresh_db, monkeypatch):
     """Two route-level pins the suite lacked. The thread id must be the BASE
-    id — the persona session id carries a --slug suffix that matches no
+    id - the persona session id carries a --slug suffix that matches no
     chat_threads row, silently dropping linked-persona spend to (unlinked).
-    The model id must be the AGENT's — a persona override priced at the
+    The model id must be the AGENT's - a persona override priced at the
     deployment model's rate misattributes and miscosts every overridden turn."""
     monkeypatch.setattr(config, "MODEL_PRICES", {"persona-model": (1.0, 1.0)})
     monkeypatch.setattr(
@@ -347,7 +347,7 @@ def test_record_chat_usage(fresh_db):
 
 
 def test_a_flock_turn_logs_spend_per_member_via_the_close(client, fresh_db, monkeypatch):
-    """Member spend used to INSERT inline in each member's finally — on the
+    """Member spend used to INSERT inline in each member's finally - on the
     event loop, once per member, against SQLite's single write lock, so one
     lost lock race froze every open SSE stream in the process for up to
     busy_timeout. The rows now ride the member queues into _close_turn, which
@@ -394,14 +394,14 @@ def test_a_stopped_flock_turn_still_records_what_it_spent(client, fresh_db, monk
         agen = chat_route._flock_stream(fdef, "stopped-spend", "tester", "hi", "/flock x hi")
         # exactly two: the masthead and the member's one chunk. A third
         # __anext__ blocks on the reader's queue forever, because the member
-        # is asleep — the test would hang before it ever reached aclose
+        # is asleep - the test would hang before it ever reached aclose
         for _ in range(2):
             await agen.__anext__()
         await asyncio.create_task(agen.aclose())
 
     asyncio.run(drive())
     # The FIRST member specifically, not a count: the reader consumed its
-    # chunk, so it provably built an agent and spent. Members 2 and 3 race —
+    # chunk, so it provably built an agent and spent. Members 2 and 3 race -
     # cancellation can land while they are still inside build_agent, and a
     # member that never built one has honestly nothing to record. Asserting
     # three made this pass or fail on scheduling.
@@ -413,7 +413,7 @@ def test_agent_run_spend_attributes_through_the_sole_delegation(fresh_db, monkey
     """The unattended runner's turns have no linkable chat thread, so all of
     its spend sat under '(unlinked)' however clearly it was one engagement's
     work. Attribution only when EVERY open delegated task resolves to the same
-    engagement — a second engagement, or one task outside any, means 0: the
+    engagement - a second engagement, or one task outside any, means 0: the
     honest bucket, never a guess."""
     from app.services import delegation, users, work
 

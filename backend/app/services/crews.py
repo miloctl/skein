@@ -10,7 +10,7 @@ one expires the moment the work ships. Membership here is durable and binary.
 
 There is deliberately no delete. `crew_members.crew_id` cascades, so dropping
 a crew would strip every membership while content rows kept naming the crew
-id — those rows become invisible to everyone but their author, with nothing
+id - those rows become invisible to everyone but their author, with nothing
 to restore the scope from. Deactivating a crew is `update_crew(active=False)`,
 which stops new rows being scoped to it and leaves the old ones readable.
 """
@@ -40,11 +40,11 @@ def _row(crew_id: int, *, hold: bool = False) -> dict:
     hold=True is what serializes membership changes. The steward floor is a
     count-then-delete, and a plain read takes no lock: two concurrent removals
     both counted two stewards, both passed the floor, and the crew ended with
-    none. Locking the parent crew row makes the pair atomic — the members
+    none. Locking the parent crew row makes the pair atomic - the members
     table has no single row for them to contend on.
     """
     suffix = " FOR UPDATE" if hold and db.in_transaction() else ""
-    row = db.query_one(f"SELECT * FROM crews WHERE id = ?{suffix}", (crew_id,))  # noqa: S608 — fixed literal
+    row = db.query_one(f"SELECT * FROM crews WHERE id = ?{suffix}", (crew_id,))  # noqa: S608 - fixed literal
     if not row:
         raise db.NotFound(f"crew #{crew_id} not found")
     return row
@@ -70,7 +70,7 @@ def _clean_name(name: str, crew_id: int = 0) -> str:
     folded = users.fold(name)
     # The scan below decides whether the caller may write this name, and no
     # index can back it up: the unique index is on lower(name), and folding is
-    # users.fold — NFKC plus zero-width stripping — which no collation
+    # users.fold - NFKC plus zero-width stripping - which no collation
     # reproduces. Without this lock, concurrent creates of the NFC and NFD
     # spellings of one name both read "no collision" and both insert, leaving
     # two crews whose names render identically in the picker that decides who
@@ -175,7 +175,7 @@ def get_crew(crew_id: int) -> dict:
 
 
 def crews_of(person: str) -> list[int]:
-    """The crew ids this person belongs to — the whole read side of the
+    """The crew ids this person belongs to - the whole read side of the
     visibility filter (docs/VISIBILITY.md).
 
     Returns [] for someone in no crew, which is the COMMON case. SQL has no
@@ -188,7 +188,7 @@ def crews_of(person: str) -> list[int]:
     """
     if not person:
         return []
-    # ORDER BY so the params scope.visible_filter emits are deterministic —
+    # ORDER BY so the params scope.visible_filter emits are deterministic -
     # two callers with the same membership must produce the same query, and
     # a test that asserts on it must not depend on insert order. Free: the
     # index is (person, crew_id), so this is served without a sort.
@@ -212,13 +212,13 @@ def assert_steward(crew_id: int, actor: str, *, admin_override: bool = False) ->
     transaction. Three routes were the only callers and each checked before
     entering it, which left two gaps. The small one is a race: a steward
     demoted between the check and the write still lands it. The large one is
-    layering — crew membership decides what every person reads, so a guard
+    layering - crew membership decides what every person reads, so a guard
     that lives in a route is a guard the next caller does not have. There is
     no crew tool today; the moment there is, it writes with no check at all.
 
     `admin_override` comes from the route because only the route can know it:
     is_named_admin reads the OIDC groups stashed on the request, and the
-    strong-identity bar is a property of the door. That half stays there —
+    strong-identity bar is a property of the door. That half stays there -
     this is the half that belongs to the data.
 
     remove_member already runs its sole-steward floor inside the transaction,
@@ -234,12 +234,12 @@ def assert_writable(crew_id: int, person: str) -> int:
     """May this person scope a row to this crew?
 
     Every phase-3 write path that accepts a crew_id calls this INSIDE the same
-    db.transaction() as the insert, not merely before it — the hold below only
+    db.transaction() as the insert, not merely before it - the hold below only
     lasts as long as the transaction that took it, so called bare it releases
     before the INSERT and a person removed from the crew in between still
     scopes a row into it.
 
-    Without it a writer can scope a row into a crew they are not in — either
+    Without it a writer can scope a row into a crew they are not in - either
     injecting it into that crew's reading list, or hiding it from everyone
     including themselves. A deactivated crew is refused for new rows, which
     is the other half of the rule crews_of documents: old rows stay readable,
@@ -252,7 +252,7 @@ def assert_writable(crew_id: int, person: str) -> int:
     # Measured without it: 6 of 6 removals committed inside that window, and
     # each note landed scoped to a crew its author had just left. add_member
     # and remove_member hold this same crew row, which is where the two
-    # contend — the members table has no single row for them to meet at.
+    # contend - the members table has no single row for them to meet at.
     crew = _row(crew_id, hold=True)
     # membership FIRST: the not-active refusal names the crew, and checking
     # it first told a non-member that a crew by that id exists and what it is
@@ -287,7 +287,7 @@ def add_member(
     """Add someone, or change the role of someone already in the crew.
 
     A deactivated crew takes nobody new. crews_of keeps returning one, so
-    adding a member would hand them every row already scoped to it — the
+    adding a member would hand them every row already scoped to it - the
     opposite of what deactivating a crew means.
     """
     if role not in ROLES:

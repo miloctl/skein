@@ -1,10 +1,10 @@
 """The Bench: curated specialist personas, loaded from backend/personas/*.md
 plus an optional SKEIN_PERSONAS_DIR overlay (overlay wins a slug collision;
-overlay pack.json defaults merge FIELD-BY-FIELD over the stock ones — see
+overlay pack.json defaults merge FIELD-BY-FIELD over the stock ones - see
 _pack_files, whose merge is the behavior docs/PERSONAS.md documents).
 
 A persona file is frontmatter (name/description/emoji/vibe) plus a system-
-prompt body. Files are edited like code (the playbooks precedent) — adapted
+prompt body. Files are edited like code (the playbooks precedent) - adapted
 from agency-agents, vendored so there is no runtime dependency.
 Slugs double as agent identities in the authority matrix and trust scores,
 hence the strict charset.
@@ -12,7 +12,7 @@ hence the strict charset.
 BEHAVIOR fields (model / temperature / tools) tune how a persona runs on a
 real provider: a model id override, a sampling temperature, and a tool
 allowlist. `tools` is deny-by-omission ONCE DECLARED: a persona that lists
-tools gets exactly those and nothing else — enforced at Agent construction,
+tools gets exactly those and nothing else - enforced at Agent construction,
 so the model never sees an undeclared tool. A persona with no `tools` line
 keeps the full registry, so existing personas are unaffected. Pack-wide
 defaults live in personas/pack.json (`{"defaults": {...}}`); persona
@@ -35,7 +35,7 @@ PACK_FILE = PERSONAS_DIR / "pack.json"
 
 # consult_specialist routes on descriptions alone (the roster is inlined in
 # the Chief-of-Staff prompt), so a description too thin to match on, or two
-# that read alike, misroutes silently — the wrong specialist answers and no
+# that read alike, misroutes silently - the wrong specialist answers and no
 # error surfaces. The shipped bench's highest pairwise overlap is 0.12, so
 # 0.5 flags only a near-duplicate, never shared domain vocabulary.
 _DESCRIPTION_STOPWORDS = frozenset(
@@ -65,7 +65,7 @@ _DESCRIPTION_STOPWORDS = frozenset(
 )
 _MIN_DESCRIPTION_TOKENS = 5
 _SIMILARITY_LIMIT = 0.5
-# A pair allowed to share vocabulary needs a written reason HERE — a persona
+# A pair allowed to share vocabulary needs a written reason HERE - a persona
 # file cannot exempt itself. A stale entry (pair no longer over the limit)
 # fails too, the tests/test_bounded_routes.py EXEMPT discipline.
 _SIMILARITY_EXEMPT: dict[tuple[str, str], str] = {}
@@ -77,7 +77,7 @@ def _description_tokens(description: str) -> frozenset[str]:
 
 
 def _persona_dirs() -> list[Path]:
-    """Stock first, overlay second — later wins."""
+    """Stock first, overlay second - later wins."""
     dirs = [PERSONAS_DIR]
     overlay = config.PERSONAS_OVERLAY
     if overlay and overlay.is_dir() and overlay.resolve() != PERSONAS_DIR.resolve():
@@ -210,7 +210,7 @@ def _read_pack(pack: Path) -> dict:
         if k not in BEHAVIOR_FIELDS:
             continue
         if v is None:
-            out[k] = ""  # explicit clear — see _pack_files
+            out[k] = ""  # explicit clear - see _pack_files
         elif isinstance(v, list):
             # a JSON list is the natural way to write a tool list in a JSON
             # file; str() on it would produce a repr that matches no tool,
@@ -235,7 +235,7 @@ def _merge_behavior(persona: dict, defaults: dict) -> dict:
 
     KNOWN LIMIT: an empty frontmatter value falls through to the pack default,
     so a persona cannot override a pack default back to "unrestricted" or
-    "deployment model". Keep pack.json defaults minimal — a pack-wide tools
+    "deployment model". Keep pack.json defaults minimal - a pack-wide tools
     default restricts every persona with no per-persona escape hatch."""
     return {k: persona.get(k) or defaults.get(k, "") for k in BEHAVIOR_FIELDS}
 
@@ -277,7 +277,7 @@ def flock_allowed(slug: str) -> bool:
 def _known_tool_names() -> set[str]:
     """Names a persona allowlist may reference: the registry plus the chat
     planner. Extra tools (SKEIN_EXTRA_TOOLS) and MCP tools are env-dependent
-    and deliberately NOT valid allowlist entries — validating against an env
+    and deliberately NOT valid allowlist entries - validating against an env
     that CI does not share would make lint results depend on deployment."""
     from ..tools import ALL_TOOLS
 
@@ -289,13 +289,13 @@ def _known_tool_names() -> set[str]:
     names.add("plan_project")
     # consult_specialist is omitted on purpose. agents/team_agent.py builds it
     # only for the Chief of Staff (persona == ""), so a persona can never hold
-    # it — accepting the name here would validate an allowlist entry that
+    # it - accepting the name here would validate an allowlist entry that
     # silently grants nothing. Refusing it tells the author at lint time.
     return names
 
 
 def _check_behavior(label: str, temperature: str, tools: str, known: set[str]) -> list[str]:
-    """The value checks shared by frontmatter and pack.json defaults — one
+    """The value checks shared by frontmatter and pack.json defaults - one
     rule, two sources, so the pack cannot smuggle what a persona cannot."""
     errors = []
     raw = temperature.strip()
@@ -310,14 +310,14 @@ def _check_behavior(label: str, temperature: str, tools: str, known: set[str]) -
     for name in (n.strip() for n in tools.split(",") if n.strip()):
         if name not in known:
             errors.append(
-                f"{label}: tools names unknown tool {name!r} — the allowlist"
+                f"{label}: tools names unknown tool {name!r} - the allowlist"
                 " denies by omission, so a typo silently strips the tool"
             )
     return errors
 
 
 def validate_all() -> list[str]:
-    """Every check _parse forgives, as loud errors — run by lint.sh so a
+    """Every check _parse forgives, as loud errors - run by lint.sh so a
     malformed persona fails CI instead of silently vanishing from the bench."""
     errors: list[str] = []
     known = _known_tool_names()
@@ -356,7 +356,7 @@ def validate_all() -> list[str]:
     # new shape rule that hard-fails a deployment's existing overlay file on
     # upgrade breaks the legacy-open-shape contract
     # (tests/test_content_schemas.py). An overlay that overrides a stock slug
-    # takes its description out of the check — the deployment's choice.
+    # takes its description out of the check - the deployment's choice.
     descriptions: dict[str, str] = {}
     for d in _persona_dirs():
         for path in sorted(d.glob("*.md")):
@@ -405,13 +405,13 @@ def validate_all() -> list[str]:
                 descriptions[path.stem] = p["description"]
             else:
                 # an overlay override retires the stock description from the
-                # routing checks — routing sees the override, not the stock
+                # routing checks - routing sees the override, not the stock
                 descriptions.pop(path.stem, None)
     tokens = {slug: _description_tokens(desc) for slug, desc in descriptions.items()}
     for slug in sorted(tokens):
         if len(tokens[slug]) < _MIN_DESCRIPTION_TOKENS:
             errors.append(
-                f"{slug}: description has {len(tokens[slug])} content words —"
+                f"{slug}: description has {len(tokens[slug])} content words -"
                 f" routing matches on the description, so it needs at least"
                 f" {_MIN_DESCRIPTION_TOKENS}"
             )
@@ -425,24 +425,24 @@ def validate_all() -> list[str]:
     for pair in sorted(over - set(_SIMILARITY_EXEMPT)):
         errors.append(
             f"{pair[0]} and {pair[1]}: descriptions overlap past {_SIMILARITY_LIMIT}"
-            " — routing cannot tell them apart. Sharpen one, or exempt the"
+            " - routing cannot tell them apart. Sharpen one, or exempt the"
             " pair in _SIMILARITY_EXEMPT with a reason"
         )
     for pair in sorted(set(_SIMILARITY_EXEMPT) - over):
         errors.append(
-            f"{pair[0]} and {pair[1]}: _SIMILARITY_EXEMPT entry is stale —"
+            f"{pair[0]} and {pair[1]}: _SIMILARITY_EXEMPT entry is stale -"
             " the pair no longer overlaps, so the exemption must go"
         )
     return errors
 
 
 def unlisted_model_warnings() -> list[str]:
-    """Persona model overrides the model menu does not list — a soft runtime
+    """Persona model overrides the model menu does not list - a soft runtime
     warning on /health, NEVER a lint error: SKEIN_MODELS is env, and
     validating against an env that CI does not share would make lint results
     depend on deployment (the _known_tool_names rule). Empty when no menu is
     configured, because an absent menu constrains nothing. Names the persona
-    and the field only — the model string itself stays in the file."""
+    and the field only - the model string itself stays in the file."""
     from .. import config
 
     if not config.MODELS:
@@ -456,7 +456,7 @@ def unlisted_model_warnings() -> list[str]:
 
 
 def list_personas() -> list[dict]:
-    """The bench roster — everything except the prompt body."""
+    """The bench roster - everything except the prompt body."""
     out = []
     for _slug, path in sorted(_persona_files().items()):
         p = _parse(path)
@@ -478,8 +478,8 @@ def get_persona(slug: str) -> dict:
     # an off-charset slug is arbitrary caller text and is not echoed, the
     # rule services/flocks.py::get_flock follows
     if not _SLUG.match(slug):
-        raise ValueError(f"no persona with that name on the bench — available: {roster}")
-    raise ValueError(f"no persona '{slug}' on the bench — available: {roster}")
+        raise ValueError(f"no persona with that name on the bench - available: {roster}")
+    raise ValueError(f"no persona '{slug}' on the bench - available: {roster}")
 
 
 if __name__ == "__main__":  # the lint.sh gate: exit 1 with every error listed

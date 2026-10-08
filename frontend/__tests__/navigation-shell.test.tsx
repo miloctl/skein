@@ -141,7 +141,7 @@ describe("the navigation shell", () => {
     state.pathname = pathname;
     render(<Nav />);
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-    fireEvent.click(screen.getByTitle("You — tester"));
+    fireEvent.click(screen.getByTitle("You - tester"));
     fireEvent.click(await screen.findByRole("menuitem", { name }));
     expect(screen.queryByRole("dialog", { name: "Navigation" })).toBeNull();
     expect(document.body.style.overflow).toBe("");
@@ -151,7 +151,7 @@ describe("the navigation shell", () => {
     state.desktop = false;
     render(<Nav />);
     fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-    const identity = screen.getByTitle("You — tester");
+    const identity = screen.getByTitle("You - tester");
     fireEvent.click(identity);
     // Prevent the native dialog's Escape default after dismissing its menu.
     expect(fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })).toBe(false);

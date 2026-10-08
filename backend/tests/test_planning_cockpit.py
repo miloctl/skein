@@ -1,7 +1,7 @@
 """The Monday cockpit (services/planning.py).
 
-Composition only, so what is worth pinning is not the arithmetic — every
-number has its own tests already — but the two properties composition gets
+Composition only, so what is worth pinning is not the arithmetic - every
+number has its own tests already - but the two properties composition gets
 wrong: that the ORDER is preserved, and that the viewer reaches every part."""
 
 from app import db
@@ -20,7 +20,7 @@ def test_it_carries_the_meeting_in_order(fresh_db):
 
 def test_the_viewer_reaches_the_scoped_parts(fresh_db):
     """A cockpit that read the workspace tier with a manager's name on it
-    would be the one page where crew work leaks — it composes six reads, and
+    would be the one page where crew work leaks - it composes six reads, and
     a viewer dropped in any one of them is invisible in the other five.
 
     The decision must actually BE stale, and the assertion must be
@@ -85,7 +85,7 @@ def test_a_private_absence_reason_never_leaves_the_workspace_tier(fresh_db):
     services/absences.py::away_today makes the same split and states it: the
     unavailability is the honest core, the reason is not. A private `focus` or
     `oncall` window that announces itself by name is the leak that rule exists
-    to stop — and adding this function to _UNFILTERED_READS switched the
+    to stop - and adding this function to _UNFILTERED_READS switched the
     automated scanner off for it, so this test IS the enforcement now.
     """
     from datetime import timedelta
@@ -113,7 +113,7 @@ def test_a_private_absence_reason_never_leaves_the_workspace_tier(fresh_db):
 
     weeks = portfolio.capacity_ahead(1, scope.Viewer.for_actor("someone-else"))
     away = {a["person"]: a["kind"] for a in weeks[0]["away"]}
-    # the person and the dates travel — that is the honest core
+    # the person and the dates travel - that is the honest core
     assert set(away) == {"ava", "mira"}
     # the REASON does not, on a scoped row
     assert away["ava"] == "away"
@@ -123,7 +123,7 @@ def test_a_private_absence_reason_never_leaves_the_workspace_tier(fresh_db):
 def test_a_short_allocation_still_loads_its_week(fresh_db):
     """Overlap, not containment. The comment says containment would hide every
     allocation shorter than seven days, and only a sub-week window can tell
-    the two predicates apart — a length check cannot."""
+    the two predicates apart - a length check cannot."""
     from datetime import timedelta
 
     from app.services import engagements, portfolio
@@ -147,8 +147,8 @@ def test_a_short_allocation_still_loads_its_week(fresh_db):
 def test_person_names_never_leave_through_an_egressing_caller(fresh_db):
     """The anti-surveillance rule allows person-level data for planning the
     future, never for judging the past. flow_metrics judges the past, so the
-    two callers whose output LEAVES — the exec readout artifact and the agent
-    tool, whose reply is text somebody pastes elsewhere — take the aggregated
+    two callers whose output LEAVES - the exec readout artifact and the agent
+    tool, whose reply is text somebody pastes elsewhere - take the aggregated
     shape. /portfolio keeps the names: it is a planning surface with a viewer.
 
     A mutation proved this class of leak uncovered once already (the absence

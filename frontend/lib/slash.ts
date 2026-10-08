@@ -9,7 +9,7 @@ export type ArgItem = { slug: string; emoji?: string; description: string };
  *
  * The required whitespace after the command name is load-bearing. Without it
  * "/flock" resolves here, the command branch never runs, and the popup jumps
- * straight to the flock roster — "/flocks" disappears from autocomplete for
+ * straight to the flock roster - "/flocks" disappears from autocomplete for
  * anyone who has typed "/flock" so far (agents/commands.py carries the same
  * pairing note for the backend did-you-mean).
  */
@@ -36,7 +36,7 @@ export function argQuery(
  * `atStart` separates the two ways an @slug reaches the bench: a LEADING
  * slug is the deterministic handoff (routes/chat.py rewrites it into the /as
  * form, on every provider), a mid-sentence slug reaches it through the
- * orchestrator's consult tool — which needs a real provider. The picker
+ * orchestrator's consult tool - which needs a real provider. The picker
  * (components/thread.tsx) decides eligibility from this flag plus the
  * provider; this function only reports the position.
  */

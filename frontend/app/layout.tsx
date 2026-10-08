@@ -32,7 +32,7 @@ const geistMono = Geist_Mono({
 // preload: false on the four theme-pack faces below: the active pack
 // renders at most two of them (globals.css maps --font-heading/--font-body
 // per pack), and preloading all six makes every cold load pay for fonts it
-// never draws. Geist sans/mono stay preloaded — every pack uses them.
+// never draws. Geist sans/mono stay preloaded - every pack uses them.
 // The cost: a pack whose heading face is here (Bricolage on the default
 // loom pack included) swaps in after first paint instead of before.
 const bricolage = Bricolage_Grotesque({
@@ -45,7 +45,7 @@ const fraunces = Fraunces({
   variable: "--font-fraunces",
   subsets: ["latin"],
   // variable axes: Ledger wears the hard newsprint cut (SOFT 0, WONK 0),
-  // Atelier the soft wonky one (SOFT 80, WONK 1) — same family, two voices
+  // Atelier the soft wonky one (SOFT 80, WONK 1) - same family, two voices
   axes: ["SOFT", "WONK", "opsz"],
   preload: false,
 });
@@ -56,7 +56,7 @@ const sourceSerif = Source_Serif_4({
   preload: false,
 });
 
-// Hermes wears a pixel display face — the closest open cut to the source
+// Hermes wears a pixel display face - the closest open cut to the source
 // dashboard's Mondwest brand chrome
 const pixelify = Pixelify_Sans({
   variable: "--font-pixelify",
@@ -71,10 +71,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: "Skein",
   applicationName: "Skein",
-  description: "Many strands. One formation. — team platform for humans + AI agents",
+  description: "Many strands. One formation. - team platform for humans + AI agents",
   openGraph: {
     title: "Skein",
-    description: "Many strands. One formation. — team platform for humans + AI agents",
+    description: "Many strands. One formation. - team platform for humans + AI agents",
     siteName: "Skein",
     type: "website",
   },
@@ -108,17 +108,17 @@ export default function RootLayout({
     >
       <head>
         {/* Applies saved theme prefs before first paint. GENERATED from
-            lib/theme.ts — the ids, keys and formulas are never written twice.
+            lib/theme.ts - the ids, keys and formulas are never written twice.
             See lib/theme-boot.ts for why this cannot simply import them. */}
         <script dangerouslySetInnerHTML={{ __html: themeBootScript() }} />
       </head>
       <body className="min-h-full flex flex-col">
         <SessionBoundary><ExtensionProvider>
           <ThemeSync />
-          {/* one live region for the whole app — every surface reports through
+          {/* one live region for the whole app - every surface reports through
               lib/status.ts rather than calling window.alert() */}
           <StatusRegion />
-          {/* every header control precedes the page content — a keyboard user
+          {/* every header control precedes the page content - a keyboard user
               tabs through all of them on every page without a bypass */}
           <a
             href="#content"

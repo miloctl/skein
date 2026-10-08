@@ -310,7 +310,7 @@ describe("private shared chat", () => {
           request.cache === "no-store",
       ),
     ).toBe(true);
-    // The deep link marks read only through the linked message — the rows
+    // The deep link marks read only through the linked message - the rows
     // after it were fetched, not seen.
     const readBodies = state.requests
       .filter((request) => request.path.endsWith("/read"))
@@ -610,7 +610,7 @@ describe("private shared chat", () => {
     });
 
     expect(screen.getByText("Arrived from another browser")).toBeTruthy();
-    // The id keeps consecutive same-author announcements distinct — without
+    // The id keeps consecutive same-author announcements distinct - without
     // it the second one produces identical state, and the live region's DOM
     // never mutates, so a screen reader announces nothing.
     expect(screen.getByRole("status").textContent).toBe("New message 2 from dana.");

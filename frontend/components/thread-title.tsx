@@ -7,7 +7,7 @@ import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
 
 /** The conversation's name, as the page's h1. With the sidebar closed this
- *  was the only thing telling you which of your chats you were in — and the
+ *  was the only thing telling you which of your chats you were in - and the
  *  only rename path was three levels into a per-row menu. */
 export function ThreadTitle({ threadId }: { threadId: string }) {
   const [title, setTitle] = useState("");
@@ -15,7 +15,7 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(() => {
-    // shared single-flight list (lib/chat-threads.ts) — the sidebar reads
+    // shared single-flight list (lib/chat-threads.ts) - the sidebar reads
     // the same fetch, so each activity event costs one request, not two
     chatThreads()
       .then((rows) =>
@@ -31,7 +31,7 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
   }, [load]);
 
   useEffect(() => {
-    document.title = title ? `${title} — Skein` : "Chat — Skein";
+    document.title = title ? `${title} - Skein` : "Chat - Skein";
     // The title is the chat's first line. When the auth gate replaces the
     // page (sign-out, expiry, another tab), it stays in the tab and in
     // browser history for the next person on the device.
@@ -41,7 +41,7 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
   }, [title]);
 
   // deferred: the button carrying btnRef is unmounted while editing, so an
-  // immediate focus() hits a null ref and focus falls to <body> — the ref
+  // immediate focus() hits a null ref and focus falls to <body> - the ref
   // attaches when the non-editing branch re-renders, before the timeout runs
   const refocus = () => setTimeout(() => btnRef.current?.focus(), 0);
 
@@ -90,7 +90,7 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
         // the title FIRST: this button truncates, so the tooltip is the only
         // place a long chat name survives, and spending it entirely on
         // the affordance hint loses the one thing the reader cannot see
-        title={title ? `${title} — rename this chat` : undefined}
+        title={title ? `${title} - rename this chat` : undefined}
         className="block max-w-full truncate rounded px-1 py-0.5 text-left font-display text-[15px]/[1.2] font-semibold tracking-[-0.01em] text-ink hover:bg-raised disabled:hover:bg-transparent"
         disabled={!title}
       >
@@ -98,7 +98,7 @@ export function ThreadTitle({ threadId }: { threadId: string }) {
           <span className="font-normal text-ink-3">
             New chat
             <span className="ml-1.5 hidden text-xs sm:inline">
-              — saved after your first message
+              - saved after your first message
             </span>
           </span>
         )}

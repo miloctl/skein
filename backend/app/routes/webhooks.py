@@ -25,7 +25,7 @@ router = APIRouter()
 # Gitea's biggest payload is a push with many commits; 256 KiB clears it.
 MAX_FORGE_BODY = 262_144
 # a forge delivers in one burst. Without this an unsigned caller holds a
-# connection slot open forever by dribbling bytes — uvicorn applies no body
+# connection slot open forever by dribbling bytes - uvicorn applies no body
 # timeout, and this route sits outside the perimeter.
 FORGE_READ_TIMEOUT = 10
 
@@ -61,7 +61,7 @@ def ci_webhook(
         if raw is None:
             return {"ignored": "not a completed pass/fail workflow_run"}
         # Re-validate through the same model: `repository` is an unschema'd
-        # dict, so full_name arrives as anything — a nested dict raised
+        # dict, so full_name arrives as anything - a nested dict raised
         # inside the first policy rule that called .lower() on it, and an
         # unbounded string was CPU spent before authorization.
         mapped = CIEventIn(**raw).model_dump(exclude={"workflow_run", "repository"})
@@ -118,7 +118,7 @@ def _parse_object(body: bytes) -> dict:
     except (ValueError, RecursionError) as exc:
         raise HTTPException(400, "the webhook payload is not valid JSON") from exc
     # a JSON array parses fine and then dies inside a parser with
-    # AttributeError — a caller's input must never reach a 500
+    # AttributeError - a caller's input must never reach a 500
     if not isinstance(payload, dict):
         raise HTTPException(400, "the webhook payload must be a JSON object")
     return payload
@@ -153,7 +153,7 @@ async def forge_webhook(
     body = await _read_body(request)
     # threadpooled: an HMAC over a body up to MAX_FORGE_BODY is real CPU, this
     # route sits outside the perimeter middleware, and the forge_addr cap
-    # admits 600 of these a minute — inline, a busy monorepo's push traffic
+    # admits 600 of these a minute - inline, a busy monorepo's push traffic
     # ran on the loop that carries every open chat stream
     # HMAC authenticates bytes, not headers. Ambiguous provider routing or
     # duplicate headers must not choose a different parser for those bytes.

@@ -63,14 +63,14 @@ def _restore_config():
 VALID = [
     {
         "id": "claude-opus-4-8",
-        "label": "Opus — deep work",
+        "label": "Opus - deep work",
         "detail": "Slow and expensive. Reads a whole engagement in one pass.",
         "max_tokens": 8192,
         "context_tokens": 200_000,
         "price": {"input": 15, "output": 75},
         "params": {"temperature": 0.7},
     },
-    # every optional field absent — the minimal legal entry
+    # every optional field absent - the minimal legal entry
     {"id": "gpt-oss:120b-cloud"},
     # zero-fraction floats: JSON Schema 2020-12 "integer" admits them, so the
     # code must too, or a green ConfigMap editor produces a red /health
@@ -186,7 +186,7 @@ INVALID = [
     # so no budget check could know the limit
     [{"id": "m", "reasoning": {"high": {"max_tokens": None}}}],
     # pins the v1 decision: no cached_input until usage_log carries
-    # cache-read tokens — a price nothing multiplies is a believed number
+    # cache-read tokens - a price nothing multiplies is a believed number
     # not in effect
     [{"id": "m", "price": {"input": 1, "output": 2, "cached_input": 0.1}}],
 ]
@@ -249,7 +249,7 @@ def test_no_registry_means_no_menu_and_no_error(monkeypatch):
 
 
 def test_one_bad_entry_voids_the_whole_list(monkeypatch):
-    """A partial menu looks complete — an admin picks from whatever renders,
+    """A partial menu looks complete - an admin picks from whatever renders,
     so the menu is all-or-nothing."""
     cfg = _reload(monkeypatch, [VALID[0], {"id": "m", "max_tokens": 0}])
     assert cfg.MODELS == {}
@@ -268,7 +268,7 @@ def test_every_fault_is_reported_not_just_the_first(monkeypatch):
 
 
 def test_an_entry_with_no_id_still_reports_its_field_faults(monkeypatch):
-    """Both faults in one restart, even when the id itself is the problem —
+    """Both faults in one restart, even when the id itself is the problem -
     and no import-time raise (the KeyError trap on entry["id"])."""
     cfg = _reload(monkeypatch, [{"max_tokens": 0}])
     assert "entry 1 has no usable id" in cfg.MODELS_ERROR
@@ -288,7 +288,7 @@ def test_a_fault_names_fields_never_values(monkeypatch):
 
 
 def test_duplicate_ids_are_refused(monkeypatch):
-    """Which entry wins is otherwise silent — the menu must not guess."""
+    """Which entry wins is otherwise silent - the menu must not guess."""
     cfg = _reload(monkeypatch, [{"id": "m"}, {"id": "m"}])
     assert cfg.MODELS == {}
     assert "repeats an earlier id" in cfg.MODELS_ERROR
@@ -303,7 +303,7 @@ def test_a_bare_infinity_is_refused(monkeypatch):
 
 def test_a_huge_integer_price_degrades_instead_of_killing_the_import(monkeypatch):
     """math.isfinite converts to a C double first, so a 309-digit JSON int
-    raises OverflowError — and an uncaught raise in config takes down every
+    raises OverflowError - and an uncaught raise in config takes down every
     route, the ICS feed, and backups with it (the _ctx_num trap, in the
     registry's price path)."""
     huge = "1" + "0" * 400
@@ -313,7 +313,7 @@ def test_a_huge_integer_price_degrades_instead_of_killing_the_import(monkeypatch
 
 
 def test_a_huge_integer_in_the_price_table_degrades_too(monkeypatch):
-    """The same OverflowError trap in the SKEIN_MODEL_PRICES sibling — one
+    """The same OverflowError trap in the SKEIN_MODEL_PRICES sibling - one
     guard covers both tables."""
     huge = "1" + "0" * 400
     monkeypatch.setenv("SKEIN_MODEL_PRICES", f'{{"m": [{huge}, 2]}}')
@@ -341,7 +341,7 @@ def test_the_registry_price_wins_over_the_price_table(monkeypatch):
     # a model outside the registry still prices from the table
     assert usage.cost_for("other", 1_000_000, 1_000_000) == 7.0
     assert usage.model_price("other")[1] == "inline"
-    # no price anywhere = None — honest, not zero
+    # no price anywhere = None - honest, not zero
     assert usage.cost_for("unknown", 1_000_000, 1_000_000) is None
     assert usage.model_price("unknown") == (None, "unset")
 

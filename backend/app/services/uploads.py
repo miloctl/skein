@@ -8,7 +8,7 @@ Ownership follows CHAT, not the visibility tiers: `services/chat_threads.py`
 scopes a thread by an owner column against the resolved name, which works in
 every auth mode, and an attachment belongs to the conversation it was typed
 into. The row still carries the private tier so the sinks above skip it, but
-no read here goes through scope.visible_filter — that filter drops the author
+no read here goes through scope.visible_filter - that filter drops the author
 arm for a nameless viewer, so in trusted-header mode (the default) a private
 upload would be unreadable by the person who just made it.
 """
@@ -65,8 +65,8 @@ def _extension(filename: str) -> str:
 def safe_title(filename: str) -> str:
     """The client filename, reduced to something safe to SHOW.
 
-    It never reaches the filesystem — save_upload names the file after the row
-    id — so this is not a traversal guard. It is a spoofing guard: the name
+    It never reaches the filesystem - save_upload names the file after the row
+    id - so this is not a traversal guard. It is a spoofing guard: the name
     renders in a chip beside a teammate's message, and a right-to-left
     override turns `invoice<U+202E>txt.exe` into something that reads as
     `invoice.exe.txt` in every UI that honors bidi. Cc/Cf covers the override
@@ -158,7 +158,7 @@ def save_upload(filename: str, data: bytes, *, owner: str) -> dict:
             )
         title = safe_title(filename)
         # The row is inserted before the file exists, because the FILE IS
-        # NAMED AFTER THE ROW ID — a server-generated name is what makes a
+        # NAMED AFTER THE ROW ID - a server-generated name is what makes a
         # crafted filename unable to choose a path. The path column is filled
         # in the same transaction, so a crash between the two rolls the row
         # back rather than leaving one that points nowhere.
@@ -205,7 +205,7 @@ def _contained_path(row: dict) -> Path:
 
     `path` is a stored string, and every caller turns one into a file
     operation. Every writer is save_upload above, so the check is not about
-    them — it is about a restored or hand-edited row. resolve() runs BEFORE
+    them - it is about a restored or hand-edited row. resolve() runs BEFORE
     the containment test so a symlink planted under the directory is followed
     to its target and then refused.
     """
@@ -213,7 +213,7 @@ def _contained_path(row: dict) -> Path:
     try:
         path = Path(row["path"]).resolve()
     except ValueError as e:
-        # a NUL byte in the stored path — pathlib's own message would cross the
+        # a NUL byte in the stored path - pathlib's own message would cross the
         # API boundary as our error text
         raise db.NotFound(f"no attached file #{row['id']}") from e
     if not path.is_relative_to(root):
@@ -225,7 +225,7 @@ def upload_bytes(row: dict) -> bytes:
     """The stored file, with the same containment the artifact reader applies."""
     path = _contained_path(row)
     # Past the containment check it is OUR state, never something a caller
-    # sent, so it stays a 500 and shows up in the error rate — the same split
+    # sent, so it stays a 500 and shows up in the error rate - the same split
     # handoff.read_artifact makes. is_file() is False for a FIFO as well as
     # for an absent path, and read_bytes on a FIFO blocks this worker for good.
     if not path.is_file():
@@ -246,7 +246,7 @@ def list_uploads(owner: str) -> dict:
     """This person's own attached files, and what they have spent.
 
     The quota is unusable without this. An upload is private, so it appears on
-    no other surface — a person told "your uploads would pass the limit" with
+    no other surface - a person told "your uploads would pass the limit" with
     no list to work from cannot act on the sentence at all.
     """
     rows = db.query(
@@ -266,7 +266,7 @@ def delete_upload(artifact_id: int, owner: str) -> dict:
     """Delete one of your own attached files, and free the quota it held.
 
     A human deleting their own private file, so it is a plain owner-scoped
-    REST delete rather than a reviewed one — the shape services/chat_threads.py
+    REST delete rather than a reviewed one - the shape services/chat_threads.py
     already uses for deleting a chat, which destroys strictly more. A review
     here would ask a teammate to approve destroying something they cannot
     read, and the proposal row would announce that the file exists.

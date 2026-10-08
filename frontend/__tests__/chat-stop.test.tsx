@@ -71,7 +71,7 @@ function RefusedHarness() {
     // thrown. Both reach the UI identically: performRoundtrip catches a thrown
     // Error, records {type:"incomplete", reason:"error", error: {code, message}},
     // and then RETHROWS. Nothing awaits the append the composer primitive
-    // starts, so that rethrow lands as an unhandled rejection — which the app
+    // starts, so that rethrow lands as an unhandled rejection - which the app
     // accepts (app/runtime-provider.tsx says so at the attachment adapter) but
     // which fails a vitest run whatever the assertions did.
     // `error` is a plain object here for the reason this test exists: the

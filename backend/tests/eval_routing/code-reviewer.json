@@ -1,7 +1,7 @@
 {
   "positive": [
     "Can you review this diff for correctness and maintainability?",
-    "Here is my patch \u2014 review it: what breaks, and what would you change?"
+    "Here is my patch - review it: what breaks, and what would you change?"
   ],
   "negative": [
     {

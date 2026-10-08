@@ -23,8 +23,8 @@ const nextConfig: NextConfig = {
   // <img> the model authored fetches its URL on render, carrying whatever the
   // agent read in the query string. thread.tsx renders those inert; this line
   // is what still refuses the request if a later renderer forgets. The app
-  // loads no remote image at all — the mark is inline SVG (components/mark.tsx)
-  // and every texture is a gradient (app/globals.css) — so 'self' costs
+  // loads no remote image at all - the mark is inline SVG (components/mark.tsx)
+  // and every texture is a gradient (app/globals.css) - so 'self' costs
   // nothing here. NOT default-src: connect-src has to reach the API on its own
   // origin (NEXT_PUBLIC_API_URL), which is a deploy-time value this file
   // cannot see.

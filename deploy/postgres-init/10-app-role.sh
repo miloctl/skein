@@ -1,6 +1,6 @@
 #!/bin/bash
 # Shared by docker-compose and the Kubernetes ConfigMap in
-# deploy/k8s/base/postgres.yaml — keep the two identical, or dev stops
+# deploy/k8s/base/postgres.yaml - keep the two identical, or dev stops
 # matching the deployment it is supposed to rehearse.
 #
 # Idempotent and atomic on purpose: the entrypoint runs this only on the

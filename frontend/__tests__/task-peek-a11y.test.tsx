@@ -3,7 +3,7 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The peek's accessibility contract, pinned because none of it is caught by
- *  axe — the panel passed an automated sweep clean while a screen reader user
+ *  axe - the panel passed an automated sweep clean while a screen reader user
  *  could not read the task list at all.
  *
  *  Each test here corresponds to a real defect found by audit:
@@ -75,7 +75,7 @@ describe("the panel before its first open", () => {
 describe("a task link", () => {
   it("keeps the task title in its accessible name", () => {
     render(<PeekLink taskId={4}>#4 Build the happy path</PeekLink>);
-    // an aria-label REPLACES the subtree — with one, this query finds nothing
+    // an aria-label REPLACES the subtree - with one, this query finds nothing
     // and a voice-control user cannot say what they can see
     expect(
       screen.getByRole("button", { name: /Build the happy path/ }),
@@ -279,7 +279,7 @@ describe("focus on close", () => {
 
   it("falls back to the search box when the trigger has unmounted", async () => {
     // The search dropdown closes on activation, so the row that opened the
-    // panel is DETACHED by the time focus is restored — and .focus() on a
+    // panel is DETACHED by the time focus is restored - and .focus() on a
     // detached node silently no-ops, dropping the reader on <body>, which is
     // the exact failure the restore ref exists to prevent.
     window.history.pushState({}, "", "/");

@@ -104,7 +104,7 @@ def test_overlay_wins_a_slug_collision(overlay):
     ],
 )
 def test_bad_definitions_drop_off_and_fail_the_gate(overlay, fields, expected):
-    """Lenient at runtime, loud in CI — the two must stay in step, or a file
+    """Lenient at runtime, loud in CI - the two must stay in step, or a file
     vanishes from the roster with no CI failure to explain it."""
     _write(overlay, "broken", **fields)
     assert "broken" not in {f["slug"] for f in flocks.list_flocks()}

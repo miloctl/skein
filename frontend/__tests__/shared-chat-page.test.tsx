@@ -65,7 +65,7 @@ describe("Chat page thread kinds", () => {
     expect(screen.getByText("Shared transcript shared-room")).toBeTruthy();
     expect(screen.queryByText("Solo transcript")).toBeNull();
     expect(screen.getByText("kind:shared")).toBeTruthy();
-    await waitFor(() => expect(document.title).toBe("Launch room — Skein"));
+    await waitFor(() => expect(document.title).toBe("Launch room - Skein"));
     expect(window.location.search).toBe("?shared=shared-room");
     expect(window.location.hash).toBe("");
     expect(JSON.parse(window.sessionStorage.getItem("skein-last-chat") ?? "{}")).toEqual({
@@ -76,7 +76,7 @@ describe("Chat page thread kinds", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open solo room" }));
     expect(screen.getByText("Solo transcript")).toBeTruthy();
     expect(screen.queryByText(/Shared transcript/)).toBeNull();
-    await waitFor(() => expect(document.title).toBe("Chat — Skein"));
+    await waitFor(() => expect(document.title).toBe("Chat - Skein"));
     expect(window.location.pathname).toBe("/chat");
     expect(window.location.search).toBe("");
     expect(window.location.hash).toBe("");
@@ -119,7 +119,7 @@ describe("Chat page thread kinds", () => {
     );
     expect(screen.getByRole("alert").textContent).not.toContain("Message not sent");
     expect(window.sessionStorage.getItem("skein-last-chat")).toBeNull();
-    await waitFor(() => expect(document.title).toBe("Private shared chat — Skein"));
+    await waitFor(() => expect(document.title).toBe("Private shared chat - Skein"));
     expect(screen.queryByText("Launch room")).toBeNull();
   });
 });

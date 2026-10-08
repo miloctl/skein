@@ -1,21 +1,21 @@
-/** Land on the ROW a `#…` deep link named — and stay there.
+/** Land on the ROW a `#…` deep link named - and stay there.
  *
  *  The browser honours a fragment only for an element that exists at
- *  navigation time, and every row on these pages arrives from a fetch — so
+ *  navigation time, and every row on these pages arrives from a fetch - so
  *  "question #12 is still open" on My Day dropped the reader at the top of a
  *  thirteen-section page to find #12 by eye. Pass the fetched rows as `ready`:
  *  the effect runs again when they land, and by then the element exists.
  *
  *  focus(), not scrollIntoView(), for the landing itself: a screen reader
  *  announces what it lands on, so the reader hears the row rather than
- *  arriving mid-list in silence. The target MUST carry tabIndex={-1} —
+ *  arriving mid-list in silence. The target MUST carry tabIndex={-1} -
  *  focus() on an element with no tabindex silently does nothing and the
  *  reader is left at the top of the page, which is the exact failure this
  *  hook exists to end.
  *
  *  After the landing, the row is PINNED: the dashboard loads its collections
  *  at different speeds, and one that settles later inserts content above the
- *  focused row and pushes it out of view — landed, then lost. Every later
+ *  focused row and pushes it out of view - landed, then lost. Every later
  *  `ready` change re-scrolls the row back (scroll only, never a second
  *  focus steal) until the reader's first pointer, key or wheel input says
  *  they have taken over.
@@ -48,7 +48,7 @@ export function useHashTarget(
   // (answering a question refetches the collection) re-ran the effect and
   // pulled focus back to the deep-linked row out from under the reader.
   const landed = useRef("");
-  // set by the reader's first input — pinning past it would fight their
+  // set by the reader's first input - pinning past it would fight their
   // scroll with ours, which is worse than the drift it corrects
   const readerTookOver = useRef(false);
 
@@ -85,7 +85,7 @@ export function useHashTarget(
       if (!el || el.closest("[hidden], [inert]")) return;
       if (el.closest("details:not([open])") && el.tagName !== "SUMMARY") return;
       if (!force && landed.current === id) {
-        // already landed — re-pin against layout shift from collections that
+        // already landed - re-pin against layout shift from collections that
         // settled after the landing, until the reader takes over
         if (!readerTookOver.current) el.scrollIntoView({ block: "center" });
         return;
@@ -108,7 +108,7 @@ export function useHashTarget(
     land(pending.current || landed.current, false);
     // Both events, because neither covers the other: `hashchange` is the
     // browser's own (a typed address, Back between two fragments) and
-    // `skein-hash` is what an in-app link announces — a next/link soft
+    // `skein-hash` is what an in-app link announces - a next/link soft
     // navigation fires neither of the browser's (components/nav-search.tsx).
     const onHash = (ev: Event) => {
       // the anchor from the event when an in-app link sent one, the address
@@ -133,7 +133,7 @@ export function useHashTarget(
 }
 
 /** The classes a hook target needs to be focusable and to show where focus
- *  went. `focus:`, not `focus-visible:` — Chrome does not match
+ *  went. `focus:`, not `focus-visible:` - Chrome does not match
  *  :focus-visible on an element focused PROGRAMMATICALLY after a mouse click,
  *  so `outline-none` won and focus teleported to a row with nothing drawn on
  *  it. A tabIndex={-1} row is only ever focused deliberately, so the wider

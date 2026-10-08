@@ -7,14 +7,14 @@ import { useEffect, useId, useRef, useState } from "react";
  *  THE ONE dangerouslySetInnerHTML IN THE APP, and why it is allowed here and
  *  nowhere else: mermaid produces an SVG STRING, so there is no way to mount
  *  it as React elements, and `securityLevel: "strict"` is what makes the
- *  string safe — mermaid runs DOMPurify over its own output in that mode,
+ *  string safe - mermaid runs DOMPurify over its own output in that mode,
  *  encodes HTML inside node text, and refuses `click` directives. NEVER
  *  loosen that setting, and never widen this component to render markup from
  *  anywhere else: components/artifact-markdown.tsx builds elements by hand
  *  precisely because an artifact body quotes rows people wrote.
  *
  *  Diagram source is authored text, so a diagram that will not parse shows
- *  its source rather than vanishing — the author has to see it to fix it.
+ *  its source rather than vanishing - the author has to see it to fix it.
  *
  *  mermaid is about 2 MB, so it loads only when a fence actually appears. */
 export function MermaidDiagram({ code }: { code: string }) {
@@ -24,10 +24,10 @@ export function MermaidDiagram({ code }: { code: string }) {
   const id = useId().replace(/:/g, "");
   // The wrapper is rendered on every path, so this ref is attached before the
   // effect runs, and the palette is read off the element rather than off
-  // document.documentElement — so a diagram picks up the theme pack and
+  // document.documentElement - so a diagram picks up the theme pack and
   // colorway in force WHEN IT RENDERS. It does not repaint on a later theme
   // change: the effect keys on the code, and an already-drawn diagram keeps
-  // its colors until the thread remounts. Deliberate — a theme subscription
+  // its colors until the thread remounts. Deliberate - a theme subscription
   // for a redraw nobody waits on is not worth the wiring.
   const host = useRef<HTMLDivElement>(null);
 
@@ -78,7 +78,7 @@ export function MermaidDiagram({ code }: { code: string }) {
           // CLEARED, not just set: in chat this component sees every
           // half-written prefix of a streaming fence, and mermaid rejects
           // almost all of them. Left sticky, the first rejected prefix pinned
-          // the fallback and the finished diagram never replaced it — every
+          // the fallback and the finished diagram never replaced it - every
           // streamed diagram stayed source forever.
           setFailed(false);
         }
@@ -108,7 +108,7 @@ export function MermaidDiagram({ code }: { code: string }) {
           />
           {/* The source, not a label. A rendered diagram's node text is the
               content, and role="img" with one generic label would hide all of
-              it — the source at least reads as the shape it draws. */}
+              it - the source at least reads as the shape it draws. */}
           <pre className="sr-only">{code}</pre>
         </>
       )}

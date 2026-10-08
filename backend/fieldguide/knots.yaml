@@ -1,4 +1,4 @@
-# Field-guide registry. Presentation + metadata ONLY — predicates live in
+# Field-guide registry. Presentation + metadata ONLY - predicates live in
 # app/services/fieldguide.py keyed by id (SQL belongs in the service layer).
 # The loader fails loudly if a card has no predicate or a predicate no card.
 #
@@ -6,7 +6,7 @@
 # subtitle) · set (loops|hitches|bends|stoppers|manager) · pitch (one line,
 # why it exists) · how (terse how-to, craft-manual voice) · link (in-app
 # deep link, must start with /) · since (YYYY-MM-DD the card entered the
-# guide — feeds the feature_unadopted grace window) · role (optional:
+# guide - feeds the feature_unadopted grace window) · role (optional:
 # "manager" marks cards for the manager toggle so IC completionists know).
 # Tours contain ordered card ids only. Copy or links repeated under `tours`
 # drift away from Page Help, the Field Guide, and Bosun on the next edit.
@@ -19,9 +19,9 @@
 # on every other one. Writing "Ctrl+K" here defeats that and is then wrong on
 # a Mac.
 # Never add counters, streaks, or tiers. Shipping a user-facing feature?
-# Add its card in the same PR — a new locked card IS the release note.
+# Add its card in the same PR - a new locked card IS the release note.
 #
-# When adding a card: `since` is TODAY's date, not a copy-paste — a copied
+# When adding a card: `since` is TODAY's date, not a copy-paste - a copied
 # old date ships with the feature_unadopted grace window already expired and
 # fires a finding in week one. The registry is cached at startup and only
 # re-read on restart (uvicorn --reload watches *.py, not *.yaml).
@@ -37,7 +37,7 @@ tours:
     - bosun
 
 knots:
-  # ---- Loops — the solo basics ----------------------------------------
+  # ---- Loops - the solo basics ----------------------------------------
   - id: capture
     feature: Quick capture
     knot: Overhand
@@ -135,7 +135,7 @@ knots:
     feature: Decisions with a half-life
     knot: Bowline
     set: loops
-    pitch: Decisions expire to stale unless reconfirmed — nothing is trusted forever.
+    pitch: Decisions expire to stale unless reconfirmed - nothing is trusted forever.
     how: "`decision: …` in quick capture, then set a review-by date. The daily sweep does the rest."
     link: /charter
     since: 2026-07-31
@@ -151,11 +151,11 @@ knots:
 
   - id: question_answered
     feature: Answer a question
-    # the SAME knot as the Angler's Loop, under its other name — which is
+    # the SAME knot as the Angler's Loop, under its other name - which is
     # the pairing: one knot, seen from the asker's end and the answerer's
     knot: Perfection Loop
     set: loops
-    pitch: The Angler's Loop under its other name — someone is waiting on you.
+    pitch: The Angler's Loop under its other name - someone is waiting on you.
     how: Open questions assigned to you sit on My Day under Unblock.
     link: /
     since: 2026-07-31
@@ -202,11 +202,11 @@ knots:
     feature: Search & /ask
     knot: Running Bowline
     set: loops
-    # ties when a route calls fieldguide.mark — the feature is a read,
+    # ties when a route calls fieldguide.mark - the feature is a read,
     # so there is no write to detect
     ties: mark
     pitch: Full-text over every entity; /ask answers with receipts, keyless.
-    how: "Press ⌘K, or use the nav box, `/search` in chat, or `skein search` in a terminal. Type `#42` and press Enter — task 42 is the first result. Press Enter to search — the box does not search while you type. `blocker 3` finds blocker 3. Start the nav box with `?` to widen a query that matches nothing. The retry uses the separate words and marks the results as loose. Type a theme name or `dark` to see a theme command in the list under the box."
+    how: "Press ⌘K, or use the nav box, `/search` in chat, or `skein search` in a terminal. Type `#42` and press Enter - task 42 is the first result. Press Enter to search - the box does not search while you type. `blocker 3` finds blocker 3. Start the nav box with `?` to widen a query that matches nothing. The retry uses the separate words and marks the results as loose. Type a theme name or `dark` to see a theme command in the list under the box."
     link: /chat
     since: 2026-07-31
 
@@ -238,7 +238,7 @@ knots:
     knot: Water Bowline
     set: loops
     pitch: Promises with an audience and a due date, ledgered until settled.
-    how: "`promised: demo to client by Friday` records what your team owes. `awaiting: legal — redlines by Friday` records what somebody owes your team."
+    how: "`promised: demo to client by Friday` records what your team owes. `awaiting: legal - redlines by Friday` records what somebody owes your team."
     link: /portfolio
     since: 2026-07-31
 
@@ -292,12 +292,12 @@ knots:
 
   - id: flocks
     feature: Flocks
-    # a LOOP knot, matching the loops set — docs/LEXICON.md #6 counts the
+    # a LOOP knot, matching the loops set - docs/LEXICON.md #6 counts the
     # cards carrying a name from the wrong class, and this must not join them.
     # Bowline on a Bight also earns it: one rope, two loops at one time.
     knot: Bowline on a Bight
     set: loops
-    pitch: One question, several specialists, one turn — the disagreement is the point.
+    pitch: One question, several specialists, one turn - the disagreement is the point.
     how: "Open Team → Agents, choose Flocks, and select Ask group. In Chat, `/flocks` lists the groups and `/flock engineering …` calls one."
     link: /chat
     since: 2026-08-05
@@ -306,10 +306,10 @@ knots:
     feature: File it from chat
     knot: Poacher's Knot
     set: loops
-    # ties when a route calls fieldguide.mark — the feature is a read,
+    # ties when a route calls fieldguide.mark - the feature is a read,
     # so there is no write to detect
     ties: mark
-    pitch: The capture grammar works in chat too — and a turn that files nothing says so.
+    pitch: The capture grammar works in chat too - and a turn that files nothing says so.
     how: "In Chat, start a message with `todo:`, `q:`, `decision:`, or `promised:`. If nothing gets filed, the reply says that outright."
     link: /chat
     since: 2026-08-01
@@ -318,7 +318,7 @@ knots:
     feature: CLI & MCP
     knot: Artillery Loop
     set: loops
-    pitch: The whole platform without a browser — same DB, same provenance.
+    pitch: The whole platform without a browser - same DB, same provenance.
     how: "`pipx install ./cli`, then `skein my-day`. The command uses the same Needs you and Team queues as the web page. Settings → You shows the key setup."
     link: /settings
     since: 2026-07-31
@@ -338,7 +338,7 @@ knots:
     knot: Alpine Butterfly
     set: loops
     pitch: Paste raw notes; structure gets pulled out of the middle of the mess as proposals.
-    how: Inbox → Paste notes. Every hit waits in Approvals — nothing writes directly.
+    how: Inbox → Paste notes. Every hit waits in Approvals - nothing writes directly.
     link: /ingest
     since: 2026-07-31
 
@@ -363,7 +363,7 @@ knots:
     link: /planning#planning-routines
     since: 2026-09-29
 
-  # ---- Hitches — attaching work to an agent ---------------------------
+  # ---- Hitches - attaching work to an agent ---------------------------
   - id: bosun
     feature: Bosun
     knot: Marlinspike Hitch
@@ -387,7 +387,7 @@ knots:
     feature: The activity feed
     knot: Snubbing Hitch
     set: hitches
-    # ties when a route calls fieldguide.mark — the feature is a read,
+    # ties when a route calls fieldguide.mark - the feature is a read,
     # so there is no write to detect
     ties: mark
     pitch: What the agents did, one sentence per action, next to your own.
@@ -408,12 +408,12 @@ knots:
     feature: "@mentions"
     knot: Prusik
     set: hitches
-    pitch: A name in prose becomes a tap on the shoulder — the knot that grips a moving line.
+    pitch: A name in prose becomes a tap on the shoulder - the knot that grips a moving line.
     how: "Write `@name` in a task, note, question, answer, decision, or private shared chat. A current chat participant gets one notification linked to that message. In solo chat, start the message with a capture prefix such as `todo:`. An edit does not notify twice."
     link: /chat
     since: 2026-08-03
 
-  # ---- Bends — where two systems join ---------------------------------
+  # ---- Bends - where two systems join ---------------------------------
 
   - id: forge
     feature: Code forge webhook
@@ -423,7 +423,7 @@ knots:
     # there is no first USE to attribute to a person. The card is the setup
     # documentation, and it stays that way.
     ties: never
-    pitch: The branch drags the task along behind it — one hitch, and the log follows the tow.
+    pitch: The branch drags the task along behind it - one hitch, and the log follows the tow.
     how: "Whoever runs the server sets SKEIN_FORGE_WEBHOOK_SECRET for Gitea or SKEIN_GITLAB_WEBHOOK_TOKEN for GitLab. Add the matching webhook URL from Settings → Connections to the repository with that same value. Name a branch `task/42-slug`. The push starts task 42, and the merged pull request or merge request finishes it."
     link: /settings
     since: 2026-08-03
@@ -442,7 +442,7 @@ knots:
     feature: Personal MCP servers
     knot: Anchor Bend
     set: bends
-    pitch: Your own tools, tied on for your turns alone — and every write they offer waits for a human hand.
+    pitch: Your own tools, tied on for your turns alone - and every write they offer waits for a human hand.
     how: "Open Settings → Connections → Remote MCP servers. Enter a name and the server URL. If the server needs a token, enter it. If the server uses OAuth, select sign in with OAuth, add the server, then select Sign in on its row. Skein classifies each tool from the server's own annotations. A read tool creates one review the first time it runs, then it runs under policy. A write tool creates a review each time. Only your own chat turns carry these tools."
     link: /settings#settings-connections
     since: 2026-09-01
@@ -452,7 +452,7 @@ knots:
     knot: Sheet Bend
     set: bends
     pitch: A blocker mentioned in a standup files itself, escalation clock running.
-    how: Write the blocker line in your standup instead of a separate report — one entry, two systems.
+    how: Write the blocker line in your standup instead of a separate report - one entry, two systems.
     link: /
     since: 2026-07-31
 
@@ -481,12 +481,12 @@ knots:
     # counts cards carrying a name from the wrong class.
     knot: Hunter's Bend
     set: bends
-    # ties when the chat route marks it — a consult's spend lands in usage_log
+    # ties when the chat route marks it - a consult's spend lands in usage_log
     # under the specialist's slug, and `/as` writes the same row, so no query
     # can tell the two apart. On SKEIN_MODEL_PROVIDER=mock the mark never
     # fires: MockAgent has no tool loop, so no consult can happen. A keyless
     # deployment reaches the bench through the deterministic routes the how:
-    # line ends with, and this card stays untied there — accepted, the way
+    # line ends with, and this card stays untied there - accepted, the way
     # `forge` accepts ties: never.
     ties: mark
     pitch: Keep talking to the Chief of Staff, and let it fetch the specialist who actually knows.
@@ -503,12 +503,12 @@ knots:
     link: /insights
     since: 2026-07-31
 
-  # ---- Stoppers — the art of finishing --------------------------------
+  # ---- Stoppers - the art of finishing --------------------------------
   - id: settle
     feature: Settle a promise
     knot: Ashley Stopper
     set: stoppers
-    pitch: Open promises are noise until settled — kept, missed, or withdrawn all count.
+    pitch: Open promises are noise until settled - kept, missed, or withdrawn all count.
     how: Work → Health, the Promises card. Honest beats pretty.
     link: /portfolio
     since: 2026-07-31
@@ -526,7 +526,7 @@ knots:
     feature: Close an engagement honestly
     knot: Back Splice
     set: stoppers
-    pitch: Closing requires a conclusion — invalidated-on-time is a success, not a slip.
+    pitch: Closing requires a conclusion - invalidated-on-time is a success, not a slip.
     how: "On Work → Browse, select Engagements, then close out… on the engagement. Pick the conclusion that is true. If it started from a playbook, Skein shows the plan variance before you pick."
     link: /dashboard#browse-engagements
     since: 2026-07-31
@@ -546,7 +546,7 @@ knots:
     knot: Chain Sinnet
     set: manager
     role: manager
-    pitch: Monday brief and Friday close-out — the week gets opened and settled on purpose.
+    pitch: Monday brief and Friday close-out - the week gets opened and settled on purpose.
     how: Run one yourself from Management view on Work → Health. If it already ran, Skein links the existing report and sends no duplicate notifications. A scheduler run does not count as yours.
     link: /portfolio
     since: 2026-07-31
@@ -566,7 +566,7 @@ knots:
     knot: Flemish Flake
     set: manager
     role: manager
-    pitch: The portfolio coiled for showing — health, ships, risks, promises.
+    pitch: The portfolio coiled for showing - health, ships, risks, promises.
     how: Work → Health, under Management view. It lands as an artifact.
     link: /portfolio
     since: 2026-07-31
@@ -586,7 +586,7 @@ knots:
     knot: Adjustable Grip Hitch
     set: manager
     role: manager
-    pitch: Slide the whole team onto the right model for the week — no redeploy, no ticket, one knot to shift the load.
+    pitch: Slide the whole team onto the right model for the week - no redeploy, no ticket, one knot to shift the load.
     how: Open Technical details under Settings → AI runtime and read In force, or run `skein model`. If the team default must change, select a model from the menu.
     link: /settings
     since: 2026-08-08
@@ -634,7 +634,7 @@ knots:
     knot: Carrick Bend
     set: bends
     role: any
-    pitch: One piece of work, in one page — what it exists for, why it is red, and what to do about it.
+    pitch: One piece of work, in one page - what it exists for, why it is red, and what to do about it.
     how: "On Work → Browse, select Engagements, then the engagement name. The brief shows its outcome and its health with receipts. It also shows open work, blockers, agent tasks, and plan drift."
     link: /dashboard#browse-engagements
     since: 2026-08-10
@@ -644,7 +644,7 @@ knots:
     knot: Highwayman's Hitch
     set: manager
     role: manager
-    pitch: The whole fleet holds its breath on one tug — and one tug lets it go again.
+    pitch: The whole fleet holds its breath on one tug - and one tug lets it go again.
     how: Open Settings → AI runtime, the Unattended agent runs card. Pause stops the daily run and the wake queue. Queued work stays pending. Resume drains it. Authority grants do not change.
     link: /settings
     since: 2026-08-28
@@ -654,7 +654,7 @@ knots:
     knot: Anchor Bend
     set: manager
     role: manager
-    pitch: The copy you take on purpose, before the risky change — not the one the scheduler owes you at 03:00.
+    pitch: The copy you take on purpose, before the risky change - not the one the scheduler owes you at 03:00.
     how: Open Settings → Team and select "Back up now". The nightly copy runs without you. This button is for the moment before an upgrade or a bulk change.
     link: /settings
     since: 2026-08-14
@@ -682,11 +682,11 @@ knots:
     feature: Ask where a row came from
     knot: Prusik Loop
     set: loops
-    # ties when the route calls fieldguide.mark — asking the question IS the
+    # ties when the route calls fieldguide.mark - asking the question IS the
     # act, and a read leaves no ledger row to detect
     ties: mark
     role: any
-    pitch: Not just who wrote it — who proposed it, who approved it, whether that verdict carried a credential, and what has changed it since.
+    pitch: Not just who wrote it - who proposed it, who approved it, whether that verdict carried a credential, and what has changed it since.
     how: Open any task panel and select "where did this come from?". The chain reads from the row, the proposal that produced it, and the ledger.
     link: /dashboard
     since: 2026-08-10
@@ -755,13 +755,13 @@ knots:
     feature: Ask for a written document
     knot: Zeppelin Bend
     set: bends
-    # ties when a person OPENS a document on Reports — the write itself is
+    # ties when a person OPENS a document on Reports - the write itself is
     # signed by the agent, so the ledger carries no per-person signal, and
     # the read is the moment the feature reached its reader
     ties: mark
     role: any
     pitch: The agent writes the report, and the report outlives the chat that asked for it.
-    how: "Ask the agent to write a document — a plan, a summary, a comparison. It saves under Work → Reports for the whole team, behind the same review gate as every agent write. A ```mermaid block in a document or a chat answer renders as a diagram."
+    how: "Ask the agent to write a document - a plan, a summary, a comparison. It saves under Work → Reports for the whole team, behind the same review gate as every agent write. A ```mermaid block in a document or a chat answer renders as a diagram."
     link: /artifacts
     since: 2026-08-16
 

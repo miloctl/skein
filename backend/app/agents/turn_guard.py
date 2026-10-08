@@ -3,11 +3,11 @@
 The platform's promise is that an agent write is either applied or queued for a
 verdict, and the UI states which. That promise has a mirror image nobody was
 covering: a turn that ends with NOTHING written, on a message that plainly
-asked for a write, says nothing at all — and silence reads as success. The
+asked for a write, says nothing at all - and silence reads as success. The
 guard makes the absence of a write as visible as a write.
 
 Keyless and model-free. `unfiled` matches prefixes only: content heuristics
-(capture.PATTERNS) are deliberately NOT reused here — one of them classifies
+(capture.PATTERNS) are deliberately NOT reused here - one of them classifies
 any message ending in "?" as a question, which would fire the guard on ordinary
 conversation. A typed prefix is an unambiguous request to file; nothing else
 qualifies. `unnotified` reads the roster, which is a deterministic lookup, not
@@ -29,7 +29,7 @@ OBJECTION = (
 
 
 def reprompt_enabled() -> bool:
-    """Off by default, and never on the mock provider — a re-prompt there costs
+    """Off by default, and never on the mock provider - a re-prompt there costs
     a round trip and buys nothing, because the mock reply is deterministic."""
     return config.TURN_GUARD and config.EFFECTIVE_PROVIDER != "mock"
 
@@ -49,13 +49,13 @@ def unnotified(
     one.
 
     NOT the same trigger as `unfiled` below, which needs a typed capture
-    prefix. A handle is its own intent signal — nobody types a teammate's name
-    by accident — so this fires on prose, and states what happened rather than
+    prefix. A handle is its own intent signal - nobody types a teammate's name
+    by accident - so this fires on prose, and states what happened rather than
     demanding a write the author may not want.
 
     `invoked` catches a REPEATED mention of the persona answering
     (`/as scout ... @scout ...`). A leading `@slug` WITH a message never
-    reaches here — the route rewrites it into the /as form and `message` keeps
+    reaches here - the route rewrites it into the /as form and `message` keeps
     only the remainder. A bare `@slug` does, and is reported like any name.
     """
     if wrote:
@@ -77,7 +77,7 @@ def unnotified(
     rest = len(named) - 3
     # A filed row reaches an agent as well as a person (services/mentions.py::
     # scan notifies agents on purpose, and tools/portfolio.py::my_agent_inbox
-    # reads them), so the capture prefix is not wrong for a specialist — it is
+    # reads them), so the capture prefix is not wrong for a specialist - it is
     # incomplete. Without this line, "ask @growth-mentor about tomorrow" is
     # answered with instructions for filing a task, which is not what the
     # reader asked for.

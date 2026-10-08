@@ -1,6 +1,6 @@
 """The chain behind a row: how it was made, who judged it, what since.
 
-`origin` is a label. The reason to trust a row — or to look again — is the
+`origin` is a label. The reason to trust a row - or to look again - is the
 chain, and every link was already stored in a different table with no surface
 that put them together.
 """
@@ -32,7 +32,7 @@ def test_an_approved_proposal_names_its_reviewer(client, fresh_db):
 
 def test_a_weak_verdict_says_so(client, fresh_db):
     """In trusted-header mode a name is whatever the caller typed, so the
-    verdict records a click and not a person — the same distinction the trust
+    verdict records a click and not a person - the same distinction the trust
     score refuses to count."""
     from app.services import review, users
 
@@ -61,7 +61,7 @@ def test_a_rejected_proposal_is_not_a_lineage(client, fresh_db):
 
 def test_history_names_changes_and_not_another_rows(client, fresh_db):
     """The ledger's detail starts with `#<id>`, and blocker ids and task ids are
-    independent number spaces — an id match with no action test crossed them."""
+    independent number spaces - an id match with no action test crossed them."""
     from app.services import blockers, users, work
 
     users.ensure_user("mira")

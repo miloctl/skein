@@ -12,7 +12,7 @@ def _own_db(fresh_db):
     """The bridge seeds conversation-manager state via team_agent.
     _conversation_manager, which reads effective_context_strategy from the
     DB; without a fresh DB these tests only pass when an earlier test
-    initialized the shared one — order-dependence, not verification."""
+    initialized the shared one - order-dependence, not verification."""
     return fresh_db
 
 
@@ -37,7 +37,7 @@ def _nothing_stored():
 
 def test_command_first_thread_creates_session(monkeypatch):
     _live(monkeypatch, "t1")
-    session_log.log_exchange("t1", "/briefing", "**My Day** — 3 tasks")
+    session_log.log_exchange("t1", "/briefing", "**My Day** - 3 tasks")
     stored = _messages("t1")
     assert [m.message_id for m in stored] == [0, 1]
     assert stored[0].message["role"] == "user"
@@ -89,15 +89,15 @@ def test_empty_output_writes_nothing(monkeypatch):
 
 def test_fb_line_never_bridged(monkeypatch):
     _live(monkeypatch, "t7")
-    session_log.log_exchange("t7", "/remember fb: dana — private thing", "refused")
-    session_log.log_exchange("t7", "fb: dana — private thing", "refused")
+    session_log.log_exchange("t7", "/remember fb: dana - private thing", "refused")
+    session_log.log_exchange("t7", "fb: dana - private thing", "refused")
     assert _nothing_stored()
 
 
 def test_write_failure_is_swallowed_and_leaves_no_half_session(monkeypatch):
     """Best-effort by contract: the command reply already streamed, so a
     session write failure only logs. And because the bridge write is ONE
-    transaction, failure leaves no half-written session — the file store
+    transaction, failure leaves no half-written session - the file store
     could strand an agent record with no messages."""
     _live(monkeypatch, "t8")
 

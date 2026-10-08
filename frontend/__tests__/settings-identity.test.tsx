@@ -350,7 +350,7 @@ describe("Settings identity states", () => {
     window.dispatchEvent(new Event("skein-identity-change"));
 
     // the receipt is a value the section says only an administrator can
-    // read — it must not survive into the next identity's page
+    // read - it must not survive into the next identity's page
     await waitFor(() =>
       expect(screen.queryByText("Chat cap: 900 seconds.")).toBeNull(),
     );

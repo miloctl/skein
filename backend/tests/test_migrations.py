@@ -226,7 +226,7 @@ def _sql_only(text: str) -> str:
 
 def test_no_migration_bypasses_the_ledger_append_path():
     """CI databases are born empty, so a destructive migration hits 0 chained
-    rows here and every row in production — the suite alone can never catch
+    rows here and every row in production - the suite alone can never catch
     one. This scan can."""
     # Positive controls stop a broken pattern from passing forever. Include the
     # qualified and quoted forms that extension or maintenance SQL can use.
@@ -307,7 +307,7 @@ def _table(db, name):
 
 def test_a_renamed_migration_reruns_and_bricks_the_boot(scratch_db, tmp_path, monkeypatch):
     """schema_version records migrations by FILENAME, so a renamed file
-    re-runs on every existing database — the baseline's CREATE TABLE is not
+    re-runs on every existing database - the baseline's CREATE TABLE is not
     idempotent, and the boot dies on 'already exists'. This is why CLAUDE.md
     says a migration keeps its name after first deploy: no recovery
     MIGRATION can fix it. One numbered after the renamed file runs too late

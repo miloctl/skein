@@ -74,7 +74,7 @@ from .deps import CurrentUser, StrongUser, ViewerDep
 router = APIRouter(route_class=PolicyAPIRoute)
 
 # The DEFAULT deadline for one flock member, and for the merge step after
-# them — _member_deadline() below is what a turn actually uses. Generous: a
+# them - _member_deadline() below is what a turn actually uses. Generous: a
 # member is an agent LOOP (tool calls, then a synthesis of them) and a measured
 # 3-member turn on a cloud model ran 9 model calls in ~16s. This is a hang
 # guard, not a latency budget. A member that trips it is reported failed in its
@@ -115,11 +115,11 @@ class ChatRequest(BaseModel):
     attachments: list[int] = Field(default_factory=list, max_length=5)
 
 
-# Text a provider can always take as prose, whatever it declares — so a
+# Text a provider can always take as prose, whatever it declares - so a
 # keyless deployment still gets the CONTENT of a note or a spreadsheet export
 # rather than a line saying one was attached.
 # Bedrock refuses a document name outside this set; the other providers do not
-# care. One sanitizer rather than a per-provider branch — chat.py may not ask
+# care. One sanitizer rather than a per-provider branch - chat.py may not ask
 # which provider it is talking to.
 _DOC_NAME_OK = re.compile(r"[^A-Za-z0-9 \[\]()-]")
 
@@ -128,7 +128,7 @@ def _document_name(title: str, artifact_id: int) -> str:
     """A document name every provider accepts, never empty.
 
     Bedrock's DocumentBlock allows alphanumerics, single spaces, hyphens,
-    parentheses and square brackets — a plain `report.pdf` is a
+    parentheses and square brackets - a plain `report.pdf` is a
     ValidationException that kills the turn. The id is the fallback so the
     model always has something to refer to.
     """
@@ -169,7 +169,7 @@ def _attachment_prompt(
         # TEXT BEFORE the document block, and the format checked as well as the
         # kind. A provider's document support is per FORMAT, not per kind:
         # anthropic takes pdf and plain text, the openai file part takes pdf
-        # only, and bedrock's Converse takes them all — so `csv` sent as a
+        # only, and bedrock's Converse takes them all - so `csv` sent as a
         # document block to anthropic is the same turn-killing 400 that
         # config.attachment_support exists to prevent, one level down. Text
         # formats inline as prose on every provider, which is both safe and a
@@ -180,7 +180,7 @@ def _attachment_prompt(
         if media == "image":
             # The sidecar: a second model on this provider reads what the chat
             # model cannot. Its answer is a DESCRIPTION of a person's file, and
-            # a picture can carry text telling the reader what to do — so it
+            # a picture can carry text telling the reader what to do - so it
             # lands wrapped like every other attached document rather than as
             # something the turn itself observed.
             described = describe_image(data, fmt, thread_id)
@@ -198,7 +198,7 @@ def _attachment_prompt(
                         "format": fmt,
                         # bedrock's DocumentBlock name refuses a period and
                         # most punctuation (ValidationException), and the
-                        # title is a person's filename — so the model is told
+                        # title is a person's filename - so the model is told
                         # the name through a field that accepts one
                         "name": _document_name(row["title"], artifact_id),
                         "source": {"bytes": data},
@@ -209,7 +209,7 @@ def _attachment_prompt(
         # Named, not dropped: the person can see the file reached the turn and
         # that this deployment's provider cannot open it.
         blocks.append(
-            {"text": f"[attached file: {row['title']} — this model cannot read this file type]"}
+            {"text": f"[attached file: {row['title']} - this model cannot read this file type]"}
         )
     blocks.append({"text": message})
     return blocks, titles
@@ -218,7 +218,7 @@ def _attachment_prompt(
 def _with_attachments(message: str, titles: list[str]) -> str:
     """The user turn as the transcript stores it: the text, then the names.
 
-    Sentence form computes its own plural (CLAUDE.md) — a reloaded thread
+    Sentence form computes its own plural (CLAUDE.md) - a reloaded thread
     reads "1 file attached" or "2 files attached", never "1 file(s)".
     """
     if not titles:
@@ -229,7 +229,7 @@ def _with_attachments(message: str, titles: list[str]) -> str:
 
 @router.get("/api/chat/commands")
 def chat_commands() -> list[dict]:
-    """Command catalog for the composer autocomplete — static metadata."""
+    """Command catalog for the composer autocomplete - static metadata."""
     return commands.catalog()
 
 
@@ -285,7 +285,7 @@ def get_chat_folders(user: CurrentUser):
 @router.post("/api/chats/folders")
 def post_chat_folder(body: FolderIn, user: CurrentUser):
     # a folder is never deleted by writing another one, and list_folders UNIONs
-    # over every distinct folder string ever set — so a loop here grows every
+    # over every distinct folder string ever set - so a loop here grows every
     # later read of the sidebar, not just this one write
     ratelimit.check("write", user)
     return chat_threads.create_folder(user, body.name)
@@ -662,7 +662,7 @@ def _consult_budget(message: str) -> int:
     never fewer than the default.
 
     mentions.slugs_in, not names_in: the latter matches the users table, and a
-    specialist has no row until its first consult — so "ask @a and @b and @c"
+    specialist has no row until its first consult - so "ask @a and @b and @c"
     would seed 2 rather than 3 on the very turn that needs 3.
     """
     from ..agents.identity import MAX_CONSULTS_PER_TURN
@@ -671,7 +671,7 @@ def _consult_budget(message: str) -> int:
         named = mentions.slugs_in(message, personas.bench_slugs())
     except Exception:
         # a roster or glob failure must not kill the stream before its error
-        # handler exists — _bench_block degrades the same way
+        # handler exists - _bench_block degrades the same way
         return MAX_CONSULTS_PER_TURN
     return max(MAX_CONSULTS_PER_TURN, len(named))
 
@@ -680,7 +680,7 @@ def _attributed(r: dict, head: str) -> dict:
     """The server-side render decision for a receipt's actor: kept only when
     it says something the reader does not already know. Decided HERE, once,
     because the stored transcript (_receipt_line) and the live chip
-    (runtime-provider.tsx::receiptLine) cannot share code — a rule each
+    (runtime-provider.tsx::receiptLine) cannot share code - a rule each
     reimplements is a rule that diverges, and history then disagrees with
     what the reader watched happen."""
     if r.get("actor") in ("", head):
@@ -692,7 +692,7 @@ def _agent_fault(exc: Exception) -> str:
     """One sentence per error class (the main.py classification, inside a
     stream): load says retry, configuration says who to ask, anything else
     stays the unknown-fault line. Classified from the status code and class
-    name only — a provider exception's MESSAGE carries request IDs and
+    name only - a provider exception's MESSAGE carries request IDs and
     credential fragments, and an error response never echoes it. The frame
     stays an SSE error on purpose: by the time a turn fails the stream is the
     response, and the pre-stream build_agent failure uses the same wording so
@@ -723,7 +723,7 @@ def _receipt_line(r: dict) -> str:
     """How a receipt reads in the stored transcript.
 
     The live chip (runtime-provider.tsx::receiptLine) words the same kinds
-    differently — "queued for review" here is "needs a human verdict" there —
+    differently - "queued for review" here is "needs a human verdict" there -
     and that split is DELIBERATE, not drift: the chip explains a state at the
     moment it happens and links the Inbox; history compresses. What must
     match is the CLAIM each kind makes and the actor decision (_attributed
@@ -742,7 +742,7 @@ def _receipt_line(r: dict) -> str:
         "nothing": "filed nothing",
         "unnotified": f"not notified: {r['entity']}",
     }.get(r["kind"], r["kind"])
-    return f"\n\n> **{label}** — {r['detail']}\n\n"
+    return f"\n\n> **{label}** - {r['detail']}\n\n"
 
 
 def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> None:
@@ -755,7 +755,7 @@ def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> Non
 
 # One tool-less completion that answers in 60 characters or less, and it runs
 # ON the critical path, so this budget is "how long may a finished answer sit
-# there with nothing rendering" — not MEMBER_TIMEOUT_S's 180 s default, which asks
+# there with nothing rendering" - not MEMBER_TIMEOUT_S's 180 s default, which asks
 # how long a stalled provider may hold a connection nobody reads.
 _TITLE_TIMEOUT_S = 8.0
 
@@ -771,7 +771,7 @@ async def _summarize_title(thread_id: str, user: str) -> None:
     title was correct in the database and a second too late to be read.
 
     Cost is the call's own latency, paid once per thread ever, at the moment
-    of LOWEST provider concurrency — every member and the merge have already
+    of LOWEST provider concurrency - every member and the merge have already
     finished. A turn the reader stops mid-title forfeits the summary for good
     (pending_auto_title then sees two user messages), which is the deliberate
     trade: a title that shows up beats a nicer one nobody sees.
@@ -833,7 +833,7 @@ def _masthead(card: dict) -> str:
     every member, so the section break has to carry typographic weight that
     `**` does not: `.prose-chat` in frontend/app/globals.css sizes h3 above
     body text, and h2 above that for the merge."""
-    vibe = f" — *{card['vibe']}*" if card.get("vibe") else ""
+    vibe = f" - *{card['vibe']}*" if card.get("vibe") else ""
     return f"\n\n### {card['emoji']} {card['name']}{vibe}\n\n"
 
 
@@ -882,7 +882,7 @@ async def _run_member(
         )
         # a member gets a deadline for its WHOLE turn. Without one, a provider
         # that accepts the connection and never answers holds this task, a
-        # threadpool worker, and the reader's SSE stream open forever — and a
+        # threadpool worker, and the reader's SSE stream open forever - and a
         # flock opens four of them. The reader is blocked on this member's
         # section, so one hung member also hides the ones that did answer.
         async with asyncio.timeout(_member_deadline()):
@@ -902,7 +902,7 @@ async def _run_member(
                     # is NOT a gap: a member cannot reach the direct path
                     # (force_review, tools/_gate.py), so a `wrote` here means
                     # that guarantee already failed, and the receipt chip in
-                    # the transcript is where it must be read — folding it
+                    # the transcript is where it must be read - folding it
                     # into "proposals" would hide it.
                     entry["receipts"] += r["kind"] == "queued"
                     # _attributed with the MEMBER as head: a member's receipts
@@ -929,7 +929,7 @@ async def _run_member(
         # a member that died mid-loop reaches NEITHER drain above: the in-loop
         # one runs on the next stream event, which never comes, and the one
         # after the loop is skipped by the raise. These receipts are for tool
-        # calls that already COMPLETED — they exist, and would otherwise be
+        # calls that already COMPLETED - they exist, and would otherwise be
         # left in the box for nobody. Queued before member-end below, so the
         # reader still takes them. drain() clears, so the success path (which
         # already drained) yields nothing here.
@@ -950,7 +950,7 @@ async def _run_member(
                 out.put_nowait({"type": "usage", "row": row})
             elif row:
                 # A CANCELLED member reaches this line AFTER _close_turn has
-                # already run — the reader stopped, and nothing will drain
+                # already run - the reader stopped, and nothing will drain
                 # this queue again. So it writes its own row, inline and sync,
                 # exactly as this did before the queue existed. The route's
                 # no-blocking-on-the-loop rule yields here for the same reason
@@ -998,11 +998,11 @@ async def _flock_stream(
     # (see tools/portfolio.py::my_agent_inbox).
     rv_token = set_requester_viewer(viewer)
     # keyed by slug, which is unique only because flocks._parse refuses a
-    # repeated member — two members on one queue would interleave into one
+    # repeated member - two members on one queue would interleave into one
     # section, so a `cards` list built anywhere but get_flock re-opens that
     queues: dict[str, asyncio.Queue] = {c["slug"]: asyncio.Queue() for c in cards}
     tasks: list[asyncio.Task] = []
-    # usage rows extracted by members and the merge, written by _close_turn —
+    # usage rows extracted by members and the merge, written by _close_turn -
     # never inline where they were extracted (see _usage_row)
     usage_rows: list[dict] = []
     # started next to task creation, not at the top: the transcript write above
@@ -1023,7 +1023,7 @@ async def _flock_stream(
         # A cancelled member never delivers its own entry: task.cancel() lands
         # on a later loop iteration and nothing drains its queue once the
         # reader stops. Rebuilt in declared order so the trace always carries
-        # every member — dropping one hides a member that ran and spent.
+        # every member - dropping one hides a member that ran and spent.
         # ms is the turn's elapsed time, not 0: the member ran from task
         # creation until the cancel, and services/flocks.py::record_trace
         # exists because a stopped turn still produced spend. A hardcoded 0
@@ -1046,7 +1046,7 @@ async def _flock_stream(
         ]
         # SPEND FIRST, and each write isolated. _log_turn is the one call here
         # that can raise (a busy transcript write), and everything after a
-        # raise is skipped while `closed` above already swallowed the retry —
+        # raise is skipped while `closed` above already swallowed the retry -
         # ordered the other way, one lock timeout on the transcript discarded
         # the whole turn's spend AND its trace. The /as path has the same
         # ordering for the same reason.
@@ -1058,7 +1058,7 @@ async def _flock_stream(
         with contextlib.suppress(Exception):
             _log_turn(ui_thread, user, "assistant", "".join(transcript))
         # a follow-up ("what did the reviewer say?") goes to the Chief of
-        # Staff, which never saw these sections — no member ran on the shared
+        # Staff, which never saw these sections - no member ran on the shared
         # session. Bridge them in, the way the command path does.
         #
         # LABELLED, not bare: this is model text steered by whatever the
@@ -1098,7 +1098,7 @@ async def _flock_stream(
                     done[slug] = event["entry"]
                     break
                 if event["type"] == "usage":
-                    # bookkeeping, not a frame — held for _close_turn, and
+                    # bookkeeping, not a frame - held for _close_turn, and
                     # never yielded: the else branch below renders anything
                     # unrecognized as a receipt line
                     usage_rows.append(event["row"])
@@ -1134,7 +1134,7 @@ async def _flock_stream(
             # h2 against the members' h3: the merge sits OVER the sections
             # above, and giving it their heading level renders the turn as
             # N+1 peer voices with no visible seam where the merge starts
-            head = f"{_SECTION_RULE}\n\n## {fdef['emoji']} {fdef['name']} — together\n\n"
+            head = f"{_SECTION_RULE}\n\n## {fdef['emoji']} {fdef['name']} - together\n\n"
             transcript.append(head)
             model_parts.append(head)
             yield _sse({"type": "text", "text": head})
@@ -1149,7 +1149,7 @@ async def _flock_stream(
                 # the same deadline a member gets, for the same reason: the
                 # merge is one more agent turn on a provider that can accept
                 # the connection and never answer. Unbounded, it holds the SSE
-                # stream open forever AFTER every member has already answered —
+                # stream open forever AFTER every member has already answered -
                 # the reader has nothing left to render and never finishes.
                 # TimeoutError is an Exception, so the handler below reports it
                 # as a failed merge with no extra branch.
@@ -1178,7 +1178,7 @@ async def _flock_stream(
                         synth_entry["tokens_out"] = int(usage.get("outputTokens", 0))
                     # OUTSIDE the suppress: a failed metrics read must not also
                     # drop the spend row, and a partial merge is still spend.
-                    # Extraction only — _close_turn's threadpool writes it.
+                    # Extraction only - _close_turn's threadpool writes it.
                     row = _usage_row(synth, ui_thread, agent_name=fdef["slug"])
                     if row:
                         usage_rows.append(row)
@@ -1188,7 +1188,7 @@ async def _flock_stream(
         # point is correct and unread until the next navigation
         await _summarize_title(ui_thread, user)
     finally:
-        # an unfinished member keeps running — and keeps filing proposals —
+        # an unfinished member keeps running - and keeps filing proposals -
         # after the reader stops, so cancel before the close
         for t in tasks:
             t.cancel()
@@ -1216,7 +1216,7 @@ async def _flock_stream(
                     usage_rows.append(event["row"])
         # close BEFORE the reset, and never let the reset speak: an abandoned
         # stream is finalized in a foreign context, where reset raises
-        # ValueError — raised first, it took the whole turn record with it
+        # ValueError - raised first, it took the whole turn record with it
         # (no transcript, no trace, no bridge). Identity is per-task, so
         # skipping the reset cannot leak. Same guard as the /as path below.
         _close_turn()
@@ -1244,11 +1244,11 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     # share one visible conversation); sanitize once, up front
     ui_thread = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64]
     # "default" is ChatRequest's field default, so an omitted id and an
-    # explicit one are the same request — both must land on the caller's own
+    # explicit one are the same request - both must land on the caller's own
     # row rather than the single shared one every scripted client restored.
     if not ui_thread or ui_thread == "default":
         ui_thread = chat_threads.default_thread_id(user)
-    # /as <persona> <message>: resolve the bench persona BEFORE any model —
+    # /as <persona> <message>: resolve the bench persona BEFORE any model -
     # unknown slugs get a deterministic error, valid ones swap the agent's
     # head and identity (writes are attributed and gated per persona)
     persona = ""
@@ -1259,8 +1259,8 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     stripped = message.strip()
     # A LEADING @slug invokes that bench persona for this ONE message. Rewritten
     # into the /as form rather than given its own branch, so it takes the
-    # identical path below — persona session, identity, ensure_user, the fb:
-    # guard, gate — and
+    # identical path below - persona session, identity, ensure_user, the fb:
+    # guard, gate - and
     # cannot drift from it. Only a bench slug rewrites: `@mira ...` is a mention
     # of a person and stays ordinary prose (services/users.py::ensure_user
     # refuses a human holding a bench slug, so one token never means both).
@@ -1275,7 +1275,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         rest = parts[1].strip() if len(parts) > 1 else ""
         # bench_slugs() globs; get_persona() parses every persona file to build
         # its error string. Without this pre-check the commonest @ message in
-        # the product — "@mira can you look" — paid a full bench parse to
+        # the product - "@mira can you look" - paid a full bench parse to
         # produce a message nobody reads.
         bench = set(await run_in_threadpool(personas.bench_slugs)) | set(extension_specialists)
         if rest and slug in bench:
@@ -1306,7 +1306,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         if len(parts) == 2 and req.attachments:
             parts.append("")
         if len(parts) < 3:
-            err = "Usage: `/as <persona> <message>` — `/personas` lists the bench."
+            err = "Usage: `/as <persona> <message>` - `/personas` lists the bench."
         else:
             try:
                 selected = parts[1].lower()
@@ -1340,12 +1340,12 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         try:
             await run_in_threadpool(ensure_user, persona, kind="agent")
         except ValueError as exc:
-            # e.g. a human already claimed the slug — SSE, not a bare 400
+            # e.g. a human already claimed the slug - SSE, not a bare 400
             return await _refusal(str(exc))
         if persona == "bosun":
             await run_in_threadpool(fieldguide.mark, user, "bosun")
 
-    # /flock <flock> <message>: resolved here for the same reason /as is —
+    # /flock <flock> <message>: resolved here for the same reason /as is -
     # an unknown slug must answer deterministically, before any model runs.
     # Members are registered inside their own tasks, so one clashing slug
     # fails that member alone (routes _run_member).
@@ -1353,7 +1353,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     if stripped.lower().split(maxsplit=1)[:1] == ["/flock"]:
         parts = stripped.split(maxsplit=2)
         if len(parts) < 3:
-            err = "Usage: `/flock <flock> <message>` — `/flocks` lists them."
+            err = "Usage: `/flock <flock> <message>` - `/flocks` lists them."
         else:
             try:
                 flock_def = await run_in_threadpool(flocks.get_flock, parts[1].lower())
@@ -1365,7 +1365,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             return await _refusal(err)
 
     # fb: is private and chat is a sink (session files on disk, the model
-    # provider, OTEL traces) — reject BEFORE the message reaches the agent.
+    # provider, OTEL traces) - reject BEFORE the message reaches the agent.
     # Checked AFTER /as extraction so "/as x fb: ..." can't smuggle it past;
     # FB_GUARD also catches the command-wrapped shape ("/remember fb: ..."),
     # which would otherwise transit the transcript and the session bridge.
@@ -1374,7 +1374,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
 
     # Every path below takes this id: the command dispatcher's session bridge,
     # the flock fan-out, and build_agent. Only this call proves the id is the
-    # caller's — agents/session_store.py keys on session_id alone, so without
+    # caller's - agents/session_store.py keys on session_id alone, so without
     # it, naming another person's thread answered out of their conversation.
     # AFTER the fb: guard, or a refused private line would leave a thread row
     # behind (test_fb_never_reaches_transcript); BEFORE the dispatcher, whose
@@ -1382,7 +1382,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     await run_in_threadpool(chat_threads.claim_thread, ui_thread, user)
 
     # slash commands are deterministic for EVERY provider: no agent, no
-    # tokens — same engine the mock agent uses. The exchange is
+    # tokens - same engine the mock agent uses. The exchange is
     # still bridged into the model session afterwards (session_log) so a
     # follow-up question to the agent has the context.
     command_events = commands.dispatch(
@@ -1393,7 +1393,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             request.app.state.skein_registry.policy_engine,
             subject,
             "human",
-            # claimed above — /remember files against this thread's linked
+            # claimed above - /remember files against this thread's linked
             # engagement, and the claim is what proves the id is the caller's
             thread_id=ui_thread,
         ),
@@ -1422,14 +1422,14 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 # idempotent: the threadpool call below can be cancelled at
                 # anyio's checkpoint or limiter wait BEFORE its thread starts
                 # (then the finally's sync call writes), and once the thread
-                # HAS started it runs to completion — the flag set here is
+                # HAS started it runs to completion - the flag set here is
                 # what stops the finally from writing the turn a second time
                 nonlocal closed
                 if closed:
                     return
                 closed = True
                 _log_turn(ui_thread, user, "assistant", "".join(parts))
-                # a follow-up question about this output goes to the agent —
+                # a follow-up question about this output goes to the agent -
                 # replay the exchange into its session so it has the context
                 # (unless an agent turn holds the session right now: the
                 # turn's in-memory message index would collide with bridged
@@ -1485,7 +1485,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             finally:
                 # sync fallback for the CANCELLED stream (stop button, tab
                 # close): inside the cancelled scope an await in finally
-                # raises instead of running — threadpooling this branch would
+                # raises instead of running - threadpooling this branch would
                 # drop the transcript and the bridge exactly then. Runs
                 # unconditionally; _close_turn's own flag makes a turn the
                 # threadpool already closed a no-op.
@@ -1498,14 +1498,14 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         # here and "/help" on a fresh thread buys a model call, on the one
         # path built to never need one. The refusal streams above (a usage
         # string, a slug clash, an fb: guard) are untitled for the same
-        # reason — they log the message and run nothing.
+        # reason - they log the message and run nothing.
         return StreamingResponse(command_stream(), media_type="text/event-stream")
 
     if flock_def:
         # Charged HERE, and on the `chat` bucket rather than a bucket of its
         # own: one turn runs an agent loop per member plus the merge, so a
         # single chat slot bought several turns of model spend. ONE slot is
-        # already spent by this point — the top-of-route check above — hence
+        # already spent by this point - the top-of-route check above - hence
         # the -1. That slot stays spent even when this call refuses.
         # Placement is load-bearing twice over. Inside the /flock parse `try`
         # above, its `except ValueError` would render the cap as an SSE text
@@ -1548,7 +1548,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         thread_id = chat_threads.persona_session_id(thread_id, persona)
     masthead = ""
     if persona:
-        # deterministic nameplate for EVERY provider, once per thread — who
+        # deterministic nameplate for EVERY provider, once per thread - who
         # answered must never depend on whether the model signs its work
         if persona in extension_specialists:
             extension = extension_specialists[persona]
@@ -1566,7 +1566,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         if not await run_in_threadpool(
             chat_threads.thread_contains, ui_thread, f"**{pdef['name']}**"
         ):
-            vibe = f" — *{pdef['vibe']}*" if pdef["vibe"] else ""
+            vibe = f" - *{pdef['vibe']}*" if pdef["vibe"] else ""
             masthead = f"{pdef['emoji']} **{pdef['name']}**{vibe}\n"
             if pdef["disclosure"]:
                 masthead += f"\n> {pdef['disclosure']}\n"
@@ -1575,7 +1575,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     # somebody else must be a 404 the client can act on, not an error frame
     # part-way through a stream whose user turn is already in the transcript.
     # A BENCH persona can override the model, and that override rides the same
-    # ladder the agent build uses — so an attachment is judged against what the
+    # ladder the agent build uses - so an attachment is judged against what the
     # turn actually runs on. An extension specialist is not on the bench and
     # has no behavior row (personas.behavior raises for its slug); it runs the
     # deployment model, which is what an empty override resolves to.
@@ -1650,7 +1650,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             with leases.held(turn_key):
                 seen_tools: set[str] = set()
                 # slugs whose answer already carries a heading this turn, and the
-                # record of which specialists actually spoke — the turn guard reads it
+                # record of which specialists actually spoke - the turn guard reads it
                 # so a consulted name is not then reported as unreached
                 consulted: set[str] = set()
                 headed: set[str] = set()
@@ -1659,8 +1659,8 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 # so without this its words render as the specialist's.
                 open_section = False
                 transcript: list[str] = [masthead] if masthead else []
-                wrote = False  # ANY receipt — silences the guard (it told the truth)
-                filed = False  # wrote/queued only — a failed write must not tie a knot
+                wrote = False  # ANY receipt - silences the guard (it told the truth)
+                filed = False  # wrote/queued only - a failed write must not tie a knot
                 # user turn first, assistant turn in finally: a cancelled stream
                 # (stop button, tab close, thread switch) keeps the partial exchange
                 # the transcript records the NAMES, never the bytes: a reloaded
@@ -1670,14 +1670,14 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                     _log_turn, ui_thread, user, "user", _with_attachments(message, attached)
                 )
                 # identity is set INSIDE the generator: tool calls run during this
-                # iteration, in this context — proposals sign the persona's name
+                # iteration, in this context - proposals sign the persona's name
                 token = set_agent_identity(persona or "agent")
                 # the head every receipt's actor is compared against (_attributed):
                 # the same name the identity above signs the turn's own writes with
                 turn_head = persona or "agent"
                 # the requester is set on BOTH paths, not only for personas: proposals
                 # carry the human who asked (requested_by, tools/_gate.py), and the
-                # gate's write bucket keys on the (agent, requester) pair — left empty
+                # gate's write bucket keys on the (agent, requester) pair - left empty
                 # here, the default identity "agent" was ONE team-wide 30/min bucket,
                 # and person B's write refused because person A was mid-turn
                 req_token = set_requester_identity(user)
@@ -1704,7 +1704,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                     # idempotent: the threadpool call below can be cancelled at
                     # anyio's checkpoint or limiter wait BEFORE its thread starts
                     # (then the finally's sync call writes), and once the thread HAS
-                    # started it runs to completion — the flag set here is what
+                    # started it runs to completion - the flag set here is what
                     # stops the finally from writing the turn a second time
                     nonlocal closed
                     if closed:
@@ -1754,7 +1754,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                             if slug and channel_receipt:
                                 # a receipt that rode the consult's own channel
                                 # (team_agent.py::_run_consult drains its isolated box
-                                # beside the text) — placement by data. The section
+                                # beside the text) - placement by data. The section
                                 # heading names the author, so _attributed with the
                                 # SLUG as head strips the redundant suffix, exactly as
                                 # the flock's per-member drain does.
@@ -1791,7 +1791,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                                 transcript.append(text)
                                 yield _sse({"type": "text", "text": text})
                         # a write's outcome is a FACT the UI states, not a claim the
-                        # model makes — drained as it happens, so it lands with the
+                        # model makes - drained as it happens, so it lands with the
                         # tool call that caused it
                         for r in receipts.drain():
                             wrote = True
@@ -1836,7 +1836,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                         await run_in_threadpool(fieldguide.mark, user, "consult")
                     # one more drain before the turn closes: a specialist write that
                     # finishes in a threadpool AFTER pump's last drain lands in a box
-                    # nothing reads again — the proposal sits in the inbox while the
+                    # nothing reads again - the proposal sits in the inbox while the
                     # chat says nothing filed it. A receipt later than this drain is
                     # genuinely unreachable here; the durable inbox row is the
                     # backstop, and this comment is the record of that decision.
@@ -1864,7 +1864,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                     await run_in_threadpool(_close_turn)
                 finally:
                     # an abandoned stream may be finalized in a foreign context,
-                    # where reset raises — identity is per-task, so it can't leak
+                    # where reset raises - identity is per-task, so it can't leak
                     try:
                         reset_agent_identity(token)
                         reset_requester_identity(req_token)
@@ -1876,7 +1876,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                         pass
                     # sync fallback for the CANCELLED stream (stop button, tab
                     # close): inside the cancelled scope an await in finally raises
-                    # instead of running — threadpooling this branch would drop usage
+                    # instead of running - threadpooling this branch would drop usage
                     # accounting and the partial transcript exactly then. Runs
                     # unconditionally; _close_turn's own flag makes a turn the
                     # threadpool already closed a no-op.
@@ -1909,7 +1909,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
 
 
 def _log_turn(thread_id: str, owner: str, role: str, text: str) -> None:
-    """Best-effort UI history — a transcript failure must not break the chat."""
+    """Best-effort UI history - a transcript failure must not break the chat."""
     try:
         chat_threads.log_message(thread_id, owner, role, text)
     except Exception:

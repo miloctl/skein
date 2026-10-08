@@ -4,7 +4,7 @@ the database must leave a receipt.
 "Provenance on every write" is sampled by the golden traces; this file proves
 it. The seam is instrumented, not enumerated: db.execute / db.execute_rowcount
 are wrapped to observe mutating SQL, every tool in the registry is invoked,
-and a call that wrote with zero receipts fails — whether it bypassed the gate
+and a call that wrote with zero receipts fails - whether it bypassed the gate
 or the gate grew an exit that forgot to record. Coverage breach is
 load-bearing: without it, the receipts are decorative logging.
 
@@ -39,7 +39,7 @@ _KINDS = {"wrote", "queued", "refused", "failed"}  # literal, not imported
 DERIVED_TABLES = {"context_packs", "search_index", "embeddings"}
 
 # per-tool args where the name/type heuristics below are not enough.
-# This list feeds ARGUMENTS only — inclusion always comes from ALL_TOOLS.
+# This list feeds ARGUMENTS only - inclusion always comes from ALL_TOOLS.
 ARGS: dict[str, dict] = {
     "start_engagement_from_playbook": {
         "playbook_slug": "prototype",
@@ -49,7 +49,7 @@ ARGS: dict[str, dict] = {
     # question 2, not 1: answer_question runs earlier in registry order and
     # answers question 1, and assigning an answered question refuses pre-gate
     "assign_question": {"question_id": 2, "assigned_to": "tester"},
-    # a dedicated undelegated task and a real active human sponsor — the
+    # a dedicated undelegated task and a real active human sponsor - the
     # heuristic sponsor string refuses before the gate
     "delegate_task": {"task_id": 3, "agent": "probe-agent", "sponsor": "tester"},
     # non-empty payloads, or the empty-update bounce fires BEFORE the gate and
@@ -57,7 +57,7 @@ ARGS: dict[str, dict] = {
     "edit_note": {"note_id": 1, "content": "coverage probe edit"},
     # blocker 2, not 1: resolve_blocker runs EARLIER in registry order and
     # resolves blocker 1, and editing a resolved blocker refuses before the
-    # gate — the same ordering disturbance the trio's dedicated task avoids
+    # gate - the same ordering disturbance the trio's dedicated task avoids
     "edit_blocker": {"blocker_id": 2, "title": "coverage probe edit"},
     "edit_intake_request": {"request_id": 1, "title": "coverage probe edit"},
     # the exact run _seed wrote: edit_document refuses a match it cannot
@@ -104,7 +104,7 @@ _STR_BY_NAME = {
 
 def _kwargs_for(fn) -> dict:
     """Type-and-name driven args. A parameter this cannot fill raises, which
-    fails the suite loudly — the fix is an ARGS entry, never a skip."""
+    fails the suite loudly - the fix is an ARGS entry, never a skip."""
     if fn.__name__ in ARGS:
         return ARGS[fn.__name__]
     kwargs = {}
@@ -117,7 +117,7 @@ def _kwargs_for(fn) -> dict:
             kwargs[name] = _STR_BY_NAME.get(name, f"coverage probe {name}")
         else:
             raise AssertionError(
-                f"{fn.__name__}: no heuristic for parameter {name!r} — add an ARGS entry"
+                f"{fn.__name__}: no heuristic for parameter {name!r} - add an ARGS entry"
             )
     return kwargs
 
@@ -143,7 +143,7 @@ def _seed(fresh_db):
     users.ensure_user("probe-agent", kind="agent")  # delegation target; the
     # calling identity is "agent" and self-delegation is refused pre-gate
     users._reserve_core_agent_identity("agent")  # application startup owns this row
-    # the FIRST artifact, so it is id 1 for edit_document below — generate_handoff
+    # the FIRST artifact, so it is id 1 for edit_document below - generate_handoff
     # writes its own later, inside the loop
     documents.create_document("probe document", "probe body", actor="tester")
     engagements.create_engagement("probe engagement", actor="tester")
@@ -271,13 +271,13 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
 
     assert not uncallable, "tools the heuristics cannot call:\n" + "\n".join(uncallable)
     assert not silent_writers, (
-        "tool calls that mutated the database without leaving a receipt —"
+        "tool calls that mutated the database without leaving a receipt -"
         " either they bypassed the gate or a gate exit forgot to record:\n"
         + "\n".join(silent_writers)
     )
     # the FULL snapshot of writers, not a floor: a floor of 20 would let 14
     # tools silently degrade to error paths before anything went loud. One
-    # line of maintenance per new writing tool, which is the point — a new
+    # line of maintenance per new writing tool, which is the point - a new
     # tool declares itself here or fails the suite.
     expected_writers = {
         "add_absence",
@@ -323,7 +323,7 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     # A hard DELETE is the irreversible verb ALWAYS_REVIEW exists for
     # (tools/_gate.py): the gate turns those into proposals, so a tool call
     # here must never reach DELETE on a real table. A tool that does has
-    # bypassed the review path — the exact hazard a prompt-injected agent
+    # bypassed the review path - the exact hazard a prompt-injected agent
     # exploits with the review flag off. A new hard-deleting tool routes its
     # delete through an ALWAYS_REVIEW entity or fails this assertion.
     assert direct_deleters == {}, (
@@ -338,14 +338,14 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
     # guard. Adding one here without that guard is how a flock member gets an
     # ungoverned write path back.
     assert covered - gated == set(UNGATED_WRITERS), (
-        "the set of writers that bypass the gate changed —"
+        "the set of writers that bypass the gate changed -"
         f" derived {sorted(covered - gated)}, declared {sorted(UNGATED_WRITERS)}."
         " Give the new one a refuse_when_consultative guard, then list it."
     )
 
 
 def test_the_registry_is_the_only_inclusion_source():
-    """ARGS entries must name real tools — a renamed tool with a stale ARGS
+    """ARGS entries must name real tools - a renamed tool with a stale ARGS
     key would silently fall back to heuristics that may not fit."""
     names = {_unwrap(t).__name__ for t in ALL_TOOLS}
     stale = set(ARGS) - names
@@ -367,8 +367,8 @@ UNGATED_WRITERS = {
 @pytest.mark.parametrize(("tool_name", "expected_kind"), sorted(UNGATED_WRITERS.items()))
 def test_the_ungated_writers_report_themselves(fresh_db, tool_name, expected_kind):
     """The delegation loop and the handoff generator bypass the generic gate
-    on purpose — sponsor-bound verdicts and artifact projection have their own
-    rules — so they record their own receipts. Before this, submitting a task
+    on purpose - sponsor-bound verdicts and artifact projection have their own
+    rules - so they record their own receipts. Before this, submitting a task
     for acceptance filed a proposal and the chat UI stated nothing."""
     from app import tools as tools_pkg
 
@@ -389,7 +389,7 @@ def test_the_ungated_writers_report_themselves(fresh_db, tool_name, expected_kin
     assert "error" not in out, out
     assert [r["kind"] for r in got] == [expected_kind]
     if expected_kind == "queued":
-        # the ref IS the proposal id — the transcript renders "#N", and 0
+        # the ref IS the proposal id - the transcript renders "#N", and 0
         # silently drops it, unlike every gate-queued receipt
         assert got[0]["ref"] == out["proposal_id"] > 0
 
@@ -405,7 +405,7 @@ def test_a_failing_ungated_writer_reports_the_failure(fresh_db):
 
 
 def test_the_shipped_default_holds_agent_writes_for_review():
-    """Gate ON with the variable unset — the fail-closed posture every other
+    """Gate ON with the variable unset - the fail-closed posture every other
     trust boundary already has (an unset auth mode refuses every request).
     A fresh process, because conftest pins the suite's copy to "0" and
     monkeypatching an attribute never exercises the parse. "" means the
@@ -418,10 +418,10 @@ def test_the_shipped_default_holds_agent_writes_for_review():
 
     # "" and never unset: config's load_dotenv() re-fills an ABSENT var from
     # backend/.env, so an unset probe reads the developer's overlay instead of
-    # the shipped default — the same reason conftest pins with "" above.
+    # the shipped default - the same reason conftest pins with "" above.
     env = {**os.environ, "SKEIN_AGENT_REVIEW": ""}
     code = "from app import config; print(int(config.AGENT_REVIEW))"
-    out = subprocess.run(  # noqa: S603 — fixed argv, this interpreter, literal source
+    out = subprocess.run(  # noqa: S603 - fixed argv, this interpreter, literal source
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,

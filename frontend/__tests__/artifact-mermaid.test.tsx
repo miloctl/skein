@@ -51,7 +51,7 @@ describe("a fence in an artifact body", () => {
     const body = ["# Title", "", DIAGRAM, "", "- a bullet"].join("\n");
     const { container } = render(<ArtifactMarkdown markdown={body} />);
     await waitFor(() => expect(mermaid.render).toHaveBeenCalled());
-    // one bullet, from the line outside the fence — not "A --> B" as well
+    // one bullet, from the line outside the fence - not "A --> B" as well
     expect(container.querySelectorAll("li")).toHaveLength(1);
     expect(screen.getByText("a bullet")).toBeTruthy();
   });

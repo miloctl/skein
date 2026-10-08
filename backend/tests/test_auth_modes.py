@@ -23,13 +23,13 @@ BACKEND = Path(__file__).resolve().parents[1]
 def _boot_config(**env):
     """config.py values as a FRESH process reads them. conftest imports config
     once at session start, so monkeypatching an attribute never exercises the
-    parse — and the parse is what refuses a typo'd mode."""
+    parse - and the parse is what refuses a typo'd mode."""
     code = (
         "import json; from app import config; print(json.dumps({"
         "'mode': config.AUTH_MODE, 'error': config.AUTH_ERROR,"
         "'admins': sorted(config.ADMINS)}))"
     )
-    out = subprocess.run(  # noqa: S603 — fixed argv, this interpreter, literal source
+    out = subprocess.run(  # noqa: S603 - fixed argv, this interpreter, literal source
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
@@ -106,7 +106,7 @@ def test_broken_auth_config_fails_closed(client, monkeypatch):
     error = "SKEIN_AUTH_MODE is not a known mode. Set it to one of: trusted-header, api-key, oidc."
     monkeypatch.setattr(config, "AUTH_MODE", "operator-secret-value")
     monkeypatch.setattr(config, "AUTH_ERROR", error)
-    # everything is refused — even a valid key. A typo'd mode gets fixed,
+    # everything is refused - even a valid key. A typo'd mode gets fixed,
     # never guessed around.
     assert client.get("/api/tasks").status_code == 503
     assert client.get("/api/tasks", headers=headers).status_code == 503
@@ -166,7 +166,7 @@ def test_full_health_warns_about_trusted_header_and_only_there(client, monkeypat
 def test_full_health_needs_a_credential_in_api_key_mode(client, monkeypatch):
     """The probe endpoint stays open; the topology endpoint closes.
 
-    /api/health carries provider, model, job schedule and chain state — on a
+    /api/health carries provider, model, job schedule and chain state - on a
     public route those must cost a credential in the modes that exist because
     the header is self-asserted. /health stays answerable for the container
     checks that can send nothing."""
@@ -184,7 +184,7 @@ def test_api_key_mode_never_trusts_the_header(client, monkeypatch):
 
     headers = _key()
     monkeypatch.setattr(config, "AUTH_MODE", "api-key")
-    # the client fixture sends X-User: tester on every request — not enough
+    # the client fixture sends X-User: tester on every request - not enough
     assert client.get("/api/tasks").status_code == 401
     r = client.post("/api/capture", json={"text": "todo: x"}, headers={"X-User": "mallory"})
     assert r.status_code == 401
@@ -228,7 +228,7 @@ def test_a_key_wins_in_oidc_mode_both_ways(client, monkeypatch, fresh_db):
     headers = _key("automation")
     _oidc(monkeypatch, {"good": {"preferred_username": "casey"}})
     assert client.get("/api/tasks", headers=headers).status_code == 200
-    # a bogus key is refused AS A KEY — never handed to the token validator
+    # a bogus key is refused AS A KEY - never handed to the token validator
     r = client.get("/api/tasks", headers={"Authorization": "Bearer sk-skein-nope"})
     assert r.status_code == 401
     assert "invalid or revoked" in r.json()["detail"]
@@ -241,7 +241,7 @@ def test_an_agent_key_is_refused_at_the_perimeter(client, monkeypatch):
     only gate in the locked modes, so the agent wall has to live there too.
     Asserted on /api/playbooks: every content read gained a CurrentUser
     (tests/test_route_identity.py), and against one of those the dependency
-    would refuse the key too — the perimeter could be deleted and this test
+    would refuse the key too - the perimeter could be deleted and this test
     would stay green."""
     from app import config
     from app.services.api_keys import create_key
@@ -341,7 +341,7 @@ def test_absent_weak_header_keeps_the_synthetic_compatibility_subject(fresh_db):
         ("ALICE", 403),  # case
         # The fullwidth name folds onto alice. The zero-width joiner is not
         # printable, so the token is refused before roster resolution.
-        ("ａlice", 403),  # noqa: RUF001 — NFKC fullwidth
+        ("ａlice", 403),  # noqa: RUF001 - NFKC fullwidth
         ("al‍ice", 401),
     ],
 )
@@ -350,7 +350,7 @@ def test_an_oidc_claim_folding_onto_a_roster_name_is_refused_on_reads(
 ):
     """The read door skips ensure_user, so it must take the fold wall itself.
     Resolving the claim onto the roster row would hand one IdP principal every
-    row another person owns — private notes included — and _is_admin reads the
+    row another person owns - private notes included - and _is_admin reads the
     resolved name, so it escalates to the admin surfaces too."""
     from app.services.users import ensure_user
 
@@ -382,7 +382,7 @@ def test_an_oidc_claim_folding_onto_an_admin_name_does_not_reach_admin_surfaces(
 
     ensure_user("casey")
     monkeypatch.setattr(config, "ADMINS", ["casey"])
-    _oidc(monkeypatch, {"tok": {"preferred_username": "ｃasey"}})  # noqa: RUF001 — fullwidth c
+    _oidc(monkeypatch, {"tok": {"preferred_username": "ｃasey"}})  # noqa: RUF001 - fullwidth c
     for path in ("/api/admin/export", "/api/admin/export/download"):
         response = client.get(path, headers={"Authorization": "Bearer tok"})
         assert response.status_code == 403
@@ -484,7 +484,7 @@ def test_first_oidc_read_returns_retryable_503_when_identity_storage_is_busy(
     """A first ownership claim reports load instead of an opaque 500.
 
     The claim INSERTs a roster row. A concurrent uncommitted INSERT of the
-    same name holds the unique index entry, so the second one waits — and with
+    same name holds the unique index entry, so the second one waits - and with
     lock_timeout set it raises LockNotAvailable, which db.BUSY_ERRORS classes
     as load. Without that classification the caller gets a 500 telling it not
     to retry, which is the opposite of the truth."""
@@ -492,15 +492,15 @@ def test_first_oidc_read_returns_retryable_503_when_identity_storage_is_busy(
 
     _oidc(monkeypatch, {"tok": {"preferred_username": "first-reader"}})
     dbname = db.query_row("SELECT current_database() AS d")["d"]
-    # on the DATABASE, so every connection the pool opens next inherits it —
+    # on the DATABASE, so every connection the pool opens next inherits it -
     # the request runs on a connection this test never touches
     db.execute(f"ALTER DATABASE \"{dbname}\" SET lock_timeout = '100ms'")
     db.close_pool()
     holding = Event()
     release = Event()
 
-    # Rolling back takes an exception — db.transaction() has no explicit
-    # rollback — and one that escapes a thread makes pytest warn about an
+    # Rolling back takes an exception - db.transaction() has no explicit
+    # rollback - and one that escapes a thread makes pytest warn about an
     # unhandled thread exception, which is how a real failure in this holder
     # would report too. A type of its own is caught here without also
     # swallowing an error db.execute raised.
@@ -693,11 +693,11 @@ def test_deactivation_closes_every_door_not_only_the_key(client, monkeypatch, fr
 
 def test_deactivation_closes_the_header_door(client, fresh_db):
     """trusted-header is the dev default, and a bare X-User is a full identity
-    there — deactivation has to mean something on this door too.
+    there - deactivation has to mean something on this door too.
 
     Asserted on a route that RESOLVES a user. In this mode the perimeter
     short-circuits, and a caller refused under one name reaches every read
-    by picking another — a documented property of a mode whose whole premise
+    by picking another - a documented property of a mode whose whole premise
     is a trusted network, not a gap this check introduces.
     """
     from app.services.users import ensure_user, set_active
@@ -708,7 +708,7 @@ def test_deactivation_closes_the_header_door(client, fresh_db):
     assert client.get("/api/whoami", headers={"X-User": "carol"}).status_code == 403
     # a case variant must not walk past the check the exact name fails
     assert client.get("/api/whoami", headers={"X-User": "CAROL"}).status_code == 403
-    # somebody with no roster row at all is not "inactive" — first sign-in works
+    # somebody with no roster row at all is not "inactive" - first sign-in works
     assert client.get("/api/whoami", headers={"X-User": "newcomer"}).status_code == 200
 
 
@@ -811,7 +811,7 @@ def test_oidc_mode_sign_in_is_strong_identity(client, monkeypatch, fresh_db):
         headers=hdr,
     )
     assert note.status_code == 200
-    feedback = client.post("/api/capture", json={"text": "fb: casey — clear feedback"}, headers=hdr)
+    feedback = client.post("/api/capture", json={"text": "fb: casey - clear feedback"}, headers=hdr)
     assert feedback.status_code == 200 and feedback.json()["kind"] == "feedback"
     # minting a first key for the CLI also needs no prior key
     assert client.post("/api/keys", json={"label": "cli"}, headers=hdr).status_code == 200
@@ -854,7 +854,7 @@ def test_oidc_admin_by_name_not_only_by_group(client, monkeypatch, fresh_db):
 
     _oidc(monkeypatch, {"tok": {"preferred_username": "Casey"}})
     monkeypatch.setattr(config, "ADMINS", frozenset({"casey"}))
-    # names match the way the roster matches them — case must not lock an admin out
+    # names match the way the roster matches them - case must not lock an admin out
     assert client.get("/api/admin/keys", headers={"Authorization": "Bearer tok"}).status_code == 200
 
 
@@ -940,7 +940,7 @@ def test_every_door_stashes_the_group_claims(client, monkeypatch, fresh_db):
     oidc_identities.bind_existing("https://idp.test", "subject:tok", "casey", actor="test")
     hdr = {"Authorization": "Bearer tok"}
 
-    # CurrentUser (whoami), StrongUser (keys), AdminUser (admin keys) — all
+    # CurrentUser (whoami), StrongUser (keys), AdminUser (admin keys) - all
     # three must agree that this caller is an administrator
     who = client.get("/api/whoami", headers=hdr).json()
     assert who["admin"] is True

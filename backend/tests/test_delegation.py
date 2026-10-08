@@ -27,7 +27,7 @@ def test_a_progress_note_moves_the_task(fresh_db):
 def test_the_contract_travels_with_the_delegation(fresh_db, monkeypatch):
     """What done means and when to check in are stored at delegation, read in
     the agent inbox and the acceptance evidence, and cleared when a
-    reassignment ends the delegation — the next delegate must not inherit a
+    reassignment ends the delegation - the next delegate must not inherit a
     done-definition written for a different party. A malformed date is
     refused, not stored."""
     from app import config
@@ -88,7 +88,7 @@ def test_delegation_work_loop_end_to_end(client, fresh_db, monkeypatch):
     delegation.report_progress(t["id"], "probe scaffolded, tests next", actor="scout")
     assert client.get(f"/api/tasks/{t['id']}/worklog").json()[0]["note"].startswith("probe")
     out = delegation.submit_completion(t["id"], "probe built and green", actor="scout")
-    # still not done — the sponsor's verdict is the acceptance
+    # still not done - the sponsor's verdict is the acceptance
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (t["id"],))["status"] == (
         "in_progress"
     )
@@ -252,7 +252,7 @@ def test_only_the_sponsor_closes_delegated_work(client, fresh_db):
 
     The agent half was complete and the human half did not exist, so any
     teammate who could reach PATCH /api/tasks/{id} closed delegated work with
-    one field — no sponsor verdict, no reason on record, no override marking,
+    one field - no sponsor verdict, no reason on record, no override marking,
     and no trust signal for the agent that did the work.
     """
     from app.services import work
@@ -267,7 +267,7 @@ def test_only_the_sponsor_closes_delegated_work(client, fresh_db):
     assert r.status_code == 403
     assert "sponsored by mira" in r.json()["detail"]
 
-    # the sponsor's own hand is not blocked — the verdict is theirs either way,
+    # the sponsor's own hand is not blocked - the verdict is theirs either way,
     # and refusing them here would make the proposal the only way to close
     # work they already own
     ok = client.patch(f"/api/tasks/{tid}", json={"status": "done"}, headers={"X-User": "mira"})
@@ -280,7 +280,7 @@ def test_the_sponsors_own_close_settles_the_acceptance_proposal(client, fresh_db
     proposal then asks a question that has been answered.
 
     Left pending, its apply raises on a task that is already done, and
-    approve_change resets a failed apply to pending — so the verdict boomerangs
+    approve_change resets a failed apply to pending - so the verdict boomerangs
     on every click and the only exit is a rejection that lands on the agent's
     demotion streak for work the sponsor accepted.
     """
@@ -312,7 +312,7 @@ def test_a_direct_close_records_how_well_the_sponsor_was_identified(client, fres
     turns a 0 into "Nobody used a personal API key for that verdict. This
     deployment identifies people by a self-asserted name." Hardcoded, that
     sentence is printed at a sponsor who used their key, about a deployment
-    that requires one — a security surface stating the opposite of the truth.
+    that requires one - a security surface stating the opposite of the truth.
     """
     from app import db
     from app.services import delegation, provenance, scope
@@ -336,7 +336,7 @@ def test_a_direct_close_records_how_well_the_sponsor_was_identified(client, fres
 
 
 def test_an_acceptance_that_can_never_apply_settles_instead_of_boomeranging(client, fresh_db):
-    """The close that did not come through the sponsor guard — a reassignment
+    """The close that did not come through the sponsor guard - a reassignment
     voids the delegation, so the proposal's apply can never succeed again.
 
     A plain ValueError there resets the row to pending, which puts it back in
@@ -353,7 +353,7 @@ def test_an_acceptance_that_can_never_apply_settles_instead_of_boomeranging(clie
 
     # a note is required first: the reassignment orphaned the proposal, so
     # nobody sponsors it and review._sponsor_override demands a reason. That
-    # refusal is not the boomerang — it leaves the row pending on purpose.
+    # refusal is not the boomerang - it leaves the row pending on purpose.
     refused = client.post(
         f"/api/review/{out['proposal_id']}/approve", json={}, headers=_strong(client, "mira")
     )
@@ -557,13 +557,13 @@ def test_agent_delegated_done_proposal_auto_rejects_not_wedges(client, fresh_db)
         review.approve_change(p["id"], actor="mira")
     row = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (p["id"],))
     assert row["status"] == "rejected"  # settled, not boomeranged to pending
-    # and the task itself stayed open — the escape is still closed
+    # and the task itself stayed open - the escape is still closed
     assert fresh_db.query_one("SELECT status FROM tasks WHERE id = ?", (tid,))["status"] != "done"
 
 
 def test_the_trust_read_never_reports_a_human(client):
-    """Humans are in `pending_changes` too — services/ingest.py files every
-    pasted line under the person who pasted it — so an unfiltered read put one
+    """Humans are in `pending_changes` too - services/ingest.py files every
+    pasted line under the person who pasted it - so an unfiltered read put one
     teammate's approval rate and rejection streak in front of the whole
     roster. The filter belongs in the service, not in a caller."""
     from app.services import delegation, review, users
@@ -591,7 +591,7 @@ def test_the_trust_read_scans_the_authority_proposals_once(client):
     """`promotion_blocked` reads every authority proposal, and that table is
     unindexed for this query (the index is on (proposed_by, entity)). Called
     per row it turned the Approvals page from 122 queries into 202 the moment
-    agents started earning streaks — the N+1 this module removed from
+    agents started earning streaks - the N+1 this module removed from
     trust_scores, reintroduced one function over. The short-circuit hides it
     exactly while the trust program is not working.
     """
@@ -626,7 +626,7 @@ def test_the_trust_read_scans_the_authority_proposals_once(client):
     assert len(rows) == 40
     assert sum(1 for r in rows if r["suggestion"]) == 40, "every pair must be promotable here"
     scans = [s for s in seen if "entity = 'authority'" in s]
-    assert len(scans) == 1, f"{len(scans)} scans for {len(rows)} pairs — the N+1 is back"
+    assert len(scans) == 1, f"{len(scans)} scans for {len(rows)} pairs - the N+1 is back"
 
 
 def test_reassignment_cannot_be_used_to_close_delegated_work(client, fresh_db):
@@ -642,7 +642,7 @@ def test_reassignment_cannot_be_used_to_close_delegated_work(client, fresh_db):
     # the delegation survived the refusal, so the acceptance path still exists
     assert fresh_db.query_one("SELECT sponsor FROM tasks WHERE id = ?", (tid,))["sponsor"] == "mira"
 
-    # the sponsor may still end it — the verdict is theirs on either path
+    # the sponsor may still end it - the verdict is theirs on either path
     work.update_task(tid, assignee="mira", actor="mira")
     assert fresh_db.query_one("SELECT sponsor FROM tasks WHERE id = ?", (tid,))["sponsor"] == ""
 

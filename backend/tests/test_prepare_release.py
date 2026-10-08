@@ -239,7 +239,7 @@ def test_unreleased_notes_promote_and_leave_the_next_slot(tmp_path):
         "### Contracts\n\n- No contract change.\n\n"
         "### Behavior\n\n- One behavior fix.\n\n"
         "### Operations\n\n- One operations fix.\n\n"
-        "## 0.3.0 — 2026-08-27\n\nOld notes.\n"
+        "## 0.3.0 - 2026-08-27\n\nOld notes.\n"
     )
     prepare_release.promote_changelog(tmp_path, "0.3.2", date(2026, 8, 28))
     text = path.read_text()
@@ -249,10 +249,10 @@ def test_unreleased_notes_promote_and_leave_the_next_slot(tmp_path):
         "### Contracts\n\n"
         "### Behavior\n\n"
         "### Operations\n\n"
-        "## 0.3.2 — 2026-08-28\n"
+        "## 0.3.2 - 2026-08-28\n"
     )
     assert "- One behavior fix." in text
-    assert "- One operations fix.\n\n## 0.3.0 — 2026-08-27" in text
+    assert "- One operations fix.\n\n## 0.3.0 - 2026-08-27" in text
     assert "## 0.3.1" not in text
 
 
@@ -264,7 +264,7 @@ def test_changelog_promotion_resumes_across_a_date_boundary(tmp_path):
         "### Contracts\n\n- No contract change.\n\n"
         "### Behavior\n\n- One behavior fix.\n\n"
         "### Operations\n\n- One operations fix.\n\n"
-        "## 0.3.0 — 2026-08-27\n\nOld notes.\n"
+        "## 0.3.0 - 2026-08-27\n\nOld notes.\n"
     )
     prepare_release.promote_changelog(tmp_path, "0.3.2", date(2026, 8, 28))
     first = path.read_text()
@@ -279,7 +279,7 @@ def test_changelog_resume_refuses_new_unreleased_items(tmp_path):
         "### Contracts\n\n- A late contract change.\n\n"
         "### Behavior\n\n"
         "### Operations\n\n"
-        "## 0.3.2 — 2026-08-28\n\nPrepared notes.\n"
+        "## 0.3.2 - 2026-08-28\n\nPrepared notes.\n"
     )
     with pytest.raises(prepare_release.ReleaseError, match="canonical resumed"):
         prepare_release.promote_changelog(tmp_path, "0.3.2", date(2026, 8, 29))
@@ -292,8 +292,8 @@ def test_changelog_resume_requires_target_as_the_first_release(tmp_path):
         "### Contracts\n\n"
         "### Behavior\n\n"
         "### Operations\n\n"
-        "## 0.3.3 — 2026-08-29\n\nOther release.\n\n"
-        "## 0.3.2 — 2026-08-28\n\nStale target.\n"
+        "## 0.3.3 - 2026-08-29\n\nOther release.\n\n"
+        "## 0.3.2 - 2026-08-28\n\nStale target.\n"
     )
     with pytest.raises(prepare_release.ReleaseError, match="canonical resumed"):
         prepare_release.promote_changelog(tmp_path, "0.3.2", date(2026, 8, 29))
@@ -306,11 +306,11 @@ def test_changelog_resume_requires_populated_target_sections(tmp_path):
         "### Contracts\n\n"
         "### Behavior\n\n"
         "### Operations\n\n"
-        "## 0.3.2 — 2026-08-28\n\n"
+        "## 0.3.2 - 2026-08-28\n\n"
         "### Contracts\n\n"
         "### Behavior\n\n"
         "### Operations\n\n"
-        "## 0.3.0 — 2026-08-27\n\nOld notes.\n"
+        "## 0.3.0 - 2026-08-27\n\nOld notes.\n"
     )
     with pytest.raises(prepare_release.ReleaseError, match="canonical resumed"):
         prepare_release.promote_changelog(tmp_path, "0.3.2", date(2026, 8, 29))
@@ -377,7 +377,7 @@ def test_prepare_builds_artifacts_before_locks_and_writes_marker_last(release_tr
     assert runner.calls[-2][0][:3] == ["uv", "pip", "install"]
     assert runner.calls[-1][0][1:3] == ["-m", "pytest"]
     assert (root / ".github/release-version").read_text() == f"{target}\n"
-    assert f"## {target} — 2026-08-28" in (root / "CHANGELOG.md").read_text()
+    assert f"## {target} - 2026-08-28" in (root / "CHANGELOG.md").read_text()
     assert ">=0.3.0,<0.7.0" in (root / "examples/workplace-extension/pyproject.toml").read_text()
     assert (
         f"newTag: {target}"
@@ -512,7 +512,7 @@ def test_equal_or_lower_release_fails_before_commands(release_tree):
 
 def test_stale_check_is_not_fooled_by_a_version_prefix():
     """Releasing 0.3.20 after 0.3.2: every replaced file contains the new
-    number, and the old number is a substring of it — a plain substring
+    number, and the old number is a substring of it - a plain substring
     check makes the twentieth patch release unreachable."""
     token = "newTag: 0.3.2"
     assert prepare_release._names_prior_release("newTag: 0.3.2\n", token)

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # The upgrade path: the schema a deployed database reaches by applying
 # HEAD's pending migrations must equal the schema a fresh database gets
-# from HEAD alone — and the activity hash chain must survive the ride.
+# from HEAD alone - and the activity hash chain must survive the ride.
 # Every test database is born fresh at HEAD, so this class (an edited or
 # renamed migration leaving upgraded production diverging from fresh CI)
 # has no other net; a gutted migration in the pre-squash corpus was the
 # founding example.
 #
-# Baseline: the newest v* tag — the thing a deployment can actually be
+# Baseline: the newest v* tag - the thing a deployment can actually be
 # running. Before the first release tag nothing is deployed, so there is
 # nothing to upgrade from; the check says so and passes. An explicit ref
 # overrides for local runs:
@@ -37,12 +37,12 @@ fi
 # A baseline from before the PostgreSQL migration cannot be upgraded to HEAD:
 # its code writes a SQLite file and HEAD reads a PostgreSQL server, so there is
 # no database for HEAD's migrations to apply TO. Skip with the reason rather
-# than fail, and re-arm automatically — the moment a tag exists on this side of
+# than fail, and re-arm automatically - the moment a tag exists on this side of
 # the engine change, this test passes and the check runs again.
 #
 # This branch reads as dead now that v0.2.3 is the newest tag, and it is not:
 # a v* tag push runs the GitHub backend release gate, and at the v0.2.3 COMMIT
-# the baseline resolves to v0.2.2 — the last SQLite release.
+# the baseline resolves to v0.2.2 - the last SQLite release.
 # Delete this and pushing that tag fails CI on a database that cannot exist.
 # grep reads to EOF on purpose (no -q): under pipefail, grep -q exiting on
 # the first match hands git show a SIGPIPE, the pipeline reports 141, and a
@@ -57,7 +57,7 @@ if [ -z "${SKEIN_DATABASE_URL:-}" ]; then
     echo "upgrade-path: SKEIN_DATABASE_URL is not set. Set it to a PostgreSQL server." >&2
     exit 1
 fi
-# This rehearsal only applies migrations — it boots no app and calls no API,
+# This rehearsal only applies migrations - it boots no app and calls no API,
 # so no auth or review setting reaches it today. It shares the pin anyway:
 # the exposure is a SETTING that changes what a migration does, and the cost
 # of finding that out the way the extension contract did is a red CI job
@@ -88,7 +88,7 @@ trap 'psql "$SKEIN_DATABASE_URL" -qtAc "DROP DATABASE IF EXISTS \"$upgraded_db\"
 echo "upgrade-path: baseline $baseline"
 git worktree add --detach "$tmp/base" "$baseline" >/dev/null
 
-# 1. a database as the baseline release built it, carrying chained rows —
+# 1. a database as the baseline release built it, carrying chained rows -
 #    CI databases are otherwise always empty, which is the blind spot
 SKEIN_DATABASE_URL="$db_base/$upgraded_db" PYTHONPATH="$tmp/base/backend" "$python" - <<'PY'
 from app import db
@@ -104,13 +104,13 @@ task = work.create_task("Upgrade relationship conflict", engagement_id=direct)
 # The legacy row this check exists for: a task whose milestone and
 # engagement disagree. Services refuse that combination since the
 # relationship guard shipped, so passing it to create_task only worked
-# while the baseline predated the guard — once a release carrying the
+# while the baseline predated the guard - once a release carrying the
 # guard becomes the baseline, the seed itself raises. A deployed database
 # still holds such rows, so write the row the way that deployment has it.
 db.execute("UPDATE tasks SET milestone_id = ? WHERE id = ?", (milestone, task["id"]))
 PY
 
-# 2. HEAD boots it — the upgrade a deployment performs
+# 2. HEAD boots it - the upgrade a deployment performs
 SKEIN_DATABASE_URL="$db_base/$upgraded_db" PYTHONPATH="backend" "$python" -c "from app import db; db.init_db()"
 
 # 3. a fresh database from HEAD alone
@@ -124,7 +124,7 @@ import psycopg
 
 
 def schema(url):
-    """Every column, as the catalog reports it — not a dump, whose owners,
+    """Every column, as the catalog reports it - not a dump, whose owners,
     comments and ordering differ between two freshly created databases and
     would make every run a false failure."""
     with psycopg.connect(url) as conn:

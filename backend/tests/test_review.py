@@ -32,7 +32,7 @@ def _approve_latest(client):
 
 def test_season_readout_reads_the_exit_trigger(fresh_db, monkeypatch):
     """The posture note ends the dogfooding season with "a read, not a
-    debate" — this is the read: verdicts (split by strong identity, because
+    debate" - this is the read: verdicts (split by strong identity, because
     only strong verdicts feed a promotion streak), proposals, authority
     changes, and delegations, all season-scoped. Humans never appear in
     by_agent, the same line review_stats draws."""
@@ -137,7 +137,7 @@ def test_agent_edit_respects_forbidden_authority(fresh_db, monkeypatch):
 
 def test_agent_history_guard_survives_approval(client, fresh_db, monkeypatch):
     """Approving an edit of a since-settled record must fail the apply and
-    reset the proposal — never falsify history."""
+    reset the proposal - never falsify history."""
     from app import config
     from app.services import promises
     from app.tools.portfolio import edit_promise
@@ -165,7 +165,7 @@ def test_agent_history_guard_survives_approval(client, fresh_db, monkeypatch):
 
 def test_destructive_verbs_always_propose_even_with_review_off(client, fresh_db, monkeypatch):
     """delete_note / forget_memory must NEVER hard-delete directly from the
-    agent path — ALWAYS_REVIEW holds even when the review flag is off."""
+    agent path - ALWAYS_REVIEW holds even when the review flag is off."""
     from app import config
     from app.services import collab, memory
     from app.tools.collab import delete_note as delete_note_tool
@@ -412,7 +412,7 @@ def test_gated_playbook_approval_applies(fresh_db, monkeypatch):
 
 
 def test_approve_survives_unexpected_exceptions(fresh_db, monkeypatch):
-    """ANY apply failure must reset the claim — an approved-but-never-applied
+    """ANY apply failure must reset the claim - an approved-but-never-applied
     proposal would vanish from the queue."""
     from app.services import review, work
 
@@ -501,7 +501,7 @@ def test_claim_at_and_active_review_stats(client, fresh_db):
     row = fresh_db.query_row("SELECT claim_at FROM pending_changes WHERE id = ?", (p["id"],))
     assert row["claim_at"] is not None
     first = row["claim_at"]
-    review.mark_seen([p["id"]], actor="reviewer")  # idempotent — first-seen wins
+    review.mark_seen([p["id"]], actor="reviewer")  # idempotent - first-seen wins
     assert (
         fresh_db.query_row("SELECT claim_at FROM pending_changes WHERE id = ?", (p["id"],))[
             "claim_at"
@@ -668,12 +668,12 @@ def test_mark_seen_stamps_only_pending_unseen_rows(fresh_db):
 
     assert review.mark_seen([approved["id"], pending["id"]]) == {"seen": 1}
     row = fresh_db.query_row("SELECT claim_at FROM pending_changes WHERE id = ?", (approved["id"],))
-    assert row["claim_at"] is None  # a verdict already landed — the clock stays honest
+    assert row["claim_at"] is None  # a verdict already landed - the clock stays honest
 
 
 def test_batch_approve_returns_one_result_per_id(client, fresh_db):
     """The model accepts 200 ids (the pending-list LIMIT, so 'select all' on
-    a full queue validates) while the route looped over only the first 100 —
+    a full queue validates) while the route looped over only the first 100 -
     so 150 selections produced 100 result rows and 50 proposals were dropped
     with nothing said. A caller must be able to count the answers."""
     from app.services import review
@@ -698,7 +698,7 @@ def test_batch_approve_returns_one_result_per_id(client, fresh_db):
 
 
 def test_batch_approve_rejects_more_ids_than_the_model_allows(client, fresh_db):
-    """max_length=200 on BatchApproveIn is the only cap on a batch — the
+    """max_length=200 on BatchApproveIn is the only cap on a batch - the
     loop trusts it (routes/api.py). If validation loosens, ids beyond the
     pending-list LIMIT reach the loop unannounced."""
     r = client.post("/api/review/approve-batch", json={"ids": list(range(1, 202))})
@@ -725,7 +725,7 @@ def test_batch_approve_answers_a_duplicated_id_twice(client, fresh_db):
 def test_every_registry_entity_maps_to_a_target_table_or_is_named_untargeted(fresh_db):
     """_readable decides whether a proposal may be shown or judged by looking
     up the row it targets. An entity in neither map has no row to look up, so
-    it is kept for every reader with its payload — which for a create is the
+    it is kept for every reader with its payload - which for a create is the
     whole body of the row it would make. That is how `note`, `standup`,
     `event`, `memory`, `lesson`, `intake` and `absence` creates went out
     unfiltered while the update entities beside them were checked."""
@@ -1522,7 +1522,7 @@ def test_the_invisible_class_is_every_format_character_but_the_joiner():
 
 
 def test_a_document_edit_diff_is_unified_against_its_base(client, fresh_db, monkeypatch):
-    """The review card showed "—" beside the new text: change_diff looked for
+    """The review card showed a lone dash beside the new text: change_diff looked for
     `old` and `new` columns that artifacts does not have. A document edit now
     diffs the revision it was filed on, and says when the head moved."""
     import json

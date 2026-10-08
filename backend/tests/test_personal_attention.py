@@ -2,13 +2,13 @@
 
 Every list here was workspace-wide before. A promise somebody else made, a
 decision somebody else took, and a proposal nobody assigned all rendered under
-a heading that said the reader had to act — so the reader learned that the
+a heading that said the reader had to act - so the reader learned that the
 heading does not mean what it says, and the product's daily habit went with it.
 """
 
 
 def _soon() -> str:
-    """Inside My Day's seven-day promise window, in the TEAM's day — a fixed
+    """Inside My Day's seven-day promise window, in the TEAM's day - a fixed
     date drifts out of the window and the test starts passing for the wrong
     reason (CLAUDE.md: a date far from the window edge pins nothing)."""
     from datetime import timedelta
@@ -93,7 +93,7 @@ def test_a_team_notification_survives_one_readers_dismissal(client, fresh_db):
 
 
 def test_attention_count_matches_the_page(client):
-    """The tab title and My Day's header are read side by side — one on a tab,
+    """The tab title and My Day's header are read side by side - one on a tab,
     one on the page that tab opens. They come from different queries, so every
     arm of `attention_count` mirrors an arm of `_attention`, cap included."""
     from app.services import collab, promises, review

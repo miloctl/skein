@@ -114,7 +114,7 @@ def test_command_output_is_in_transcript(client):
 
 
 def test_fb_never_reaches_transcript(client):
-    _read_chat(client, "fb: mira — sensitive", thread="th-fb")
+    _read_chat(client, "fb: mira - sensitive", thread="th-fb")
     assert all(c["id"] != "th-fb" for c in client.get("/api/chats").json())
 
 
@@ -147,7 +147,7 @@ def test_log_message_never_cross_files_on_id_collision(client, fresh_db):
 
 def test_delete_removes_both_session_stores_precisely(client, fresh_db, tmp_path):
     """The database rows AND the pre-045 leftover files, persona variants
-    included — and never a thread that merely shares the prefix."""
+    included - and never a thread that merely shares the prefix."""
     from strands.types.session import Session, SessionType
 
     from app import config
@@ -233,7 +233,7 @@ def test_mid_stream_error_reaches_sse_and_transcript(client, monkeypatch):
 
     monkeypatch.setattr("app.routes.chat.build_agent", lambda *a, **k: ExplodingAgent())
     body = client.post("/api/chat", json={"thread_id": "t-err", "message": "hi"}).text
-    # the SSE protocol must survive the failure: an error event, then done —
+    # the SSE protocol must survive the failure: an error event, then done -
     # a dropped connection here loses the turn with no test failing
     assert '"type": "error"' in body
     assert '"type": "done"' in body
@@ -252,13 +252,13 @@ def test_provider_faults_classify_load_and_configuration(client, monkeypatch):
     """An upstream 429 and a bad API key must stop reading identically: one
     says retry, the other says fix the deployment (the main.py error-class
     rule, applied inside the stream). The provider's own message never
-    surfaces — it carries request IDs and credential fragments."""
+    surfaces - it carries request IDs and credential fragments."""
 
     def exploding(kind):
         class Exploding:
             async def stream_async(self, message):
                 raise kind
-                yield  # pragma: no cover — makes this an async generator
+                yield  # pragma: no cover - makes this an async generator
 
         return Exploding()
 
@@ -427,8 +427,8 @@ def test_agent_construction_failure_keeps_attachment_names(client, monkeypatch):
 
 
 def test_a_provider_error_reaches_the_ui_as_a_class_name_not_a_body(client, monkeypatch):
-    """A provider SDK error carries its raw HTTP body — request ids, key
-    prefixes — and the SSE error line is served to the chat window and
+    """A provider SDK error carries its raw HTTP body - request ids, key
+    prefixes - and the SSE error line is served to the chat window and
     written into the saved transcript. Only the class name may travel; the
     full detail belongs to the server log."""
 
@@ -448,7 +448,7 @@ def test_a_provider_error_reaches_the_ui_as_a_class_name_not_a_body(client, monk
 
 def test_chat_refuses_another_owners_thread(client):
     """The transcript write already refused a cross-file, but silently and
-    only AFTER build_agent had restored the model-side conversation — the
+    only AFTER build_agent had restored the model-side conversation - the
     stream carried the other person's history while their sidebar showed
     nothing. The claim runs first, and a miss is a 404."""
     _read_chat(client, "note: mine alone", thread="th-own")
@@ -465,7 +465,7 @@ def test_chat_refuses_another_owners_thread(client):
 
 def test_a_persona_session_id_cannot_be_typed(client):
     """The ownership claim guards thread ROWS, and a persona session id names
-    none — `th-p--growth-mentor` was the session of whoever owned `th-p`, and
+    none - `th-p--growth-mentor` was the session of whoever owned `th-p`, and
     it sanitized clean, so the claim waved it through to build_agent. The
     separator now sits outside _THREAD_ID's charset, which is the whole
     guarantee: routes/chat.py strips it from anything a caller sends."""
@@ -523,7 +523,7 @@ def test_an_unnamed_thread_is_one_per_person(client):
     # together, so it cannot fail on a change to how the id is derived.
     assert len(mine) == 1 and len(theirs) == 1
     assert mine != theirs, "one shared row would restore one model session for everyone"
-    # and neither is the literal the bug produced — an omitted thread id used
+    # and neither is the literal the bug produced - an omitted thread id used
     # to land on 'default', which is a name any caller can also send
     assert "default" not in (mine[0], theirs[0])
     # each caller's own id is stable across requests
@@ -532,7 +532,7 @@ def test_an_unnamed_thread_is_one_per_person(client):
 
 def test_a_folder_differing_only_in_accent_case_is_the_same_folder(client):
     """SQLite's lower() is ASCII-only, so this function stopped folding the
-    moment a name left ASCII — which is the duplicate it exists to stop."""
+    moment a name left ASCII - which is the duplicate it exists to stop."""
     from app.services import chat_threads
 
     chat_threads.create_folder("ava", "Été")
@@ -648,7 +648,7 @@ def test_a_refused_persona_command_cannot_squat_a_teammates_default_chat(client,
 
 
 def test_a_refused_persona_command_never_stores_a_private_line(client, fresh_db):
-    for message in ("/as nosuch fb: mira — ZZPRIVATEZZ", "/flock nosuch fb: mira — ZZPRIVATEZZ"):
+    for message in ("/as nosuch fb: mira - ZZPRIVATEZZ", "/flock nosuch fb: mira - ZZPRIVATEZZ"):
         with client.stream(
             "POST", "/api/chat", json={"thread_id": "t-fb", "message": message}
         ) as r:

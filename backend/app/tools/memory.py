@@ -19,7 +19,7 @@ from ._gate import gated_write
 
 @tool
 def remember(content: str, topic: str = "", about_user: str = "") -> str:
-    """Persist a durable memory that survives across chat threads — user
+    """Persist a durable memory that survives across chat threads - user
     preferences, working styles, standing context, rationale worth keeping.
     Use when someone says "remember that ..." or you learn something that
     future conversations will need.
@@ -127,7 +127,7 @@ def forget_memory(memory_id: int) -> str:
             memory_id, actor=agent_identity(), origin="agent", requester=requester
         ),
         entity_id=memory_id,
-        # scope.detail: same egress as tools/collab.py::delete_note — the review queue
+        # scope.detail: same egress as tools/collab.py::delete_note - the review queue
         # and the team notification both carry this line. A targeted memory's
         # deletion must not republish its body to those shared surfaces.
         summary=(

@@ -46,7 +46,7 @@ export default function CharterPage() {
   const [reviewBy, setReviewBy] = useState("");
   useEffect(() => {
     // one-shot client init, not a cascading render: a lazy initializer would
-    // bake the BUILD day's date into the prerendered HTML — wrong for the
+    // bake the BUILD day's date into the prerendered HTML - wrong for the
     // reader, and a hydration mismatch against the client's recomputed value
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setReviewBy(
@@ -66,12 +66,12 @@ export default function CharterPage() {
   // Which slice the list shows. Charter first, because that is what this page
   // is for; "all" exists because the general decisions carry the SAME
   // lifecycle (review_by, stale, reconfirm, supersede) and had no surface
-  // offering it — Browse renders them read-only.
+  // offering it - Browse renders them read-only.
   const [showAll, setShowAll] = useState(false);
   // Which row the slice was last widened FOR, not a bare "has widened" flag.
   // The guard exists because a link to a general decision widens, re-loads,
   // still does not match on the first render pass, and would set state again
-  // on every settle. Keyed on the id, that loop is still closed — and a reader
+  // on every settle. Keyed on the id, that loop is still closed - and a reader
   // who narrows back to Charter can follow a second link, which a boolean
   // latched shut for the rest of the visit.
   const widenedFor = useRef(0);
@@ -106,7 +106,7 @@ export default function CharterPage() {
   useEffect(load, [load]);
 
   // Land on the row the link named. The browser only honours a hash for an
-  // element present at navigation time, and these rows arrive from a fetch —
+  // element present at navigation time, and these rows arrive from a fetch -
   // so a deep link scrolled nowhere until the element existed.
   useEffect(() => {
     const want = hashTarget();
@@ -122,13 +122,13 @@ export default function CharterPage() {
   //
   // Both events, because neither covers the other: `hashchange` is the
   // browser's own (a typed address, Back between two fragments), and
-  // `skein-hash` is what an in-app link announces — a next/link soft
+  // `skein-hash` is what an in-app link announces - a next/link soft
   // navigation fires neither of the browser's (components/nav-search.tsx).
   useEffect(() => {
     const onHash = (ev: Event) => {
       // the id from the event when an in-app link sent one, the address bar
       // otherwise. `hashchange` carries no detail, and by the time an in-app
-      // link's transition lands the address bar is right too — but reading it
+      // link's transition lands the address bar is right too - but reading it
       // AT dispatch is a frame too early, which is the whole reason the id
       // travels with the event (components/nav-search.tsx).
       const sent = (ev as CustomEvent<{ id?: number }>).detail?.id;
@@ -190,7 +190,7 @@ export default function CharterPage() {
 
       {/* The general decisions carry the same half-life, stale sweep,
           reconfirm and supersede that charter entries do, and no surface
-          offered those controls — Browse lists them read-only. A slice
+          offered those controls - Browse lists them read-only. A slice
           switch is the whole fix: same rows, same lifecycle, one page. */}
       <div
         role="group"
@@ -252,7 +252,7 @@ export default function CharterPage() {
         />
         <div className="flex items-center gap-2 text-xs text-ink-2">
           <label htmlFor="charter-review-by">
-            Review by — charter entries go stale like decisions do:
+            Review by - charter entries go stale like decisions do:
           </label>
           <input
             id="charter-review-by"
@@ -293,7 +293,7 @@ export default function CharterPage() {
                 }
               >
                 {d.status === "stale"
-                  ? "stale — reconfirm or supersede"
+                  ? "stale - reconfirm or supersede"
                   : d.status}
                 {d.review_by ? ` · review by ${d.review_by}` : ""}
               </span>
@@ -310,7 +310,7 @@ export default function CharterPage() {
               <div className="mt-2 flex gap-2 text-xs">
                 {d.status === "stale" && (
                   <button
-                    aria-label={`Still true — reconfirm ${d.title}`}
+                    aria-label={`Still true - reconfirm ${d.title}`}
                     onClick={async () => {
                       try {
                         await api(`/api/decisions/${d.id}/reconfirm`, {
@@ -324,7 +324,7 @@ export default function CharterPage() {
                     }}
                     className="rounded bg-ok/15 px-2 py-1 font-medium text-ok hover:bg-ok/20"
                   >
-                    still true — reconfirm
+                    still true - reconfirm
                   </button>
                 )}
                 {superseding === d.id ? null : (
@@ -355,7 +355,7 @@ export default function CharterPage() {
                   maxLength={2000}
                   onChange={(e) => setNewText(e.target.value)}
                   rows={2}
-                  placeholder="The replacement agreement — the old one stays in the chain"
+                  placeholder="The replacement agreement - the old one stays in the chain"
                   className="w-full rounded-lg border border-line-strong bg-transparent px-2 py-1.5 text-sm outline-none focus:border-thread-solid"
                 />
                 <div className="flex gap-2 text-xs">
@@ -374,7 +374,7 @@ export default function CharterPage() {
                         });
                         setSuperseding(null);
                         load();
-                        // trigger button disappears (entry is superseded) —
+                        // trigger button disappears (entry is superseded) -
                         // land focus on the entry itself
                         setTimeout(
                           () =>

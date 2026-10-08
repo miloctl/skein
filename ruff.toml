@@ -28,7 +28,7 @@ known-first-party = ["app", "skein_cli"]
 
 [lint.per-file-ignores]
 "backend/tests/*" = ["B017", "S101", "S105", "S106", "S108"]  # asserts, fake creds, traversal probes
-# The contract rehearsal steps assert like tests, because they are tests —
+# The contract rehearsal steps assert like tests, because they are tests -
 # they just run against an INSTALLED wheel instead of the source tree
 # (scripts/reference-extension-contract.sh).
 "scripts/contract/*" = ["S101"]

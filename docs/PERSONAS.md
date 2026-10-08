@@ -1,14 +1,14 @@
-# The Bench — persona spec
+# The Bench - persona spec
 
 Curated specialist personas the team can invoke in chat. A persona is the
 same Chief-of-Staff agent wearing a different head: same review gate, same
-provenance — a different system prompt, and crucially **its own agent
+provenance - a different system prompt, and crucially **its own agent
 identity**, so the authority matrix and trust scores track each persona
 separately. By default a persona shares the full tool registry; frontmatter
 behavior fields can narrow that (see "Behavior fields" below).
 
 Source material: definitions adapted from `agency-agents`
-(867 agents; we vendor a curated subset as repo files — no runtime
+(867 agents; we vendor a curated subset as repo files - no runtime
 dependency on the external checkout).
 
 ## The bench
@@ -30,18 +30,18 @@ near-duplicate.
 | sprint-prioritizer | product-sprint-prioritizer | intake triage + weekly planning support (RICE) |
 | meeting-notes | project-management-meeting-notes-specialist | structured extraction (pairs with /ingest) |
 | project-shepherd | project-management-project-shepherd | cross-engagement follow-through |
-| growth-mentor | specialized/personal-growth-mentor | goal clarity, habit design, accountability — career growth |
-| training-designer | specialized/corporate-training-designer | skill-building plans for the team — career growth |
+| growth-mentor | specialized/personal-growth-mentor | goal clarity, habit design, accountability - career growth |
+| training-designer | specialized/corporate-training-designer | skill-building plans for the team - career growth |
 | security-engineer | security-appsec-engineer + agent-skills/security-auditor | threat models, exploitable-bug review, fix-before-merge triage |
 | test-engineer | agent-skills/test-engineer + testing-test-automation-engineer | test strategy, level selection, flake hunting |
-| requirements-interviewer | agent-skills/interview-me | one-question-at-a-time intake until the real ask surfaces — live conversation only, never in a flock |
+| requirements-interviewer | agent-skills/interview-me | one-question-at-a-time intake until the real ask surfaces - live conversation only, never in a flock |
 | workflow-architect | specialized-workflow-architect | every branch, failure mode, and recovery path before build |
 | release-captain | agent-skills/shipping-and-launch | rollout stages, rollback paths, the launch gate |
 | research-synthesist | research-synthesist | evidence grading, primary sources, what the search did not find |
 | plan-reviewer | agent-skills/doubt-driven-development + specialized-master-plan-architect | adversarial plan attack before commitment |
 | codebase-archaeologist | specialized-codebase-archaeologist | cross-session drift: parallel implementations, orphaned config |
 | migration-steward | agent-skills/deprecation-and-migration | sunset sequencing, consumer tracking, removal dates |
-| org-psychologist | specialized/organizational-psychologist | team conditions — safety, load, friction; patterns, never people |
+| org-psychologist | specialized/organizational-psychologist | team conditions - safety, load, friction; patterns, never people |
 | technical-writer | engineering-technical-writer | doc audits and the deferred draft |
 | experiment-tracker | project-management-experiment-tracker | hypothesis, success criterion, stop rule before shipping |
 
@@ -49,7 +49,7 @@ Discipline personas (security-engineer, test-engineer, plan-reviewer,
 minimal-change-engineer, code-reviewer, sprint-prioritizer) carry a
 "Rationalizations you refuse" list: the three excuses most used to argue
 the persona out of its discipline mid-conversation, each with its
-rebuttal. Keep the list at three — it is armor for the persona's spine,
+rebuttal. Keep the list at three - it is armor for the persona's spine,
 not a second body.
 
 ## Deployment overlay
@@ -64,27 +64,27 @@ validator covers overlay files and labels them `(overlay)`.
 
 ## Architecture
 
-- **`backend/personas/*.md`** — one file per persona, edited like code
+- **`backend/personas/*.md`** - one file per persona, edited like code
   (the playbooks precedent). Frontmatter: `name`, `description`, `emoji`,
   `vibe`, `disclosure`, optional `flock`, plus the behavior fields (`model`,
-  `temperature`, `tools` — see below); body = the persona system prompt,
+  `temperature`, `tools` - see below); body = the persona system prompt,
   written Skein-aware (knows the capture grammar, the review gate, and its
   own lens). Slug = filename.
-- **`services/personas.py`** — deterministic loader/parser (no YAML dep);
+- **`services/personas.py`** - deterministic loader/parser (no YAML dep);
   `list_personas()` / `get_persona(slug)`. Slugs are `[a-z0-9][a-z0-9-]{1,40}` because
   they double as agent identities (and are path-safe by the same rule).
-- **REST** — `GET /api/personas`, `GET /api/personas/{slug}`.
-- **Agent identity contextvar** (`agents/identity.py`) — the prerequisite
+- **REST** - `GET /api/personas`, `GET /api/personas/{slug}`.
+- **Agent identity contextvar** (`agents/identity.py`) - the prerequisite
   fix: chat tools previously hardcoded `actor="agent"`, collapsing every
   chat agent into one identity. `gated_write` and all direct-write tools
   now resolve the actor from a `ContextVar` (default `"agent"`), set per
   chat request. Personas therefore accrue their **own** authority rows,
   trust scores, review verdicts, and Mission Control presence.
-- **Invocation** — `/as <persona> <message>` in chat (autocompletes like
+- **Invocation** - `/as <persona> <message>` in chat (autocompletes like
   every command; `/personas` lists the bench). The route resolves the
   persona BEFORE the model on this path: unknown slug is a deterministic
   error listing the bench. A **consult** is the third invocation and the one
-  exception — the Chief of Staff calls `consult_specialist` with a slug the
+  exception - the Chief of Staff calls `consult_specialist` with a slug the
   MODEL supplied, so the check happens inside the tool
   (`team_agent.py`) against `bench_slugs()`, and the answer streams back into
   the orchestrator's turn under a route-rendered masthead. Depth stops at one
@@ -92,39 +92,39 @@ validator covers overlay files and labels them `(overlay)`.
   holds it. `/flock` resolves a whole group the same way. Under `/as` each
   persona gets its own session thread (`{thread}--{slug}`), so switching
   personas doesn't cross-contaminate conversation memory. A flock member
-  keeps no session at all — a flock turn is a one-shot consultation, not a
+  keeps no session at all - a flock turn is a one-shot consultation, not a
   conversation. Invocation registers the persona (idempotently) as a
-  `kind=agent` user (deliberate, from the curated registry — not the
+  `kind=agent` user (deliberate, from the curated registry - not the
   typo-minting path that was removed).
-- **Mock provider** — `/as` works keyless: the route emits the persona's
-  masthead (emoji, name, vibe — plus a privacy disclosure for the growth
+- **Mock provider** - `/as` works keyless: the route emits the persona's
+  masthead (emoji, name, vibe - plus a privacy disclosure for the growth
   personas) and the mock engine handles the message deterministically.
   Every persona surface (list, bench UI, invocation) is testable with
-  zero keys; identity attribution is covered by the contextvar tests —
+  zero keys; identity attribution is covered by the contextvar tests -
   mock-mode captures stay human-attributed, since the mock engine is the
   user's own smart capture, not the tool gate.
-- **Safety** — unchanged by construction: personas start at `review`
+- **Safety** - unchanged by construction: personas start at `review`
   authority like any agent; their writes become proposals; `forbidden`
   works per persona per entity. A persona can't do anything the Chief of
-  Staff couldn't — it just thinks differently and signs its own name.
+  Staff couldn't - it just thinks differently and signs its own name.
   IN A FLOCK, AND IN A CONSULT, the same persona is strictly more
   constrained: every write becomes a proposal whatever its level says
   (`identity.force_review`), it holds no MCP tools, and the five writers that
   skip the gate refuse outright (`identity.refuse_when_consultative`,
-  docs/FLOCKS.md). Both modes are consultative — the human addressed the Chief
+  docs/FLOCKS.md). Both modes are consultative - the human addressed the Chief
   of Staff and never granted THIS agent the autonomy its matrix row carries.
 
 ## UI
 
 - **Sticky sessions**: invoking a persona (bench card, `/as` message, or
   picking one from the autocomplete) enters that persona's mode for the
-  thread — a chip above the composer shows the emoji + name with an ×
+  thread - a chip above the composer shows the emoji + name with an ×
   that returns to the Chief of Staff, and the placeholder reads "Message
   <name>…". Freeform messages are invisibly prefixed with `/as <slug> `
   by the runtime adapter (the backend contract is unchanged); slash
   commands are never prefixed, so they stay deterministic. An explicit
   `/as <other> <message>` switches modes.
-- **Agents page**: "The bench" card — emoji, name, `/as` slug,
+- **Agents page**: "The bench" card - emoji, name, `/as` slug,
   description, vibe; click → `/chat?as=<slug>` which enters that
   persona's mode directly. Personas appear in Mission Control after
   first use.
@@ -133,30 +133,30 @@ validator covers overlay files and labels them `(overlay)`.
 
 ## Non-goals (this iteration)
 
-- ~~No per-persona tool restriction~~ — superseded: frontmatter `tools`
+- ~~No per-persona tool restriction~~ - superseded: frontmatter `tools`
   declares an allowlist, enforced at Agent construction for BOTH the persona's
   agent and its planner sub-agent (the planner runs under the persona's
   identity, so its writes are the persona's writes). The layering with the
   authority matrix is: the allowlist decides what the model sees at
-  construction, the matrix gates each write per entity at call time — the
+  construction, the matrix gates each write per entity at call time - the
   stricter of the two wins in both directions.
 - No persona-to-persona conversation (see ideation A4 for handoffs).
 - No auto-selection of personas: the human names the specialist and the CoS
-  remains the default head. Bounded rather than prevented on the consult path
-  — the model supplies the slug, so `MAX_CONSULTS_PER_TURN` caps a fan-out it
+  remains the default head. Bounded rather than prevented on the consult path -
+  the model supplies the slug, so `MAX_CONSULTS_PER_TURN` caps a fan-out it
   chose on its own.
 
 
 ## Design notes (from the 5-agent review)
 
-- **Provenance:** proposals record `requested_by` — the human whose `/as`
-  message drove the persona — so reviewers see "by code-reviewer · asked
+- **Provenance:** proposals record `requested_by` - the human whose `/as`
+  message drove the persona - so reviewers see "by code-reviewer · asked
   by dana". Authority changes require strong identity (`StrongUser`).
 - **Slug reservation:** bench slugs are reserved names; `ensure_user`
   refuses to create a human with a persona's slug (and vice versa), so
   identities can't be shadowed or absorbed.
 - **Planner conflation:** `plan_project` runs under the invoking head's
-  identity — a persona answers for what its planner creates. Deliberate:
+  identity - a persona answers for what its planner creates. Deliberate:
   one accountable identity per conversation.
 - **Memory bleed:** durable memories are team-scoped, not persona-scoped.
   The growth personas therefore disclose (masthead) that chat is stored
@@ -170,16 +170,16 @@ validator covers overlay files and labels them `(overlay)`.
 Frontmatter can add three optional fields; pack-wide defaults live in
 `personas/pack.json` (`{"defaults": {...}}`), persona wins field-by-field.
 
-- `model:` — model ID override. Never the provider or endpoint: a persona
+- `model:` - model ID override. Never the provider or endpoint: a persona
   file cannot redirect traffic.
-- `temperature:` — 0.0 to 2.0. Beats `SKEIN_MODEL_PARAMS` (the persona is the
+- `temperature:` - 0.0 to 2.0. Beats `SKEIN_MODEL_PARAMS` (the persona is the
   more specific operator intent). A bad value drops at runtime and fails the
   validator.
-- `tools:` — comma list, deny-by-omission once declared: the persona's agent
+- `tools:` - comma list, deny-by-omission once declared: the persona's agent
   (and its planner) is built with exactly those tools, so the model never
   sees the rest. Extra/MCP tools cannot be allowlisted by name. A pack-wide
   `tools` default restricts every persona and no persona can override it
-  back to unrestricted — keep pack defaults minimal.
+  back to unrestricted - keep pack defaults minimal.
 
 ## Flock eligibility
 
@@ -191,6 +191,6 @@ Pack defaults do not set this field.
 
 Runtime parsing is lenient (a malformed persona drops off the bench, chat
 stays up). `python -m app.services.personas` is the strict validator that
-lint.sh and CI run — the same file fails the build instead of vanishing.
+lint.sh and CI run - the same file fails the build instead of vanishing.
 Behavior fields apply on real providers only; the mock path never builds a
 Strands agent.

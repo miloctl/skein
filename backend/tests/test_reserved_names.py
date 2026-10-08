@@ -2,7 +2,7 @@
 
 The activity feed shows a system actor's rows to EVERY viewer, so whoever
 holds one of those names walks their own writes past the scope rule that
-hides a teammate's. One wall in one function is not enough — a roster row can
+hides a teammate's. One wall in one function is not enough - a roster row can
 arrive through a rename or an agent-minting call, and a credential door can
 skip ensure_user entirely.
 """
@@ -106,7 +106,7 @@ def test_a_case_variant_of_the_other_kind_is_refused(fresh_db):
     with pytest.raises(ValueError, match="differs only by case") as exc:
         users.ensure_user("Scout")
     # the refusal reaches 403 bodies at the credential doors, and an error
-    # never echoes the rejected value — the submitted variant can be a
+    # never echoes the rejected value - the submitted variant can be a
     # provider-controlled OIDC claim
     assert "Scout" not in str(exc.value)
     assert "'scout'" in str(exc.value)
@@ -120,7 +120,7 @@ def test_a_case_variant_of_the_same_kind_is_refused_too(fresh_db):
     users.ensure_user("bob")
     # same kind is not safer: authority_level and trust key on the EXACT name,
     # so a second agent row that folds onto the first answers to neither's
-    # kill switch — and a second human row splits one person's notes and
+    # kill switch - and a second human row splits one person's notes and
     # preferences across two accounts
     with pytest.raises(ValueError, match="differs only by case"):
         users.ensure_user("SCOUT", kind="agent")
@@ -173,7 +173,7 @@ def test_rename_cannot_brick_an_account_on_an_agents_name(fresh_db):
     users.ensure_user("mira")
     users.ensure_user("scout", kind="agent")
     # renaming a human onto an agent's name in ANY capitalization locks them
-    # out of every door, including this route — with no self-service recovery
+    # out of every door, including this route - with no self-service recovery
     with pytest.raises(ValueError, match="differs only by case"):
         users.rename_user("mira", "Scout", actor="mira")
     assert users.is_agent("mira") is False
@@ -195,7 +195,7 @@ def test_identity_folding_agrees_with_the_resolver(fresh_db):
 
 
 def test_a_bad_mcp_identity_never_takes_down_the_api(client, fresh_db, monkeypatch):
-    # operator config degrades, it does not abort boot — the same rule the
+    # operator config degrades, it does not abort boot - the same rule the
     # model provider follows. Proven at the service the boot path calls.
     from app.services import users
 
@@ -207,7 +207,7 @@ def test_a_bad_mcp_identity_never_takes_down_the_api(client, fresh_db, monkeypat
 
 def test_a_reserved_key_cannot_read_through_the_perimeter(client, fresh_db, monkeypatch):
     """deps.py refuses this credential, but the catalog reads that resolve no
-    caller never reach deps — in api-key mode the perimeter is their only
+    caller never reach deps - in api-key mode the perimeter is their only
     gate, so the same wall belongs there. Asserted on those reads: against a
     route that resolves a caller the dependency refuses the key too, and the
     perimeter wall could be deleted with this test still green."""

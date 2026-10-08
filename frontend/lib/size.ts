@@ -1,6 +1,6 @@
 /** A size in the unit that actually says something about it.
  *
- *  Fixed to MB, every small file reads as "0.0 MB" — which says a file the
+ *  Fixed to MB, every small file reads as "0.0 MB" - which says a file the
  *  reader can plainly see is empty, and makes the row look like a bug rather
  *  than a note they attached. Mixed units in one sentence ("35 KB of 100 MB
  *  used") are the honest version. */

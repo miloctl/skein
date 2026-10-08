@@ -4,7 +4,7 @@ visible_filter has callers across app/services now. These tests are still
 about the INVENTORY, because that is the part that rots: two of the three
 enumerate-everything structures in this repository went stale in exactly the
 direction CI did not check. tests/test_visibility_authz.py covers the two
-directions this one does not — which mutations are guarded, and which reads
+directions this one does not - which mutations are guarded, and which reads
 are filtered.
 """
 
@@ -16,7 +16,7 @@ from app.services import crews, scope, users, work
 
 def test_every_table_is_classified(client, fresh_db):
     """A new table joins CLASSIFIED or UNSCOPED, with a reason. Without this
-    a migration adds a content table and the tier silently skips it — which
+    a migration adds a content table and the tier silently skips it - which
     is the failure mode a filter-per-query design cannot otherwise catch."""
     missing = scope.unclassified()
     assert not missing, (
@@ -47,12 +47,12 @@ def test_no_table_is_in_both_maps():
 def test_every_classified_table_has_a_reader_facing_noun():
     """scope.missing does NOUN[table] on the not-found path of every guarded
     service. A classified table with no entry raises KeyError there, so the
-    one sentence a caller sees for an absent row becomes a 500 — and only for
+    one sentence a caller sees for an absent row becomes a 500 - and only for
     the table somebody just added, which is the last place anyone looks."""
     orphans = set(scope.CLASSIFIED) - set(scope.NOUN)
     assert not orphans, (
         f"classified with no reader-facing noun: {sorted(orphans)}."
-        " Add one to scope.NOUN — `table[:-1]` renders 'memorie'."
+        " Add one to scope.NOUN - `table[:-1]` renders 'memorie'."
     )
     stale = set(scope.NOUN) - set(scope.CLASSIFIED)
     assert not stale, f"nouns for tables that carry no tier: {sorted(stale)}"
@@ -89,7 +89,7 @@ def test_the_filter_defaults_closed(fresh_db):
 
 def test_the_filter_drops_the_crew_clause_for_someone_in_no_crew(fresh_db):
     """SQLite has no `IN ()`. Emitting an empty one is a syntax error, not a
-    disjunct that matches nothing — and being in no crew is the common case."""
+    disjunct that matches nothing - and being in no crew is the common case."""
     users.ensure_user("ava")
     sql, params = scope.visible_filter(scope.Viewer("ava", True), "tasks")
     assert "crew_id" not in sql
@@ -119,12 +119,12 @@ def test_the_fragment_is_valid_sql_against_a_real_table(fresh_db, alias):
     )
     sql, params = scope.visible_filter(scope.Viewer("ava", True), "tasks", alias=alias)
     prefix = "probe t" if alias else "probe"
-    rows = fresh_db.query(f"SELECT * FROM {prefix} WHERE {sql}", tuple(params))  # noqa: S608 — the fragment is what is under test, params bound separately
+    rows = fresh_db.query(f"SELECT * FROM {prefix} WHERE {sql}", tuple(params))  # noqa: S608 - the fragment is what is under test, params bound separately
     assert len(rows) == 1
 
 
 def test_a_private_row_is_not_reachable_through_the_filter(fresh_db):
-    """private is excluded structurally, never by this predicate — the whole
+    """private is excluded structurally, never by this predicate - the whole
     reason the filter covers one tier instead of three. Its own author reads
     it through the author disjunct, and nobody else has a clause that can."""
     users.ensure_user("ava")
@@ -133,9 +133,9 @@ def test_a_private_row_is_not_reachable_through_the_filter(fresh_db):
     fresh_db.execute(
         "INSERT INTO probe (created_by, visibility, crew_id) VALUES ('ava', 'private', NULL)"
     )
-    assert fresh_db.query(f"SELECT * FROM probe WHERE {sql}", tuple(params)) == []  # noqa: S608 — as above
+    assert fresh_db.query(f"SELECT * FROM probe WHERE {sql}", tuple(params)) == []  # noqa: S608 - as above
     own_sql, own_params = scope.visible_filter(scope.Viewer("ava", True), "tasks")
-    got = fresh_db.query(f"SELECT * FROM probe WHERE {own_sql}", tuple(own_params))  # noqa: S608 — as above
+    got = fresh_db.query(f"SELECT * FROM probe WHERE {own_sql}", tuple(own_params))  # noqa: S608 - as above
     assert len(got) == 1
 
 
@@ -148,13 +148,13 @@ def test_a_viewers_crews_are_resolved_once(fresh_db):
     crews.add_member(cid, "bo", actor="ava")
     v = scope.Viewer("bo", True)
     assert v.crew_ids == [cid]
-    # the snapshot is the point — a membership change mid-request must not
+    # the snapshot is the point - a membership change mid-request must not
     # make two queries in one RESPONSE disagree with each other. Removing
     # `bo`, not `ava`: ava is the sole steward and cannot be removed, which is
     # why this call was once written `if False else None` and asserted nothing.
     crews.remove_member(cid, "bo", actor="ava")
     assert v.crew_ids == [cid], "the viewer already built must not change under it"
-    # and the NEXT request sees the removal — asserted on a new Viewer, because
+    # and the NEXT request sees the removal - asserted on a new Viewer, because
     # the old one is the snapshot and re-reading it proves nothing
     assert scope.Viewer("bo", True).crew_ids == []
 
@@ -165,7 +165,7 @@ def test_the_fragment_survives_a_caller_predicate_beside_it(fresh_db):
     `visible_filter` returns its disjuncts wrapped in parentheses. Unwrapped,
     `WHERE assignee = ? AND visibility = ? OR created_by = ?` binds the OR
     loosest and returns every row the viewer authored, whatever the caller's
-    own predicate said — which is a leak that reads as a working filter.
+    own predicate said - which is a leak that reads as a working filter.
 
     Spliced with NOTHING before it, parentheses cannot matter, and that is how
     the existing SQL-validity test splices it. Every real caller has a
@@ -176,11 +176,11 @@ def test_the_fragment_survives_a_caller_predicate_beside_it(fresh_db):
     work.create_task(title="ava's own private task", actor="ava", visibility="private")
     frag, params = scope.visible_filter(scope.Viewer("ava", True), "tasks")
     rows = db.query(
-        f"SELECT title FROM tasks WHERE assignee = ? AND {frag}",  # noqa: S608 — test
+        f"SELECT title FROM tasks WHERE assignee = ? AND {frag}",  # noqa: S608 - test
         ("nobody-has-this-name", *params),
     )
     assert rows == [], (
-        "the caller's own predicate was defeated — visible_filter must"
+        "the caller's own predicate was defeated - visible_filter must"
         f" parenthesize its disjuncts. Fragment was: {frag}"
     )
 
@@ -255,7 +255,7 @@ def test_a_caller_with_no_name_cannot_edit_a_crew_row(fresh_db):
 
 def test_the_tiers_match_the_documented_three():
     assert scope.TIERS == ("private", "crew", "workspace")
-    assert scope.WORKSPACE == "workspace", "the migration default — changing it changes every row"
+    assert scope.WORKSPACE == "workspace", "the migration default - changing it changes every row"
 
 
 def test_a_content_table_added_later_fails_the_sweep(client, fresh_db):
@@ -293,7 +293,7 @@ def test_a_crew_row_reaches_its_members_and_nobody_else(fresh_db):
 
     def seen(viewer: str) -> set[tuple]:
         sql, params = scope.visible_filter(scope.Viewer(viewer, True), "tasks")
-        rows = fresh_db.query(f"SELECT * FROM probe WHERE {sql}", tuple(params))  # noqa: S608 — as above
+        rows = fresh_db.query(f"SELECT * FROM probe WHERE {sql}", tuple(params))  # noqa: S608 - as above
         return {(r["created_by"], r["visibility"]) for r in rows}
 
     # a member reads their crew's row and the workspace one, never the other
@@ -311,7 +311,7 @@ def test_an_unclassified_table_is_refused(fresh_db):
     and, worse, a silent misfilter: `notes` has `created_by` as well as
     `author`, so the wrong one compiled and hid a note from its own writer."""
     # KeyError, not ValueError: app/main.py maps ValueError to 400, and the
-    # table is a literal at every call site — a miss is our bug, so a 500
+    # table is a literal at every call site - a miss is our bug, so a 500
     v = scope.Viewer("ava", True)
     with pytest.raises(KeyError, match="carries no visibility tier"):
         scope.visible_filter(v, "users")

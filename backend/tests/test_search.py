@@ -24,8 +24,8 @@ def test_short_id_names_the_entity_kind(fresh_db):
     qid = collab.ask_question("what latency matters?", asked_by="mira")["id"]
     hits = search.search(f"question {qid}")
     assert (hits[0]["entity"], hits[0]["entity_id"]) == ("question", qid)
-    # bare #N means task. Assert it against a REAL collision — a task and a
-    # question that share an id — or the negative iterates an empty list and
+    # bare #N means task. Assert it against a REAL collision - a task and a
+    # question that share an id - or the negative iterates an empty list and
     # proves nothing
     tid = work.create_task("Fix login")["id"]
     assert tid == qid
@@ -83,7 +83,7 @@ def test_deindex_removes_the_row_from_search_results(fresh_db):
     assert search.search("ectoplasm")
     collab.delete_note(n["id"], actor="a")
     # the docstring's promise: search must never cite a record that no
-    # longer exists — the FTS row goes with the record, not only the vector
+    # longer exists - the FTS row goes with the record, not only the vector
     assert search.search("ectoplasm") == []
 
 
@@ -92,7 +92,7 @@ def test_ask_falls_back_to_word_overlap_when_the_phrase_misses(fresh_db):
 
     blockers.raise_blocker("Vendor contract unsigned", detail="blocks the integration")
     # the phrase matches nothing, so the natural question would come back
-    # empty without the fallback — this IS what the `?` prefix buys
+    # empty without the fallback - this IS what the `?` prefix buys
     assert search.search("why is the vendor contract blocked") == []
     answer = search.ask("why is the vendor contract blocked")
     assert [c["ref"] for c in answer["citations"]] == ["blocker #1"]
@@ -109,7 +109,7 @@ def test_ask_does_not_widen_a_question_on_its_function_words(fresh_db):
         work.create_task(title)
     answer = search.ask("why is the pager quiet")
     assert answer["citations"] == []
-    assert answer["note"] == "nothing indexed matches — try different words"
+    assert answer["note"] == "nothing indexed matches - try different words"
 
 
 def test_ask_keeps_a_status_word_the_team_actually_searches_for(fresh_db):

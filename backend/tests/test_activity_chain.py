@@ -1,6 +1,6 @@
 """The activity ledger is tamper-evident: every chained row commits to its own
 content and to the row before it. These tests are the whole point of the
-feature — if they pass while the chain is decorative, the feature is a lie."""
+feature - if they pass while the chain is decorative, the feature is a lie."""
 
 import threading
 
@@ -397,7 +397,7 @@ def test_head_truncation_with_a_reroot_is_caught(scratch_db):
 
 def test_a_full_reforge_is_caught_by_the_stored_anchor(fresh_db):
     """Recomputing the whole chain after an edit produces a valid chain. The
-    anchor is the out-of-chain state that contradicts it — which is why the
+    anchor is the out-of-chain state that contradicts it - which is why the
     full walk cross-checks it instead of trusting the links alone."""
     _log(6)
     activity.verify_tail(advance=True)  # blesses seq 6
@@ -480,8 +480,8 @@ def test_the_feed_orders_by_seq_not_rowid(fresh_db):
     users.ensure_user("tester")
     _log(3)
     # Give seq 1 the HIGHEST id, so id order and seq order disagree. It cannot
-    # be done with an UPDATE any more — `id` is GENERATED ALWAYS, which is the
-    # schema refusing the resequencing this test used to perform — so the row
+    # be done with an UPDATE any more - `id` is GENERATED ALWAYS, which is the
+    # schema refusing the resequencing this test used to perform - so the row
     # is rewritten verbatim and takes a fresh id on the way back in. Ordering
     # by id would now put seq 1 first.
     row = db.query_row("SELECT * FROM activity WHERE seq = 1")
@@ -745,7 +745,7 @@ def test_a_break_is_never_anchored(fresh_db):
     _log(3)
     activity.nightly_verify()
     _log(2)
-    # tamper a row the tail run WILL see — one written since the last anchor.
+    # tamper a row the tail run WILL see - one written since the last anchor.
     # (a row behind the anchor is the documented limit of the tail run and is
     # caught by the findings rule's full walk, not here)
     db.execute("UPDATE activity SET detail = 'tampered' WHERE seq = 4")
@@ -759,7 +759,7 @@ def test_a_full_reforge_with_every_mark_rewritten_is_caught_by_the_anchor_log(fr
     """THE case no in-DB check can catch. The chain, anchors, live tip, and
     baseline all live in PostgreSQL. Rewrite them together and the
     full walk passes. The anchor log line was written on an earlier day, and
-    the re-forge changed every anchored row's digest — content or lineage."""
+    the re-forge changed every anchored row's digest - content or lineage."""
     from app.services import activity
 
     _log(6)
@@ -805,7 +805,7 @@ def test_the_findings_rule_reaches_the_anchor_check(fresh_db):
 
 def test_no_anchor_log_is_not_an_error(fresh_db):
     """A deployment that has never completed a nightly run has nothing to
-    check — reporting that as tampering would alarm every fresh install."""
+    check - reporting that as tampering would alarm every fresh install."""
     from app.services import activity
 
     _log(2)
@@ -889,7 +889,7 @@ def test_a_torn_line_does_not_swallow_the_next_night(fresh_db):
     activity.nightly_verify()
     result = activity.check_anchor_log()
     assert result["ok"]
-    assert result["checked"] == 2  # seq 3 and seq 4 — the healed line parsed
+    assert result["checked"] == 2  # seq 3 and seq 4 - the healed line parsed
 
 
 def test_the_job_registry_actually_anchors(fresh_db):
@@ -907,7 +907,7 @@ def test_the_job_registry_actually_anchors(fresh_db):
 
 
 def test_record_anchor_uses_the_verified_anchor_not_the_live_tail(fresh_db):
-    """Rows written since verification are unverified — anchoring the live
+    """Rows written since verification are unverified - anchoring the live
     tail would launder whatever they happen to say into tomorrow's baseline."""
     from app.services import activity
 
@@ -978,7 +978,7 @@ def test_a_rewritten_local_log_conflicts_with_the_mirror(fresh_db, tmp_path, mon
 def test_an_unmounted_mirror_directory_is_never_manufactured(fresh_db, tmp_path, monkeypatch):
     """mkdir on the mirror path would build the mount point on the LOCAL disk;
     the append would land on the wrong disk and be shadowed when the real
-    mount returns — a silent hole in the history."""
+    mount returns - a silent hole in the history."""
     from app.services import activity, admin
 
     mirror = tmp_path / "not-mounted"
@@ -1093,7 +1093,7 @@ def test_the_mirror_gets_its_own_append_never_a_copy(fresh_db, tmp_path, monkeyp
     assert str(mirrored).startswith(str(mirror))
     assert local.read_text() == (mirror / activity.ANCHOR_LOG).read_text()
 
-    local.write_text("")  # local truncated — the mirror keeps both lines
+    local.write_text("")  # local truncated - the mirror keeps both lines
     assert len((mirror / activity.ANCHOR_LOG).read_text().splitlines()) == 2
 
 
@@ -1109,7 +1109,7 @@ def test_a_missing_mirror_directory_is_never_created(fresh_db, tmp_path, monkeyp
 
 
 def test_an_unwritable_mirror_does_not_fail_the_job(fresh_db, tmp_path, monkeypatch):
-    """The mirror is a mounted path that is allowed to be absent — an
+    """The mirror is a mounted path that is allowed to be absent - an
     unmounted NAS at 03:30 must not cost the night's local anchor."""
     from app.services import activity, admin
 
@@ -1124,7 +1124,7 @@ def test_an_unwritable_mirror_does_not_fail_the_job(fresh_db, tmp_path, monkeypa
 
 
 def test_an_unchanged_tip_is_not_appended_twice(fresh_db):
-    """The startup catch-up runs the nightly job on every process start — a
+    """The startup catch-up runs the nightly job on every process start - a
     dev server restarting on file changes appended the same line dozens of
     times in an evening. One line per tip, not per boot."""
     from app.services import activity
@@ -1146,7 +1146,7 @@ def test_a_mirror_that_missed_a_night_still_catches_up(fresh_db, tmp_path, monke
     from app.services import activity, admin
 
     _log(2)
-    activity.nightly_verify()  # mirror not configured yet — local only
+    activity.nightly_verify()  # mirror not configured yet - local only
     mirror = tmp_path / "mirror"
     mirror.mkdir()
     monkeypatch.setattr(admin, "mirror_dir", lambda: mirror)
@@ -1265,7 +1265,7 @@ def test_the_baseline_check_does_not_mask_a_reforge(fresh_db):
 
     _log(4)
     activity.nightly_verify()  # anchors seq 4
-    # raise the baseline AND remove the anchored row — two independent faults
+    # raise the baseline AND remove the anchored row - two independent faults
     db.execute(
         "INSERT INTO activity (actor, action, detail, created_at) VALUES ('x','y','',?)",
         (db.now(),),
@@ -1276,7 +1276,7 @@ def test_the_baseline_check_does_not_mask_a_reforge(fresh_db):
     out = activity.check_anchor_log()
     assert out["ok"] is False
     # the digest replay still ran rather than returning at the baseline
-    # finding — the replay is this function's primary job
+    # finding - the replay is this function's primary job
     assert out["seq"] == 4
     assert "no longer in the ledger" in out["reason"]
 
@@ -1300,7 +1300,7 @@ def test_adoption_does_not_recreate_a_missing_baseline(fresh_db):
 def test_a_fallback_row_is_adopted_into_the_chain(fresh_db):
     """db.log_activity records a row UNCHAINED when the write lock cannot be
     taken. Before adoption, one such row flipped every later verification to
-    "tampered" forever — an alarm with no recovery path, caused by nothing
+    "tampered" forever - an alarm with no recovery path, caused by nothing
     but load, aimed at whoever runs the server."""
     _log(3)
     assert activity.verify_chain()["ok"]  # records the baseline (0)
@@ -1323,7 +1323,7 @@ def test_a_fallback_row_is_adopted_into_the_chain(fresh_db):
 
 def test_an_adopted_row_is_tamper_evident_afterwards(fresh_db):
     """The point of adopting rather than counting: an unchained row can be
-    edited or deleted silently forever — it is structurally exempt from every
+    edited or deleted silently forever - it is structurally exempt from every
     link check, and a deletion even LOWERS the count below the baseline.
     Adoption ends both."""
     _log(2)
@@ -1347,7 +1347,7 @@ def test_adoption_with_nothing_to_adopt_writes_no_receipt(fresh_db):
 
 def test_the_same_nights_anchor_covers_adopted_rows(fresh_db):
     """Adoption runs before verify and anchor inside nightly_verify, so the
-    receipt and the adopted rows are blessed the same night — ordered the
+    receipt and the adopted rows are blessed the same night - ordered the
     other way, the 06:50 findings walk fired a false HIGH tamper finding in
     the gap."""
     _log(2)
@@ -1364,7 +1364,7 @@ def test_the_same_nights_anchor_covers_adopted_rows(fresh_db):
 def test_adoption_lowers_the_baseline_so_it_is_not_an_allowance(fresh_db):
     """With legacy rows adopted but the baseline left standing, `unchained >
     legacy` admits that many smuggled rows silently. Lowering is also the one
-    direction check_anchor_log permits — its alarm is a baseline above the
+    direction check_anchor_log permits - its alarm is a baseline above the
     lowest ever anchored."""
     for _ in range(3):
         db.execute(
@@ -1377,7 +1377,7 @@ def test_adoption_lowers_the_baseline_so_it_is_not_an_allowance(fresh_db):
     activity.nightly_verify()
     assert db.query_row("SELECT COUNT(*) AS n FROM activity WHERE seq IS NULL")["n"] == 0
 
-    # one smuggled row must alarm again — a standing baseline of 3 absorbs it
+    # one smuggled row must alarm again - a standing baseline of 3 absorbs it
     db.execute(
         "INSERT INTO activity (actor, action, detail, created_at) VALUES (?, ?, ?, ?)",
         ("mallory", "smuggled", "", db.now()),
@@ -1414,7 +1414,7 @@ def test_the_adoption_finding_fires_once_per_receipt(fresh_db, monkeypatch):
     assert "more than the rows expected" in found[0]["message"]
     receipt = db.query_row("SELECT seq FROM activity WHERE action = 'adopt_unchained'")
     assert found[0]["subject"] == f"adopt:{receipt['seq']}"
-    # once the two-day window passes, the rule is quiet again — the receipt is
+    # once the two-day window passes, the rule is quiet again - the receipt is
     # not editable (it is chained), so the window is moved, not the row
     monkeypatch.setattr(insights, "_today", lambda: date(2030, 1, 1))
     assert insights._r_activity_chain() == []
@@ -1422,8 +1422,8 @@ def test_the_adoption_finding_fires_once_per_receipt(fresh_db, monkeypatch):
 
 def test_an_unchained_row_does_not_suppress_the_digest_walk(fresh_db):
     """verify_chain used to RETURN at the unchained count, before the walk
-    that is its primary job. One row with a NULL seq — cheap to arrange, and
-    the honest lock-timeout path produces one by itself — then hid a re-forge
+    that is its primary job. One row with a NULL seq - cheap to arrange, and
+    the honest lock-timeout path produces one by itself - then hid a re-forge
     of the whole chain until the nightly adoption cleared it."""
     _log(4)
     assert activity.verify_chain()["ok"]  # sets the baseline at 0
@@ -1462,13 +1462,13 @@ def test_content_cannot_imitate_a_field_boundary(actor, action, detail, moved):
     deadline=None,
     max_examples=25,
     # deliberate fixture reuse: the ledger is append-only, so every example
-    # extends the same chain and a full verify still passes — the property
+    # extends the same chain and a full verify still passes - the property
     # is stronger against one long mixed-content chain than many short ones
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
 @given(rows=st.lists(st.tuples(_field.filter(bool), _field, _field), min_size=1, max_size=4))
 def test_any_text_round_trips_through_the_chain(fresh_db, rows):
-    """Newlines, quotes, bidi controls, emoji — whatever lands in a detail
+    """Newlines, quotes, bidi controls, emoji - whatever lands in a detail
     string must chain and verify. A character class that broke verification
     would let an attacker write an uncheckable row on purpose."""
     for actor, action, detail in rows:

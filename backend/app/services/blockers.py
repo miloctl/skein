@@ -193,7 +193,7 @@ def edit_blocker(
     actor: str = "system",
     origin: str = "human",
 ) -> dict:
-    """Correct an open blocker's wording/owner/impact — resolution stays its
+    """Correct an open blocker's wording/owner/impact - resolution stays its
     own verb."""
     with db.transaction():
         return _edit_blocker_locked(
@@ -221,7 +221,7 @@ def _edit_blocker_locked(
         raise scope.missing("blockers", blocker_id)
     scope.assert_editable("blockers", row, actor, verb="edit")
     if row["status"] == "resolved":
-        raise ValueError(f"blocker #{blocker_id} is resolved — history stays put")
+        raise ValueError(f"blocker #{blocker_id} is resolved - history stays put")
     if impact and impact not in IMPACTS:
         raise ValueError(f"impact must be one of {IMPACTS}")
     fields: dict[str, str | int] = {
@@ -232,7 +232,7 @@ def _edit_blocker_locked(
     if not fields:
         raise ValueError("nothing to update")
     # the escalation clock follows the impact UNLESS the creator set a custom
-    # deadline — impact was frozen at creation before this, so the only
+    # deadline - impact was frozen at creation before this, so the only
     # escalation speed a web-filed blocker ever had was medium's
     if (
         impact
@@ -254,7 +254,7 @@ def _edit_blocker_locked(
         )
     sets = ", ".join(f"{k} = ?" for k in fields)
     db.execute(
-        f"UPDATE blockers SET {sets} WHERE id = ?",  # noqa: S608 — keys hardcoded
+        f"UPDATE blockers SET {sets} WHERE id = ?",  # noqa: S608 - keys hardcoded
         (*fields.values(), blocker_id),
     )
     # the id and the field names, never the text (collab.update_note)
@@ -293,7 +293,7 @@ def resolve_blocker(
         if row["status"] == "resolved":
             raise ValueError(f"blocker #{blocker_id} is already resolved")
         # The status check above decides this write, and the read took no
-        # lock — so the WHERE carries it too. Without the CAS both resolvers
+        # lock - so the WHERE carries it too. Without the CAS both resolvers
         # pass the check and both append: the detail ends up with two
         # "Resolved:" lines, and the second caller must get the refusal above
         # instead.
@@ -488,7 +488,7 @@ def _sweep_escalations_locked() -> list[dict]:
             # engagement, so a relink landing mid-sweep would file a notice
             # whose body and whose snapshot describe different projects. Taken
             # FIRST, ahead of the blocker write and the ledger append, so the
-            # lock order matches every enforcement path — see
+            # lock order matches every enforcement path - see
             # services/policy_context.py::hold_resource.
             from . import policy_context
 
@@ -513,11 +513,11 @@ def _sweep_escalations_locked() -> list[dict]:
             )
             from .notifications import notify
 
-            # Every tier escalates — a crew blocker that silently never
+            # Every tier escalates - a crew blocker that silently never
             # escalates is a worse outcome than one nobody is told about. But
             # the message quotes the title, so it goes to the owner alone: the
             # "team" fallback addresses the whole roster, and an owner is the
-            # only name here checked as a reader — by raise_blocker at
+            # only name here checked as a reader - by raise_blocker at
             # creation and by edit_blocker on every change to it.
             #
             # Re-checked HERE too, because both of those are WRITE-time and

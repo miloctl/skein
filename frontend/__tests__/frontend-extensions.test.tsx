@@ -181,7 +181,7 @@ describe("capability-aware contributions", () => {
 
 describe("runtime manifest validation", () => {
   it("rejects malformed fields before the shell can crash on them", () => {
-    // Nav calls activePaths.includes on every render — a packed JavaScript
+    // Nav calls activePaths.includes on every render - a packed JavaScript
     // manifest with a bad shape must fail registration with the extension
     // named, never later as a bare TypeError inside the shell.
     expect(() =>

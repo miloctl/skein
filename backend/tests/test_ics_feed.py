@@ -18,7 +18,7 @@ def test_ics_feed_open_when_no_token(client, fresh_db):
 def test_ics_feed_token_semantics(client, fresh_db, monkeypatch):
     from app import config
 
-    # dedicated feed secret — NEVER the API token (URLs land in calendar
+    # dedicated feed secret - NEVER the API token (URLs land in calendar
     # configs and access logs)
     monkeypatch.setattr(config, "ICS_TOKEN", "feed-secret")
     assert client.get("/api/calendar.ics").status_code == 401

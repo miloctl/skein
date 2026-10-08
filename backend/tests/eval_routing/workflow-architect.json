@@ -1,11 +1,11 @@
 {
   "positive": [
-    "Map the signup workflow end to end \u2014 every branch, failure mode, and recovery path.",
+    "Map the signup workflow end to end - every branch, failure mode, and recovery path.",
     "Map this pipeline before we build: every branch, what recovers when a step fails, and who notices."
   ],
   "negative": [
     {
-      "prompt": "What level should we test this at \u2014 unit or integration?",
+      "prompt": "What level should we test this at - unit or integration?",
       "owner": "test-engineer"
     }
   ]

@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
  *  an already-prevented event.
  *
  *  That contract lives inside the library. tsc catches the export vanishing
- *  or its signature changing; it catches NOTHING about the guard — and
+ *  or its signature changing; it catches NOTHING about the guard - and
  *  neither do these tests: deleting the hook's defaultPrevented check leaves
  *  all three green, because the popup is only ever open on a non-empty draft
  *  and the hook refuses to recall from one. What these DO pin is `recalling`.
@@ -99,8 +99,8 @@ describe("ArrowUp in the composer", () => {
 
     fireEvent.keyDown(box, { key: "ArrowUp" });
 
-    // still the typed token: the popup consumed the key, and history — which
-    // has SENT available and would otherwise overwrite this — did not run.
+    // still the typed token: the popup consumed the key, and history - which
+    // has SENT available and would otherwise overwrite this - did not run.
     // TWO mechanisms enforce this, the popup's preventDefault and the hook's
     // own "only recall from an empty draft" guard, so this passes if either
     // one holds. The test below needs neither: it pins `recalling`, which
@@ -112,7 +112,7 @@ describe("ArrowUp in the composer", () => {
   it("keeps walking history after recalling a bare slash command", async () => {
     // The reachable trap, and the only case where the popup and history can
     // both claim the key. Recall a message that IS a slash command and the
-    // popup's open condition is met by the recalled text itself — it then
+    // popup's open condition is met by the recalled text itself - it then
     // swallows the next arrow, stranding the person on one entry with no way
     // back to their draft. "/briefing" is a shipped empty-state suggestion,
     // so this is a path users take, not a contrived one.

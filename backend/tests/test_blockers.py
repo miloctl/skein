@@ -32,7 +32,7 @@ def test_resolve_blocker_unblocks_linked_task(fresh_db):
     ]
     assert '"status"' in events[-1]["payload"]
 
-    # services/scope.py::missing — one wording for the absent row and for the
+    # services/scope.py::missing - one wording for the absent row and for the
     # row this caller may not read, so neither answers "does #999 exist"
     with pytest.raises(db.NotFound, match="no blocker #999"):
         blockers.resolve_blocker(999)
@@ -106,7 +106,7 @@ def test_the_escalation_sweep_announces_the_state_it_changed(fresh_db):
 
 def test_edit_blocker_impact_moves_the_escalation_clock(client, fresh_db):
     """Impact was frozen at creation, so every web-filed blocker escalated at
-    capture's default `medium` speed — and impact is the field that SETS the
+    capture's default `medium` speed - and impact is the field that SETS the
     clock (DEFAULT_ESCALATION_HOURS)."""
     from app import db
 

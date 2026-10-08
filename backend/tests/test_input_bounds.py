@@ -27,7 +27,7 @@ def test_deeply_nested_body_is_422_not_500(client):
 
 def test_validation_error_does_not_echo_the_body_back(client):
     """A 422 used to carry the whole rejected string, so a 50 MB request
-    produced a 50 MB response — a 1:1 amplifier on every write endpoint."""
+    produced a 50 MB response - a 1:1 amplifier on every write endpoint."""
     huge = "D" * 200_000
     r = client.post("/api/tasks", json={"title": "probe", "description": huge})
     assert r.status_code == 422
@@ -65,7 +65,7 @@ def test_an_empty_note_is_refused_like_every_other_create(client, fresh_db):
 
 def test_garbage_from_date_is_refused_not_silently_empty(client, fresh_db):
     """A string compare against garbage returned [], which reads as 'no
-    events' — a wrong answer rather than an error."""
+    events' - a wrong answer rather than an error."""
     assert client.get("/api/events?from_date=garbage").status_code == 400
     # shape alone is not enough: these match the pattern and are not dates
     for bad in ("9999-99-99", "2026-13-45", "2026-02-30"):
@@ -120,7 +120,7 @@ def test_allocations_list_is_bounded(client, fresh_db):
     rows = engagements.list_allocations()
     assert len(rows) < total, "the unfiltered list returned every row"
     assert len(rows) <= 500
-    # bounded must mean a window on the NEWEST rows — a LIMIT that keeps
+    # bounded must mean a window on the NEWEST rows - a LIMIT that keeps
     # returning the oldest 500 forever is bounded and still wrong
     assert rows[0]["id"] == total
 

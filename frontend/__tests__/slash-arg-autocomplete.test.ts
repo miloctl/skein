@@ -24,7 +24,7 @@ describe("argQuery", () => {
   });
 
   it("closes once the slug is complete, so the popup leaves the message alone", () => {
-    // what run() and Tab both write is "/flock engineering " — the trailing
+    // what run() and Tab both write is "/flock engineering " - the trailing
     // space must NOT reopen the roster with an empty prefix
     expect(argQuery("/flock engineering ", ROSTERS)).toBeNull();
     expect(
@@ -80,7 +80,7 @@ describe("mentionQuery", () => {
   });
 
   it("is not an ssh target or an email localpart", () => {
-    // services/mentions.py refuses these too — offering a name here would
+    // services/mentions.py refuses these too - offering a name here would
     // suggest a mention the backend never matches
     expect(mentionQuery("run ssh root@scout")).toBeNull();
     expect(mentionQuery("mail ava@example")).toBeNull();

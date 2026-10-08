@@ -36,7 +36,7 @@ def fold_identity(name: str) -> str:
 
     The order is load-bearing (tests/test_identity_fold.py holds the
     properties). NFKC first, because compatibility characters can decompose
-    INTO whitespace ("¯" becomes space + combining macron) — stripping
+    INTO whitespace ("¯" becomes space + combining macron) - stripping
     before normalizing left that space in, and the fold of a fold was a
     different string. NFKC again after the Cf strip, because a removed
     ZWJ reunites a base with its combining mark and the pair must compose

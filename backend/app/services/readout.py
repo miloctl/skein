@@ -1,4 +1,4 @@
-"""Exec readout: curated executive projection — never a raw table dump.
+"""Exec readout: curated executive projection - never a raw table dump.
 Lives outside portfolio.py so portfolio and insights never import each other;
 this module is the one place that composes both."""
 
@@ -15,12 +15,12 @@ from .wording import count
 
 
 def _today() -> date:
-    """The team's day (config.SKEIN_TZ), not the UTC day — see db.today()."""
+    """The team's day (config.SKEIN_TZ), not the UTC day - see db.today()."""
     return db.today()
 
 
 def _wip_summary(tasks: int, people: int) -> str:
-    """Team totals for a forwardable artifact — see the call site for why the
+    """Team totals for a forwardable artifact - see the call site for why the
     names do not travel. Takes the COUNTS, not the per-person list: this
     module asks flow_metrics for the aggregated shape, so the list it used to
     sum is empty here by design. Sentence-form counts agree with their nouns
@@ -43,25 +43,25 @@ def exec_readout(*, actor: str = "system") -> dict:
     flow = flow_metrics(name_people=False)
     s = season()
     shipped = db.query(
-        f"SELECT name, closed_at FROM engagements WHERE status = 'closed' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT name, closed_at FROM engagements WHERE status = 'closed' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
         " AND closed_at >= ? ORDER BY closed_at DESC",
-        (s["start_ts"],),  # a timestamp column — services/pulse.py::season
+        (s["start_ts"],),  # a timestamp column - services/pulse.py::season
     )
     due_soon = db.query(
-        # direction = 'given' — the readout LEAVES, and a promise made TO the
+        # direction = 'given' - the readout LEAVES, and a promise made TO the
         # team listed under "our external promises" tells a stakeholder the
         # opposite of the truth
-        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"  # noqa: S608 — scope filters emit only bound marks
+        f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"  # noqa: S608 - scope filters emit only bound marks
         f" AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
         ((_today() + timedelta(days=14)).isoformat(),),
     )
     escalated = db.query(
-        f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}"  # noqa: S608 — scope.WORKSPACE_ONLY is a module constant
+        f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
     )
 
     dot = {"red": "🔴", "yellow": "🟡", "green": "🟢"}
-    lines = [f"# Exec readout — {_today().isoformat()} ({s['label']})", ""]
+    lines = [f"# Exec readout - {_today().isoformat()} ({s['label']})", ""]
     lines.append("## Engagements")
     for h in health:
         lines.append(
@@ -77,7 +77,7 @@ def exec_readout(*, actor: str = "system") -> dict:
 
     # the date the PREVIOUS readout covered, so the heading is true. Without
     # it the section compares back to yesterday and silently swallows every
-    # change that happened earlier in the week — for a weekly artifact, six
+    # change that happened earlier in the week - for a weekly artifact, six
     # days out of seven.
     prior = db.query_one(
         "SELECT created_at FROM artifacts WHERE kind = 'readout' AND created_at < ?"
@@ -92,7 +92,7 @@ def exec_readout(*, actor: str = "system") -> dict:
     since = date.fromisoformat(db.local_day(prior["created_at"])) if prior else None
     # filtered BEFORE the heading: a first-ever observation is not a change,
     # and on the first run after health snapshots shipped every engagement had
-    # one — the section printed a verdict heading with nothing under it, in a
+    # one - the section printed a verdict heading with nothing under it, in a
     # document built to be forwarded
     moved = [m for m in health_changes(health, since) if m["from"]]
     if moved:
@@ -100,7 +100,7 @@ def exec_readout(*, actor: str = "system") -> dict:
             "",
             # "yesterday", not "the last check": `check` is reserved for the user
             # action (docs/LEXICON.md), and the fallback fires exactly when
-            # health_changes defaulted to yesterday — so any other word here
+            # health_changes defaulted to yesterday - so any other word here
             # claims a window the code did not use, in a forwardable document
             f"## What changed since {since.isoformat() if since else 'yesterday'}",
         ]
@@ -110,7 +110,7 @@ def exec_readout(*, actor: str = "system") -> dict:
             )
 
     lines += ["", "## Shipped this season"]
-    # local_day, not [:10] — the rule this file states 19 lines above and
+    # local_day, not [:10] - the rule this file states 19 lines above and
     # then broke here. closed_at is a UTC timestamp, and this artifact is
     # forwarded outside the team, so the slice ships a date a reader in the
     # team's zone did not experience.
@@ -146,7 +146,7 @@ def exec_readout(*, actor: str = "system") -> dict:
         # be forwarded outside the team, and the anti-surveillance rule allows
         # person-level data only for planning the future. Named WIP counts
         # here are person-level data judging the past, in front of the exact
-        # audience the rule exists to keep it from — and the honest standups
+        # audience the rule exists to keep it from - and the honest standups
         # the rest of the product runs on are what that costs.
         # flow["wip_by_person"] stays available to /portfolio, which is a
         # planning surface with a viewer. Do not re-expand this line.

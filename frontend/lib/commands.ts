@@ -14,12 +14,12 @@ import {
  *  it ships. Theme-only on purpose: capture and navigation have their own
  *  doors, and a palette that lists every action is a different feature.
  *  A theme command takes the pack AND its signature accent in one paint,
- *  exactly what the Settings tile does — two doors that disagree about what
+ *  exactly what the Settings tile does - two doors that disagree about what
  *  "Theme: Ledger" means is the bug this shared setter prevents.
  *
  *  `run` returns the line the status region announces: the page restyling
  *  is the only feedback a sighted reader gets, and a screen reader hears
- *  nothing from a restyle — "Colorway: next" is unusable without it. */
+ *  nothing from a restyle - "Colorway: next" is unusable without it. */
 export type Command = { id: string; label: string; run: () => string };
 
 export const COMMANDS: Command[] = [
@@ -52,7 +52,7 @@ export const COMMANDS: Command[] = [
 ];
 
 /** Every word of the query must start a word of the label, so "dark mode"
- *  finds "Mode: Dark" and "the meeting" finds nothing — a plain substring
+ *  finds "Mode: Dark" and "the meeting" finds nothing - a plain substring
  *  match showed seven theme rows for the first four keystrokes of that
  *  search. Under two characters matches nothing: a one-letter query starts
  *  a word in most labels. A `?` or `#` query starts no word, so ask mode and
