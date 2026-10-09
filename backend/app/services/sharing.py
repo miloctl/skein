@@ -76,12 +76,15 @@ def share_with_team(table: str, row_id: int, *, actor: str) -> dict:
             f"SELECT * FROM {table} WHERE id = ? FOR UPDATE",  # noqa: S608 - table from SHAREABLE
             (row_id,),
         )
-        # scope.missing for a row somebody else wrote: a private one is
-        # unreadable to the caller, and the refusal must not say it exists
+        # the roster tier FIRST: everyone can already read that row, so saying
+        # so reveals nothing, where "no task #12" about a row the caller can
+        # open is false. Then scope.missing for a row somebody else wrote: a
+        # private one is unreadable to the caller, and the refusal must not say
+        # it exists
+        if row and row["visibility"] == scope.WORKSPACE:
+            raise ValueError("Everyone on the roster already sees this.")
         if not row or row[author] != actor:
             raise scope.missing(table, row_id)
-        if row["visibility"] == scope.WORKSPACE:
-            raise ValueError("Everyone on the roster already sees this.")
         # a workspace row under a narrower parent is hidden by every reader
         # (work.consistent_task_rows), so the share would report success for
         # a row nobody else can open

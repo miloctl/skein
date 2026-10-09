@@ -193,3 +193,22 @@ def test_a_share_holds_the_waiting_on_link_to_the_team_tier(client, fresh_db):
     work.update_task(task["id"], waiting_on="-", actor="ava")
     cleared = client.post(f"/api/share/tasks/{task['id']}", headers=_strong(client, "ava"))
     assert cleared.status_code == 200
+
+
+def test_sharing_a_roster_row_someone_else_wrote_says_it_is_already_shared(client, fresh_db):
+    """A workspace task bob wrote answered ava's share with "no task #N" - a
+    row she can open, reported absent. Everyone can read it, so saying so
+    reveals nothing; a private row of bob's stays "no task #N"."""
+    for name in ("ava", "bob"):
+        users.ensure_user(name)
+    ava, bob = _strong(client, "ava"), _strong(client, "bob")
+    shared = client.post("/api/tasks", json={"title": "roster"}, headers=bob).json()["id"]
+    r = client.post(f"/api/share/tasks/{shared}", headers=ava)
+    assert r.status_code == 400
+    assert r.json()["detail"] == "Everyone on the roster already sees this."
+    hidden = client.post(
+        "/api/tasks", json={"title": "mine", "visibility": "private"}, headers=bob
+    ).json()["id"]
+    r = client.post(f"/api/share/tasks/{hidden}", headers=ava)
+    assert r.status_code == 404
+    assert r.json()["detail"] == f"no task #{hidden}"
