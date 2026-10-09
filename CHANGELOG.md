@@ -24,6 +24,8 @@ keeps its existing `minimum_core` and needs no change.
 
 - The calendar feed's token check sits behind the per-address sign-in cap. On an unattended turn, an agent's remember tool files a memory only for a roster teammate. The CLI commit hook drops an inherited Closes-Task trailer from a merge or squash message, and sync-commit ignores a merge commit.
 - Settings → AI runtime shows which model summarizes and titles chats.
+- A promise captured as `promised: the deck by 2026-10-20` records the date as its due date, as an awaiting line already did, so the ledger can say when it is late. A date that does not exist is refused.
+- A title made of one long token (a pasted id, a URL) wraps on My Day, in a task row, and in an approval's payload table, so a phone page no longer scrolls sideways.
 - `SKEIN_AUX_MODEL` names a second model, on the same provider, for the side calls nobody reads as a reply: the summary a long chat makes to stay inside its context window, and the title of a new chat. Empty, the team-default model does both, as before. A summary by the aux model records its own usage row at that model's price. Settings → AI runtime shows the model in force under "Summaries and titles".
 
 ### Operations

@@ -184,7 +184,8 @@ def plan(text: str, *, actor: str = "system", origin: str = "human") -> tuple[st
             },
         )
     if kind == "promise":
-        return kind, "promise", {"promise": body}
+        due, rest = split_by_date(body)
+        return kind, "promise", {"promise": rest or body, "due_date": due}
     if kind == "awaiting":
         who, rest = split_party(body)
         due, rest = split_by_date(rest or body)
@@ -288,7 +289,12 @@ def capture(
             **tier,
         )
     elif kind == "promise":
-        result = promises.add_promise(body, actor=actor, origin=origin, **tier)
+        # the same `by YYYY-MM-DD` tail awaiting: reads below: a promise the
+        # team gave never carried the date it named, so nothing chased it
+        due, rest = split_by_date(body)
+        result = promises.add_promise(
+            rest or body, due_date=due, actor=actor, origin=origin, **tier
+        )
     elif kind == "awaiting":
         # `to_whom` is who OWES it here (migration 007), and it is free text:
         # the party we wait on is usually a vendor, a customer or another
