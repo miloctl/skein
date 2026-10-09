@@ -205,6 +205,16 @@ describe("@ completion", () => {
     expect(box.selectionStart).toBe("@backend-architect ".length);
   });
 
+  it("ignores the Enter that ends an IME composition", async () => {
+    // keyCode 229 is Safari's form: isComposing stays false there
+    await open();
+    fireEvent.change(composer(), { target: { value: "@bac" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(composer(), { key: "Enter", keyCode: 229 });
+    expect(composer().value).toBe("@bac");
+    expect(posts()).toHaveLength(0);
+  });
+
   it("sends a slug typed in full on the first Enter", async () => {
     await open();
     fireEvent.change(composer(), { target: { value: "@backend-architect" } });

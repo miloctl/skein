@@ -85,11 +85,10 @@ function makeAttachmentAdapter(): AttachmentAdapter {
           /* non-JSON body: fall through to the status line */
         }
         // REPORTED as well as thrown. Throwing is what keeps the composer's
-        // draft (aui restores text and attachments when send() rejects), but
-        // the rejection then travels into useComposerSend's fire-and-forget
-        // call and dies unhandled - so the backend's usable sentence ("the
-        // file is larger than 8 MB") reached the console and nowhere a person
-        // looks.
+        // draft: assistant-ui returns the text and attachments to the composer
+        // when an upload rejects, then logs the reason to the console and
+        // resolves - so the backend's usable sentence ("the file is larger
+        // than 8 MB") reaches nowhere a person looks unless it is reported.
         // A late upload refusal must not become the next identity's status.
         checkSessionRevision(owner);
         const said = detail || `The file was not attached (${res.status}).`;
