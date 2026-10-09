@@ -46,6 +46,10 @@ keeps its existing `minimum_core` and needs no change.
 - Sharing a row that everyone on the roster already sees, written by someone else, answers "Everyone on the roster already sees this." Before, it answered "no task #N" about a row the caller can open.
 - On Browse, a register action the server refuses (a blocker resolved by a teammate first, a question already answered, an engagement already closed) refetches the register after the message, so the stale row and its control leave the page. Before, the row stayed as if the action were still available.
 - A closed engagement's empty blocker list reads "Nothing is blocked - this engagement is closed." Before, it invited a capture into the archive, where the open-work list already did not.
+- An event's year must be from 1000 to 9000. A year under 1000 was stored
+  without its leading zeros, and that one row made the events list and the
+  calendar answer 400 for every person. A year past 9999 was a 500 in a team
+  zone west of UTC.
 
 ### Operations
 
