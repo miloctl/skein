@@ -100,6 +100,11 @@ def test_each_kind_reads_at_the_viewers_tier(fresh_db):
 
 
 def test_only_my_tasks_narrows_to_the_caller(client):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("ana")
+    _roster.ensure_user("tester")
     from app.services import work
 
     work.create_task("for me", due_date="2026-10-03", assignee="tester", actor="tester")

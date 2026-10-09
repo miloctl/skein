@@ -306,3 +306,29 @@ def test_mock_chat_plan_and_search(client):
 
     out = _read_chat(client, "/search cutover")
     assert "data:" in out
+
+
+def test_a_task_assignee_must_be_on_the_roster(client, fresh_db):
+    """A typo'd or differently cased name landed as a phantom assignee: the
+    task read as handled, and no one's My Day or notification carried it."""
+    from app.services import users
+
+    users.ensure_user("bo")
+    made = client.post("/api/tasks", json={"title": "roster check", "assignee": "Bo"})
+    assert made.status_code == 200
+    tid = made.json()["id"]
+    assert client.get(f"/api/tasks/{tid}").json()["assignee"] == "bo"
+    refused = client.patch(f"/api/tasks/{tid}", json={"assignee": "nobody"})
+    assert refused.status_code == 400
+    assert "not an active teammate" in refused.json()["detail"]
+    assert client.get(f"/api/tasks/{tid}").json()["assignee"] == "bo"
+    assert client.post("/api/tasks", json={"title": "x", "assignee": "nobody"}).status_code == 400
+    assert client.patch(f"/api/tasks/{tid}", json={"assignee": "-"}).status_code == 200
+    assert client.get(f"/api/tasks/{tid}").json()["assignee"] == ""
+
+
+def test_a_blank_task_title_is_refused_on_update(client, fresh_db):
+    tid = client.post("/api/tasks", json={"title": "keep me"}).json()["id"]
+    r = client.patch(f"/api/tasks/{tid}", json={"title": "   "})
+    assert r.status_code == 400
+    assert client.get(f"/api/tasks/{tid}").json()["title"] == "keep me"

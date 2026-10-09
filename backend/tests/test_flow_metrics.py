@@ -15,6 +15,10 @@ def test_completed_at_stamped_and_cleared(client, fresh_db):
 
 
 def test_flow_metrics_cycle_wip_stale(client, fresh_db):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("ava")
     done = client.post("/api/tasks", json={"title": "shipped"}).json()
     client.patch(f"/api/tasks/{done['id']}", json={"status": "done"})
     stale = client.post("/api/tasks", json={"title": "stuck", "assignee": "ava"}).json()

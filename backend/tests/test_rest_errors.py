@@ -84,6 +84,10 @@ def test_blank_required_strings_rejected(client):
 
 
 def test_clearable_fields(client, fresh_db):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("ava")
     t = client.post(
         "/api/tasks", json={"title": "x", "assignee": "ava", "due_date": "2026-08-01"}
     ).json()

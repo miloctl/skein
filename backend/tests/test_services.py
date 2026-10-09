@@ -7,6 +7,10 @@ import pytest
 
 
 def test_milestone_task_lifecycle(fresh_db):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("bob")
     from app.services import work
 
     m = work.create_milestone("Ship v1", project="demo", actor="alice")
