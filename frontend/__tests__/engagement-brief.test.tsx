@@ -157,4 +157,19 @@ describe("the engagement brief", () => {
     const h1 = await waitFor(() => screen.getByRole("heading", { level: 1 }));
     expect(h1.textContent).toBe("Atlas");
   });
+
+  it("stops inviting a capture on a closed engagement, blockers too", async () => {
+    // Open work already said "this engagement is closed"; the empty blocker
+    // list still asked the reader to capture one into the archive
+    const prior = brief.engagement.status;
+    brief.engagement.status = "closed";
+    try {
+      page();
+      await screen.findByText("Nothing is blocked - this engagement is closed.");
+      expect(screen.queryByText(/Capture one with 'blocked on/)).toBeNull();
+      expect(screen.queryByText(/Capture one with 'todo:/)).toBeNull();
+    } finally {
+      brief.engagement.status = prior;
+    }
+  });
 });

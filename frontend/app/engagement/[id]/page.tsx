@@ -385,7 +385,11 @@ export default function EngagementBrief({
         <Card title={`Open blockers (${b.blockers.length})`}>
           {b.blockers.length === 0 ? (
             <p className="text-sm text-ink-3">
-              Nothing is blocked. Capture one with &apos;blocked on …&apos; in quick capture.
+              {/* the same split Open work makes below: a closed engagement's
+                  empty list is history, not an invitation */}
+              {e.status === "closed"
+                ? "Nothing is blocked - this engagement is closed."
+                : "Nothing is blocked. Capture one with 'blocked on …' in quick capture."}
             </p>
           ) : (
             <ul className="space-y-1 text-sm">
