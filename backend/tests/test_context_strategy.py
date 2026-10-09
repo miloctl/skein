@@ -755,6 +755,66 @@ def test_build_agent_gives_the_level_to_the_chat_model_and_not_to_its_summaries(
     assert built == ["high", ""]
 
 
+def test_an_aux_model_summarizes_and_pays_its_own_usage_row(fresh_db, monkeypatch):
+    """SKEIN_AUX_MODEL moves the summary off the chat model. Its tokens then
+    belong to that model at its own price, not folded into the chat turn."""
+    from conftest import _SpendingModel
+    from strands.telemetry.metrics import EventLoopMetrics
+
+    from app import db
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "AUX_MODEL", "small-aux")
+    built: list[str] = []
+
+    def model(model_id="", **_):
+        built.append(model_id)
+        return _SpendingModel(model_id=model_id or "chat-big", tokens=(700, 30))
+
+    monkeypatch.setattr(team_agent, "_model", model)
+    agent = team_agent.build_agent("t-aux", reasoning="")
+    assert built == [""]
+    agent.messages.extend(_long_chat().messages)
+    agent.event_loop_metrics = EventLoopMetrics()
+    agent.event_loop_metrics.reset_usage_metrics()
+    agent.conversation_manager.reduce_context(agent)
+    assert built == ["", "small-aux"]
+    usage = agent.event_loop_metrics.accumulated_usage
+    assert (usage["inputTokens"], usage["outputTokens"]) == (0, 0)
+    rows = db.query(
+        "SELECT agent_name, model_id, input_tokens, output_tokens FROM usage_log"
+        " WHERE thread_id = 't-aux'"
+    )
+    assert [dict(r) for r in rows] == [
+        {"agent_name": "summary", "model_id": "small-aux", "input_tokens": 700, "output_tokens": 30}
+    ]
+
+
+def test_without_an_aux_model_the_summary_still_folds_into_the_turn(fresh_db, monkeypatch):
+    from conftest import _SpendingModel
+    from strands.telemetry.metrics import EventLoopMetrics
+
+    from app import db
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "AUX_MODEL", "")
+    monkeypatch.setattr(team_agent, "_model", lambda **_: _SpendingModel(model_id="chat-big"))
+    agent = team_agent.build_agent("t-fold", reasoning="")
+    agent.messages.extend(_long_chat().messages)
+    agent.event_loop_metrics = EventLoopMetrics()
+    agent.event_loop_metrics.reset_usage_metrics()
+    agent.conversation_manager.reduce_context(agent)
+    usage = agent.event_loop_metrics.accumulated_usage
+    assert (usage["inputTokens"], usage["outputTokens"]) == (900, 40)
+    assert db.query("SELECT 1 FROM usage_log WHERE thread_id = 't-fold'") == []
+
+
 def test_a_summary_restored_from_an_older_session_keeps_no_reasoning(fresh_db, monkeypatch):
     """Summaries stored before the filter existed replay on every turn of that
     chat, and Anthropic and Bedrock refuse the reasoning block in them."""

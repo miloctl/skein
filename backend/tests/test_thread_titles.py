@@ -195,3 +195,25 @@ def test_a_command_turn_buys_no_model_call(client, monkeypatch):
     _read_chat(client, "/help", thread="tt-11")
     assert calls == []
     assert _title(client, "tt-11") == "/help"
+
+
+from conftest import _SpendingModel  # noqa: E402
+
+
+def test_the_titler_uses_the_aux_model_when_one_is_set(monkeypatch):
+    from app import config
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "AUX_MODEL", "small-aux")
+    built: list[str] = []
+
+    def model(model_id="", **_):
+        built.append(model_id)
+        return _SpendingModel(model_id=model_id)
+
+    monkeypatch.setattr(team_agent, "_model", model)
+    titler = team_agent.build_titler()
+    assert built == ["small-aux"]
+    assert titler.model.get_config()["model_id"] == "small-aux"

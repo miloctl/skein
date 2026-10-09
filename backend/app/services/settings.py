@@ -329,6 +329,7 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
                 "output_cap": "SKEIN_MAX_TOKENS",
                 "attachments": "SKEIN_VISION_MODEL",
                 "vision_sidecar": "SKEIN_VISION_MODEL",
+                "aux_model": "SKEIN_AUX_MODEL",
                 "long_chat": "SKEIN_CONTEXT_STRATEGY",
             }.get(row_id, "environment")
         if source == "inline_env":
@@ -411,6 +412,12 @@ def model_configuration_summary(pick: dict | None = None) -> dict:
                 "Vision sidecar",
                 vision_text,
                 ["env"] if config.VISION_MODEL else [],
+            ),
+            row(
+                "aux_model",
+                "Summaries and titles",
+                config.AUX_MODEL if config.AUX_MODEL and model_active else "Team-default model",
+                ["env"] if config.AUX_MODEL and model_active else [],
             ),
             row(
                 "long_chat",
