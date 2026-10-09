@@ -12,9 +12,12 @@
 #
 # pip stays manual: the Python locks are pip-compile output under a custom
 # name (requirements.lock, hashes included), which Dependabot does not read.
-# CI installs the backend unpinned, so a new Python release is still tested
-# on every push, and audit-deps.sh fails the push on an advisory against the
-# lock. Renovate (renovate.json) takes pip over when the Gitea instance
+# CI installs the backend unpinned behind a seven-day cooldown (uv
+# --exclude-newer in ci.yml), so a new Python release is still tested on
+# every push once it has been public a week - FastAPI 0.142.1 broke boot the
+# day it was published - and audit-deps.sh fails the push on an advisory
+# against the lock. The same seven days gate every bot below: a release
+# pulled or patched within its first week never reaches a PR. Renovate (renovate.json) takes pip over when the Gitea instance
 # enables it (TODO.md); it leaves .github/workflows and these npm roots alone,
 # so the two never open competing PRs.
 version: 2
@@ -24,6 +27,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns: ["*"]
@@ -36,6 +41,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     groups:
       npm:
         patterns: ["*"]

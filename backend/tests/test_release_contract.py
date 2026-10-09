@@ -540,7 +540,8 @@ def test_ci_mirrors_run_the_same_services_and_uv():
         for step in job["steps"]
         if step.get("uses", "").startswith("astral-sh/setup-uv@")
     ]
-    assert len(versions) == 8
+    # every job that installs the backend, plus the two publish steps
+    assert len(versions) == 10
     assert set(versions) == {"0.11.11"}
 
 
@@ -603,3 +604,24 @@ def test_release_finalization_verifies_registry_bytes_before_tagging():
     assert 'git push origin "refs/tags/$TAG"' in workflow
     assert "--force" not in workflow
     assert "uv build" not in workflow
+
+
+def test_dependency_installs_and_bots_carry_a_seven_day_cooldown():
+    """FastAPI 0.142.1 broke boot the day it was published and CI installed
+    it the same hour. Every unpinned install and every update bot waits a
+    week, so a release pulled or patched in its first week never reaches a
+    lock, a PR, or a test run."""
+    cooldown = "--exclude-newer \"$(date -u -d '7 days ago' +%F)\""
+    for path in (".github/workflows/ci.yml", ".gitea/workflows/ci.yml"):
+        text = (ROOT / path).read_text()
+        assert "pip install -e" not in text, f"{path} still installs the backend without a cooldown"
+        installs = [line for line in text.splitlines() if "uv pip install" in line]
+        assert len(installs) == 3, (
+            f"{path}: expected the three backend installs, found {len(installs)}"
+        )
+        assert all(cooldown in line for line in installs), f"{path}: an install has no cooldown"
+    dependabot = (ROOT / ".github/dependabot.yml").read_text()
+    assert dependabot.count("package-ecosystem:") == dependabot.count("default-days: 7") == 2
+    renovate = json.loads((ROOT / "renovate.json").read_text())
+    assert renovate["minimumReleaseAge"] == "7 days"
+    assert renovate["minimumReleaseAgeBehaviour"] == "timestamp-required"

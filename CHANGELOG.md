@@ -26,6 +26,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- A seven-day dependency cooldown. CI installs the backend with `uv pip install --exclude-newer` seven days behind today instead of `pip install`, Dependabot and Renovate wait seven days before proposing a release, and the documented lock compile carries the same `--exclude-newer`. A release that is pulled or patched in its first week never reaches a lock or a test run.
+
 ## 0.6.15 - 2026-10-09
 
 ### Contracts

@@ -284,12 +284,13 @@ Set `requirements.in` to the two exact first-party wheels:
 ./dist/workplace_skein_extension-1.0.0-py3-none-any.whl
 ```
 
-Compile only the public dependency closure into `requirements.lock`:
+Compile only the public dependency closure into `requirements.lock`. The `--exclude-newer` date is seven days before today: a release that is pulled or patched in its first week never reaches a lock, and CI installs the core with the same cooldown.
 
 ```sh
 uv pip compile requirements.in \
   --python-version 3.12 \
   --index-url https://<controlled-python-mirror>/simple \
+  --exclude-newer "$(date -u -d '7 days ago' +%F)" \
   --no-emit-package skein-agents \
   --no-emit-package workplace-skein-extension \
   --generate-hashes \
@@ -324,6 +325,7 @@ Compile the public production and test closure:
 uv pip compile requirements-test.in \
   --python-version 3.12 \
   --index-url https://<controlled-python-mirror>/simple \
+  --exclude-newer "$(date -u -d '7 days ago' +%F)" \
   --no-emit-package skein-agents \
   --no-emit-package workplace-skein-extension \
   --generate-hashes \

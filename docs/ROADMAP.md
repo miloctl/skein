@@ -849,10 +849,6 @@ codes can now show.
 
 **Engineering practice, not adopted.**
 
-- **A dependency cooldown** [XS] - Renovate `minimumReleaseAge`, Dependabot
-  `cooldown`, and `--exclude-newer` in the lock refresh. hermes, berd and
-  buzz all adopted one. CI still installs the newest packages
-  (`pip install -e ".[dev]"`).
 - **Ratchets on lowered bars** [S each] - counts of suppression comments
   (`type: ignore`, `pytest.mark.skip`, `eslint-disable`, excluding the
   intended `noqa: S608`), swallowed `except Exception` without

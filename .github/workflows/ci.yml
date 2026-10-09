@@ -94,7 +94,11 @@ jobs:
           version: "0.11.11"
       - name: Install
         working-directory: backend
-        run: pip install -e ".[dev]"
+        # a seven-day cooldown, unpinned past it: a release pulled or patched in
+        # its first week never reaches a test run (FastAPI 0.142.1 broke boot the
+        # day it was published), and a week-old one is still tested on every
+        # push. test_release_contract.py pins the flag on all three installs.
+        run: uv pip install --system -e ".[dev]" --exclude-newer "$(date -u -d '7 days ago' +%F)"
       # BEFORE the tests, and major 17 exactly: the backup suite drills
       # pg_dump/pg_restore against the postgres:17 service, and the runner's
       # preinstalled 16 client refuses a 17 server.
@@ -208,7 +212,7 @@ jobs:
       - name: Install
         run: |
           python -m venv backend/.venv
-          backend/.venv/bin/pip install -e "backend[dev]"
+          uv pip install --python backend/.venv/bin/python -e "backend[dev]" --exclude-newer "$(date -u -d '7 days ago' +%F)"
           npm --prefix frontend ci
       - name: Cache the extension-contract Chromium download
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -278,12 +282,15 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.11"
       - name: Install backend
         working-directory: backend
         # the e2e configs boot uvicorn from .venv, same path as local runs.
         # [dev] here and not in the Gitea copy: the oidc walk's stub IdP
         # signs with pyjwt[crypto], which the runtime deps already carry.
-        run: python -m venv .venv && .venv/bin/pip install -e .
+        run: python -m venv .venv && uv pip install --python .venv/bin/python -e . --exclude-newer "$(date -u -d '7 days ago' +%F)"
       - name: Cache the Chromium download
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: playwright
