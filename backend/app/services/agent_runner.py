@@ -584,13 +584,12 @@ def run_one(
                         finally:
                             # The abandoned child is the only owner that can
                             # record its eventual spend before releasing the fence.
-                            row = usage.row_from_agent(built, thread, agent_name=agent)
-                            if row:
-                                with contextlib.suppress(Exception):
-                                    usage.record_chat_usage(
-                                        **row,
-                                        engagement_id=usage.sole_delegation_engagement(agent),
-                                    )
+                            usage.record_agent_spend(
+                                built,
+                                thread,
+                                agent,
+                                engagement_id=usage.sole_delegation_engagement(agent),
+                            )
                 except Exception as exc:
                     box["error"] = exc
                 finally:

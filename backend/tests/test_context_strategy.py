@@ -763,6 +763,7 @@ def test_an_aux_model_summarizes_and_pays_its_own_usage_row(fresh_db, monkeypatc
 
     from app import db
     from app.agents import team_agent
+    from app.services import usage as usage_svc
 
     monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
     monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
@@ -784,13 +785,70 @@ def test_an_aux_model_summarizes_and_pays_its_own_usage_row(fresh_db, monkeypatc
     assert built == ["", "small-aux"]
     usage = agent.event_loop_metrics.accumulated_usage
     assert (usage["inputTokens"], usage["outputTokens"]) == (0, 0)
+    # nothing is written where the SDK called us: the turn's writer drains
+    # the queue under the thread it records the turn on, which for a persona
+    # session ("<ui>:<slug>") is the UI thread, not the session id
+    assert db.query("SELECT 1 FROM usage_log") == []
+    usage_svc.record_agent_spend(agent, "ui-thread", "ava")
     rows = db.query(
-        "SELECT agent_name, model_id, input_tokens, output_tokens FROM usage_log"
-        " WHERE thread_id = 't-aux'"
+        "SELECT thread_id, agent_name, model_id, input_tokens, output_tokens FROM usage_log"
+        " ORDER BY agent_name"
     )
     assert [dict(r) for r in rows] == [
-        {"agent_name": "summary", "model_id": "small-aux", "input_tokens": 700, "output_tokens": 30}
+        {
+            "thread_id": "ui-thread",
+            "agent_name": "summary",
+            "model_id": "small-aux",
+            "input_tokens": 700,
+            "output_tokens": 30,
+        }
     ]
+    assert agent.conversation_manager.pending_rows == []
+    usage_svc.record_agent_spend(agent, "ui-thread", "ava")
+    assert len(db.query("SELECT 1 FROM usage_log")) == 1
+
+
+def test_an_aux_model_equal_to_the_chat_model_folds_into_the_turn(fresh_db, monkeypatch):
+    from conftest import _SpendingModel
+    from strands.telemetry.metrics import EventLoopMetrics
+
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "AUX_MODEL", "same-model")
+    monkeypatch.setattr(
+        team_agent, "_model", lambda *_a, **_k: _SpendingModel(model_id="same-model")
+    )
+    agent = team_agent.build_agent("t-same", reasoning="")
+    agent.messages.extend(_long_chat().messages)
+    agent.event_loop_metrics = EventLoopMetrics()
+    agent.event_loop_metrics.reset_usage_metrics()
+    agent.conversation_manager.reduce_context(agent)
+    usage = agent.event_loop_metrics.accumulated_usage
+    assert (usage["inputTokens"], usage["outputTokens"]) == (900, 40)
+    assert agent.conversation_manager.pending_rows == []
+
+
+def test_an_aux_model_summarizes_without_the_chat_turn_reasoning_level(fresh_db, monkeypatch):
+    from app.agents import team_agent
+
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "ollama")
+    monkeypatch.setattr(config, "MODEL_PROVIDER_ERROR", "")
+    monkeypatch.setattr(config, "CONTEXT_STRATEGY", "summarize")
+    monkeypatch.setattr(config, "AUX_MODEL", "small-aux")
+    built: list[tuple[str, str]] = []
+
+    def model(model_id="", reasoning="", **_):
+        built.append((model_id, reasoning))
+        return _FakeModel()
+
+    monkeypatch.setattr(team_agent, "_model", model)
+    agent = team_agent.build_agent("t-aux-level", reasoning="high")
+    assert built == [("", "high")]
+    agent.conversation_manager._summary_model()
+    assert built == [("", "high"), ("small-aux", "")]
 
 
 def test_without_an_aux_model_the_summary_still_folds_into_the_turn(fresh_db, monkeypatch):

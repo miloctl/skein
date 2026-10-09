@@ -887,10 +887,11 @@ async def _perimeter_auth(request: Request, call_next):
 
 
 # JSON payloads compress well at any level; added before CORS so CORS stays
-# outermost. compresslevel=1, not the default 9: gzip runs ON THE EVENT LOOP,
-# and a 251 KB /api/tasks response measured 1.37 ms at level 9 against
-# 0.17 ms at level 1, for 5.7 KB instead of 4.2 KB on the wire - on an
-# internal deployment the loop time is the scarce resource, not the bytes.
+# outermost. compresslevel=1, not the default 9: a body under 128 KiB is
+# compressed ON THE EVENT LOOP (Starlette moves larger ones to a worker
+# thread), and a 251 KB /api/tasks response measured 1.37 ms at level 9
+# against 0.17 ms at level 1, for 5.7 KB instead of 4.2 KB on the wire - on
+# an internal deployment the loop time is the scarce resource, not the bytes.
 # added AFTER perimeter_auth so CORS is the OUTERMOST layer - a 401 short-circuit
 # must still carry Access-Control-Allow-Origin, or the browser reports an
 # opaque CORS failure instead of a readable auth error
