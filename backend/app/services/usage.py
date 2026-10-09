@@ -90,6 +90,26 @@ def row_from_agent(agent, thread_id: str, agent_name: str = "chief-of-staff") ->
         return None
 
 
+def record_agent_spend(agent, thread_id: str, agent_name: str, **extra) -> None:
+    """The turn's row plus the side rows its conversation manager queued
+    (agents/team_agent.py::_PlainSummaries.pending_rows). One call from the
+    threadpool that closes a turn, so no path records the turn and forgets
+    the summary. Best effort, like every usage write: accounting must never
+    fail the turn it describes."""
+    row = row_from_agent(agent, thread_id, agent_name)
+    if row:
+        with contextlib.suppress(Exception):
+            record_chat_usage(**row, **extra)
+    manager = getattr(agent, "conversation_manager", None)
+    pending = getattr(manager, "pending_rows", None)
+    if not pending:
+        return
+    rows, pending[:] = list(pending), []
+    for side in rows:
+        with contextlib.suppress(Exception):
+            record_chat_usage(thread_id=thread_id, **side, **extra)
+
+
 class BudgetSpent(ValueError):
     """An agent has spent its day's allowance. A ValueError so every existing
     catch still works, and its own class so the unattended runner can tell

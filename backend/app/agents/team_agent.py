@@ -518,10 +518,11 @@ class _PlainSummaries(SummarizingConversationManager):
     model, so a reasoning level would pay for reasoning nobody reads:
     `summary_model` builds the model without the level."""
 
-    def __init__(self, summary_model=None, thread_id="", **kwargs):
+    def __init__(self, summary_model=None, **kwargs):
         super().__init__(**kwargs)
         self._summary_model = summary_model
-        self._thread_id = thread_id
+        # usage rows the turn's writer drains (services/usage.py::record_agent_spend)
+        self.pending_rows: list[dict] = []
 
     def _generate_summary(self, messages, agent):
         # the SDK's dispatch point; test_context_strategy.py fails if an
@@ -540,21 +541,22 @@ class _PlainSummaries(SummarizingConversationManager):
         # On the chat agent's own metrics it lands in the turn's usage_log row
         # (services/usage.py::row_from_agent), priced at the same model. That
         # is wrong for SKEIN_AUX_MODEL, a different model at a different
-        # price, so its summaries are their own rows. One INSERT per summary,
-        # on the loop thread: a chat summarizes once per window, not per turn.
-        own_id = _config_model_id(model)
-        if own_id and own_id != _config_model_id(agent.model) and self._thread_id:
-            from ..services import usage as usage_svc
-
-            for usage in spent:
-                with contextlib.suppress(Exception):
-                    usage_svc.record_chat_usage(
-                        self._thread_id,
-                        "summary",
-                        own_id,
-                        int(usage.get("inputTokens", 0)),
-                        int(usage.get("outputTokens", 0)),
-                    )
+        # price, so its summaries queue as their own rows. No database write
+        # here: the SDK calls this on the thread that drives the stream, where
+        # a write behind a held lease waits on the pool with every open chat.
+        # The turn's writer drains the queue off the loop, under the thread id
+        # it records the turn on (a persona session id is not that thread).
+        own_id, chat_id = _config_model_id(model), _config_model_id(agent.model)
+        if own_id and chat_id and own_id != chat_id:
+            self.pending_rows.extend(
+                {
+                    "agent_name": "summary",
+                    "model_id": own_id,
+                    "input_tokens": int(usage.get("inputTokens", 0)),
+                    "output_tokens": int(usage.get("outputTokens", 0)),
+                }
+                for usage in spent
+            )
         else:
             for usage in spent:
                 with contextlib.suppress(Exception):
@@ -601,7 +603,7 @@ class _Metered:
 _PlainSummaries.__name__ = SummarizingConversationManager.__name__
 
 
-def _conversation_manager(summary_model=None, thread_id=""):
+def _conversation_manager(summary_model=None):
     """How a long chat is kept inside the context window.
 
     Branches on the STRATEGY, never on the provider name - the provider branch
@@ -624,7 +626,6 @@ def _conversation_manager(summary_model=None, thread_id=""):
     if effective_context_strategy() == "summarize":
         return _PlainSummaries(
             summary_model,
-            thread_id=thread_id,
             summary_ratio=config.CONTEXT_SUMMARY_RATIO,
             preserve_recent_messages=config.CONTEXT_PRESERVE_RECENT,
             summarization_system_prompt=SUMMARIZER_PROMPT,
@@ -1661,7 +1662,7 @@ def build_agent(
         if reasoning
         else None
     )
-    manager = _conversation_manager(summary_model, thread_id=thread_id)
+    manager = _conversation_manager(summary_model)
     if stateless:
         return Agent(
             model=_model(**model_kw, reasoning=reasoning),

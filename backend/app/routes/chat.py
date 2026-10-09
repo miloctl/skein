@@ -67,7 +67,7 @@ from ..services import (
     wording,
 )
 from ..services.private_notes import FB_GUARD
-from ..services.usage import record_chat_usage
+from ..services.usage import record_agent_spend, record_chat_usage
 from ..services.usage import row_from_agent as _usage_row
 from .deps import CurrentUser, StrongUser, ViewerDep
 
@@ -746,11 +746,9 @@ def _receipt_line(r: dict) -> str:
 
 
 def _log_usage(agent, thread_id: str, agent_name: str = "chief-of-staff") -> None:
-    """Best-effort token accounting from strands event-loop metrics."""
-    row = _usage_row(agent, thread_id, agent_name)
-    if row:
-        with contextlib.suppress(Exception):
-            record_chat_usage(**row)
+    """Best-effort token accounting from strands event-loop metrics, the
+    turn's row and any aux-model summary rows the manager queued."""
+    record_agent_spend(agent, thread_id, agent_name)
 
 
 # One tool-less completion that answers in 60 characters or less, and it runs
