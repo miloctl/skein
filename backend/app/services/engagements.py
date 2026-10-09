@@ -21,6 +21,17 @@ def _hold_name(name: str) -> None:
     db.name_lock(db.LOCK_ENGAGEMENT, folded)
 
 
+def _resolve_lead(lead: str, actor: str) -> str:
+    """The roster name of the lead, or empty. The lead is printed on Health
+    and in every readout and brief as the person accountable, so a typo'd
+    name is an engagement nobody on the roster leads. "-" clears it."""
+    if lead == "-":
+        return lead
+    from .users import resolve_teammate
+
+    return resolve_teammate(lead, actor, "lead", allow_team=False)
+
+
 def check_kind(kind: str, timebox_end: str) -> None:
     """The engagement fields a caller can get wrong, checked before any write.
     intake.py calls it before it marks a request accepted: afterwards, a
@@ -51,6 +62,7 @@ def create_engagement(
     if not name:
         raise ValueError("engagement name is required")
     check_kind(kind, timebox_end)
+    lead = _resolve_lead(lead, actor)
     ts = db.now()
     # one transaction: scope.resolve_write's membership check must not be able
     # to pass and then have the author leave the crew before the INSERT lands
@@ -186,6 +198,7 @@ def _update_engagement_locked(
     if conclusion and conclusion not in CONCLUSIONS:
         raise ValueError(f"conclusion must be one of {CONCLUSIONS}")
     db.validate_date("timebox_end", timebox_end)
+    lead = _resolve_lead(lead, actor)
     # REST/review policy already holds this row. A name-first service call
     # deadlocks against that row-first path when both rename the same row.
     current = db.query_one("SELECT * FROM engagements WHERE id = ? FOR UPDATE", (engagement_id,))
@@ -587,6 +600,10 @@ def allocate(
         raise ValueError("person is required")
     db.validate_date("starts_on", starts_on, allow_clear=False)
     db.validate_date("ends_on", ends_on, allow_clear=False)
+    # capacity() tests `starts_on <= day <= ends_on`, so a reversed window is
+    # an allocation that counts on no day and still lists as staffing
+    if starts_on and ends_on and ends_on < starts_on:
+        raise ValueError("ends_on must not be before starts_on")
     if not 1 <= percent <= 100:
         raise ValueError("percent must be 1-100")
     # filtered like every other link probe: unfiltered, it accepts a scoped id

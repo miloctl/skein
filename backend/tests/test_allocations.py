@@ -406,3 +406,17 @@ def test_listing_time_away_keeps_the_soonest_windows(fresh_db, monkeypatch):
     soonest = [(today + timedelta(days=n)).isoformat() for n in (3, 10)]
     assert [r["starts_on"] for r in absences.list_absences()] == soonest
     assert [r["starts_on"] for r in absences.list_absences("ava")] == soonest
+
+
+def test_allocation_window_cannot_end_before_it_starts(client):
+    """capacity() tests starts_on <= today <= ends_on, so a reversed window
+    was an allocation that counted on no day and still listed as staffing."""
+    client.post("/api/users/growth-interests", json={"interests": "x"}, headers={"X-User": "bo"})
+    eid = client.post("/api/engagements", json={"name": "Window"}).json()["id"]
+    r = client.post(
+        f"/api/engagements/{eid}/allocate",
+        json={"person": "bo", "percent": 10, "starts_on": "2026-12-01", "ends_on": "2026-11-01"},
+    )
+    assert r.status_code == 400
+    assert "ends_on" in r.json()["detail"]
+    assert client.get(f"/api/allocations?engagement_id={eid}").json() == []

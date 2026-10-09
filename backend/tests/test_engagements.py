@@ -233,3 +233,28 @@ def test_a_hidden_open_task_is_loud_to_its_author_on_close(fresh_db):
     engagements.update_engagement(eng["id"], status="closed", conclusion="achieved", actor="ava")
     assert _unread_for(fresh_db, "team", "%open task%") is None
     assert "1 open task of yours" in _unread_for(fresh_db, "bo", "%open task%")["message"]
+
+
+def test_engagement_lead_is_a_roster_name(client):
+    """The lead is printed on Health, in the readout and the brief as the
+    person accountable, and `nobody` was accepted and printed as such.
+    `Bo` resolves to the roster spelling, and `-` still clears."""
+    client.post("/api/users/growth-interests", json={"interests": "x"}, headers={"X-User": "bo"})
+    r = client.post("/api/engagements", json={"name": "Led", "lead": "nobody"})
+    assert r.status_code == 400
+    assert "lead" in r.json()["detail"]
+    eid = client.post("/api/engagements", json={"name": "Led", "lead": "Bo"}).json()["id"]
+    assert client.get(f"/api/engagements/{eid}/brief").json()["engagement"]["lead"] == "bo"
+    assert client.patch(f"/api/engagements/{eid}", json={"lead": "ghost"}).status_code == 400
+    assert client.patch(f"/api/engagements/{eid}", json={"lead": "-"}).status_code == 200
+    assert client.get(f"/api/engagements/{eid}/brief").json()["engagement"]["lead"] == ""
+
+
+def test_update_milestone_refuses_a_blank_title(client):
+    """`if v` kept a whitespace title, and the milestone then had no name
+    anywhere it was listed."""
+    mid = client.post("/api/milestones", json={"title": "Named"}).json()["id"]
+    r = client.patch(f"/api/milestones/{mid}", json={"title": "   "})
+    assert r.status_code == 400
+    row = next(m for m in client.get("/api/milestones").json() if m["id"] == mid)
+    assert row["title"] == "Named"
