@@ -7,22 +7,14 @@ Licensed under the Apache License, Version 2.0. See the LICENSE file.
 
 Third-party content
 
-Parts of this repository are adapted from MIT-licensed projects, which
-require their copyright and permission notices to travel with the copies:
-
-  - backend/personas/: persona definitions adapted from agency-agents
-    (https://github.com/msitarzewski/agency-agents),
-    Copyright (c) 2025 AgentLand Contributors, and from agent-skills
-    (https://github.com/addyosmani/agent-skills),
-    Copyright (c) 2025 Addy Osmani.
-  - scripts/check_ste.py: the Simplified Technical English linter, ported
-    from SimpleEnglish (https://github.com/AminBlg/SimpleEnglish),
-    Copyright (c) 2026 AminBlg.
-
-Each is distributed under the MIT License, whose text follows once and
-applies to each of the copyright holders named above:
+The persona definitions in backend/personas/ are adapted from the
+agency-agents project (https://github.com/msitarzewski/agency-agents),
+which is distributed under the MIT License. The original notice follows,
+as its license requires:
 
     MIT License
+
+    Copyright (c) 2025 AgentLand Contributors
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the

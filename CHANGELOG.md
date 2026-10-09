@@ -33,7 +33,7 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
-- NOTICE credits every adapted MIT source in one place: agency-agents and agent-skills for the persona definitions, SimpleEnglish for the STE linter. The persona files, the design docs and two docstrings no longer carry per-file source pointers, which named paths on a developer's machine.
+- NOTICE credits every adapted MIT source in one place: agency-agents and agent-skills for the persona definitions, SimpleEnglish for the STE linter, mirrored to the wheel and the frontend host (the frozen extension-api package keeps the NOTICE it was published with). The persona files, the design docs and two docstrings no longer carry per-file source pointers, which named paths on a developer's machine.
 
 - A seven-day dependency cooldown. CI installs the backend with `uv pip install --exclude-newer` seven days behind today instead of `pip install`, Dependabot and Renovate wait seven days before proposing a release, and the documented lock compile carries the same `--exclude-newer`. A release that is pulled or patched in its first week never reaches a lock or a test run.
 

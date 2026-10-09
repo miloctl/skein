@@ -53,7 +53,11 @@ if [ "$mode" != "frontend" ]; then
     cmp LICENSE backend/LICENSE && cmp NOTICE backend/NOTICE
     cmp LICENSE frontend/LICENSE && cmp NOTICE frontend/NOTICE
     cmp LICENSE frontend/packages/extension-api/LICENSE
-    cmp NOTICE frontend/packages/extension-api/NOTICE
+    # No NOTICE compare for extension-api: that package is published at a
+    # frozen 1.0.0, so its NOTICE is the one that shipped with it, and
+    # prepare-release.py refuses any change to the package without a
+    # version bump. The adapted content the root NOTICE credits (personas,
+    # the STE linter) is not in that package.
 
     echo "== theme contrast =="
     python3 scripts/check_theme_contrast.py
