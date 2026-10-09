@@ -679,3 +679,19 @@ def test_closed_work_cannot_be_delegated(fresh_db):
             delegation.delegate_task(tid, "scout", "mira", actor="mira")
         task = fresh_db.query_one("SELECT delegated_agent FROM tasks WHERE id = ?", (tid,))
         assert task["delegated_agent"] == ""
+
+
+def test_a_new_agent_name_must_be_a_slug(fresh_db):
+    """Every door that calls an agent takes a slug (routes/chat.py), so a row
+    minted from free text could never be invoked - it only ever showed on the
+    Authority card and in the context pack."""
+    from app.services import delegation, users, work
+
+    users.ensure_human_identity("ava")
+    tid = work.create_task("t", actor="ava")["id"]
+    with pytest.raises(ValueError, match="lowercase"):
+        delegation.set_authority("Bo Sun!", "task", "review", actor="ava")
+    with pytest.raises(ValueError, match="lowercase"):
+        delegation.delegate_task(tid, "Bo Sun!", "ava", actor="ava", mint_authorized=True)
+    assert fresh_db.query_one("SELECT 1 FROM users WHERE name = 'Bo Sun!'") is None
+    assert delegation.set_authority("field-agent", "task", "review", actor="ava")

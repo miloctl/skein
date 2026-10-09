@@ -17,6 +17,7 @@ IDENTITY_COLLISION = (
 
 HUMAN_OWNER = "human"
 GENERIC_AGENT_OWNER = "generic-agent"
+_AGENT_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{1,40}$")
 CONTENT_OWNER = "content"
 
 
@@ -490,6 +491,16 @@ def ensure_agent_identity(name: str, *, owner: str = GENERIC_AGENT_OWNER) -> dic
             and not (existing is not None and existing["identity_owner"] == "mcp")
         ):
             raise ValueError("a name that ends in -mcp is reserved for MCP agent identities")
+        if existing is None and owner == GENERIC_AGENT_OWNER and not _AGENT_SLUG.match(normalized):
+            # every door that calls an agent (@mention, /as, a shared-chat
+            # invite: routes/chat.py, chat_threads._AGENT_SLUG) takes a slug,
+            # so a row minted here from free text ("Bo Sun!") could never be
+            # called - it only ever showed on the Authority card and in the
+            # context pack
+            raise ValueError(
+                "An agent name must be 2 to 41 lowercase letters, digits and dashes,"
+                " and must start with a letter or digit. Check the name."
+            )
         if existing is not None and existing["kind"] != "agent":
             raise ValueError(f"'{normalized}' is already owned by a human identity")
         if folded in {fold(item) for item in CORE_MACHINE_SUBJECTS}:

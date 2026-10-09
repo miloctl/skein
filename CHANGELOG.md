@@ -65,6 +65,7 @@ keeps its existing `minimum_core` and needs no change.
 - The CLI names the URL and the fix when a server answers an HTTP error with
   no Skein API response (the web app's origin, a proxy error page).
 - In trusted-header mode a name with no key cannot write a row at the `private` tier. The request answers 403 with the strong-identity instruction. Before, the row landed and nobody could read it, its author included, until that person signed in with a key.
+- A new agent identity named through authority or delegation must be a slug: 2 to 41 lowercase letters, digits and dashes. Before, any text ("Bo Sun!") minted a roster row that no mention, `/as`, or invite could ever call. Existing rows keep their names.
 
 ### Operations
 
