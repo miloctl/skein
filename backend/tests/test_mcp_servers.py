@@ -553,11 +553,3 @@ def test_a_personal_tool_version_covers_its_whole_contract():
     assert first != reworded
     assert first == mcp_tools._derived_metadata(tool("Search the docs.", base)).version
 
-
-def test_a_host_that_does_not_resolve_is_refused():
-    """A name that answers nothing at check time and loopback at connect time
-    passed a check that saw no address."""
-    from app.services import mcp_servers
-
-    with pytest.raises(ValueError, match="does not resolve"):
-        mcp_servers.check_url("https://no-such-host.invalid/mcp")

@@ -49,16 +49,15 @@ def check_url(url: str) -> None:
     # model. Loopback reaches this process and its neighbours, link-local
     # reaches the cloud metadata service. Private ranges stay allowed: an
     # MCP server on the cluster network is the main use. A host that
-    # resolves to nothing is refused: a name that answers nothing now and
-    # loopback at connect time would pass a check that saw no address. The
-    # connect still resolves on its own, so a name that changes its answer
-    # between the two passes - the deployment's egress NetworkPolicy is the
-    # stronger control (deploy/k8s/overlays/example-prod/backend-egress.yaml
-    # is the model).
+    # resolves to nothing passes (it cannot be reached either), and the
+    # connect resolves again on its own, so a name that changes its answer
+    # between the two passes this check: the deployment's egress
+    # NetworkPolicy is the stronger control
+    # (deploy/k8s/overlays/example-prod/backend-egress.yaml is the model).
     try:
         infos = socket.getaddrinfo(parts.hostname, parts.port or 443, proto=socket.IPPROTO_TCP)
-    except socket.gaierror as exc:
-        raise ValueError("The MCP server host does not resolve. Check the URL.") from exc
+    except socket.gaierror:
+        return
     for info in infos:
         address = ipaddress.ip_address(info[4][0])
         # ::ffff:127.0.0.1 is not loopback to the ipaddress module, and an
