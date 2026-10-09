@@ -701,3 +701,28 @@ def test_an_mcp_agent_can_have_its_own_memory_forgotten(fresh_db):
         policy_registry=ExtensionRegistry.build((core_module(),)),
     )
     assert memory.get_memory(kept["id"], user="mcp-agent") is None
+
+
+def test_an_unattended_turn_files_a_memory_only_for_a_roster_teammate(fresh_db, monkeypatch):
+    """With no person driving the turn the model picks about_user alone. An
+    invented name reaches that name's prompt the day someone joins under it."""
+    import json
+
+    from app import config
+    from app.agents import identity
+    from app.services import users
+    from app.tools.memory import remember
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", False)
+    users.ensure_user("scribe", kind="agent")
+    users.ensure_user("bob")
+    agent = identity.set_agent_identity("scribe")
+    try:
+        refused = json.loads(remember(content="ZZNOBODYZZ", about_user="nobody"))
+        filed = json.loads(remember(content="ZZBOBZZ", about_user="Bob"))
+    finally:
+        identity.reset_agent_identity(agent)
+    assert "not an active teammate" in refused["error"]
+    assert "error" not in filed
+    rows = fresh_db.query('SELECT content, "user" FROM memories ORDER BY id')
+    assert [(r["content"], r["user"]) for r in rows] == [("ZZBOBZZ", "bob")]

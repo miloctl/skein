@@ -1354,3 +1354,63 @@ def test_a_redirect_to_another_origin_never_carries_the_key():
     # the installed opener is what urlopen runs through
     opener = urllib.request._opener
     assert any(isinstance(h, cli._SameOriginRedirect) for h in opener.handlers)
+
+
+def test_the_commit_hook_strips_an_inherited_trailer_on_a_merge(tmp_path):
+    """A merge or squash message quotes the merged commits, trailers
+    included; left alone, the merge claimed to close the task itself."""
+    import subprocess
+
+    cli = _load_cli()
+    hook = tmp_path / "prepare-commit-msg"
+    hook.write_text(cli.COMMIT_MSG_HOOK)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "task/42-x"], cwd=repo, capture_output=True)  # noqa: S607 - git/sh on PATH, tmp_path repo
+    for source in ("merge", "squash"):
+        msg = tmp_path / f"MSG-{source}"
+        msg.write_text("Merge branch 'task/42-x'\n\nfix it\n\nCloses-Task: #42\nRefs-Task: #7\n")
+        subprocess.run(["sh", str(hook), str(msg), source], cwd=repo, check=True)  # noqa: S603, S607 - git/sh on PATH, tmp_path repo
+        assert msg.read_text() == "Merge branch 'task/42-x'\n\nfix it\n\nRefs-Task: #7\n"
+
+
+def test_sync_commit_ignores_a_merge_commit(tmp_path, monkeypatch):
+    import subprocess
+
+    cli = _load_cli()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@x",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@x",
+    }
+
+    def git(*args):
+        subprocess.run(  # noqa: S603 - git on PATH, tmp_path repo
+            ["git", *args],  # noqa: S607 - git on PATH, tmp_path repo
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            env={**env, "PATH": "/usr/bin:/bin"},
+        )
+
+    git("init", "-q", "-b", "main")
+    (repo / "a").write_text("a")
+    git("add", "a")
+    git("commit", "-q", "-m", "start")
+    git("checkout", "-q", "-b", "task/42-x")
+    (repo / "b").write_text("b")
+    git("add", "b")
+    git("commit", "-q", "-m", "work\n\nCloses-Task: #42")
+    git("checkout", "-q", "main")
+    (repo / "c").write_text("c")
+    git("add", "c")
+    git("commit", "-q", "-m", "other")
+    git("merge", "-q", "--no-ff", "-m", "Merge task/42-x\n\nCloses-Task: #42", "task/42-x")
+    calls = []
+    monkeypatch.setattr(cli, "api", lambda *a, **k: calls.append(a))
+    monkeypatch.chdir(repo)
+    cli.cmd_sync_commit(None)
+    assert calls == []

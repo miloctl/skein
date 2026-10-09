@@ -5202,6 +5202,10 @@ def get_calendar_ics(request: Request, token: str = ""):
     from .. import config
 
     if config.ICS_TOKEN:
+        # The feed secret is the only gate on this path, and a calendar
+        # client retries forever: without a cap an address can test tokens
+        # at wire speed. The sign-in bucket is per address for the same reason.
+        ratelimit.check("signin", ratelimit.client_addr(request))
         # bytes compare: str compare_digest raises on non-ASCII input (→500)
         if not hmac.compare_digest(token.encode(), config.ICS_TOKEN.encode()):
             raise HTTPException(status_code=401, detail="token required")

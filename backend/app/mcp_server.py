@@ -579,7 +579,9 @@ def add_blocker(title: str, detail: str = "", impact: str = "medium") -> str:
 def search_workspace(query: str, limit: int = 20) -> str:
     """Full-text search everything the team has recorded: tasks, decisions,
     notes, blockers, questions, lessons, engagements. Use before re-deciding
-    or re-researching anything. limit is 1 to 50."""
+    or re-researching anything. limit is 1 to 50. Matches the words in the
+    recorded text; a record that says the same thing in other words is found
+    only when the deployment runs with SKEIN_EMBEDDINGS on."""
     limit = max(1, min(int(limit), 50))
     if refusal := _policy_refusal("skein.mcp.search.read", "search"):
         return refusal
@@ -872,7 +874,9 @@ def resolve_blocker(blocker_id: int, resolution: str = "") -> str:
 @_tool(READ)
 def recall_memories(query: str = "") -> str:
     """Search the durable memories saved with remember; empty returns the
-    most recent ones."""
+    most recent ones. Matches the words in the memory text; a memory that
+    says the same thing in other words is found only when the deployment
+    runs with SKEIN_EMBEDDINGS on."""
     # the same two axes as the chat tool (tools/memory.py): the person, and
     # the workspace tier - never a model-supplied name
     with db.read_transaction():

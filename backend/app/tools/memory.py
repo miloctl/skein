@@ -13,7 +13,7 @@ from ..extensions.policy import (
     current_policy_engine,
     current_policy_subject,
 )
-from ..services import memory, policy_context, scope
+from ..services import memory, policy_context, scope, users
 from ._gate import gated_write
 
 
@@ -39,7 +39,15 @@ def remember(content: str, topic: str = "", about_user: str = "") -> str:
     # A person's turn files the memory for that person. The model picks
     # about_user, and "" is the whole team: a fact from one person's chat
     # reached every teammate's system prompt, or the one the model named.
-    user = requester_identity() or about_user
+    # On an unattended turn the name is the model's alone, so it must be a
+    # teammate on the roster: a memory filed under an invented name reaches
+    # that name's prompt the day someone joins under it.
+    user = requester_identity()
+    if not user and about_user:
+        try:
+            user = users.resolve_teammate(about_user, label="about_user", allow_team=False)
+        except ValueError as exc:
+            return json.dumps({"error": str(exc)})
     payload = {"content": content, "topic": topic, "user": user}
     return gated_write(
         "memory",
