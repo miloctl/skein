@@ -511,6 +511,7 @@ export function ChatSidebar({
         <input
           autoFocus
           name="new-folder"
+          maxLength={40}
           placeholder="Folder name - ↵ to create, esc to cancel"
           onKeyDown={(e) => {
             if (e.key === "Enter") createFolder(e.currentTarget.value);
@@ -734,6 +735,9 @@ export function ChatSidebar({
                         name="rename-chat"
                         defaultValue={t.title}
                         aria-label="New chat name"
+                        // chat_threads.TITLE_LEN: past it the PATCH answers
+                        // with a pydantic sentence nobody wrote for a reader
+                        maxLength={60}
                         onFocus={(e) => e.currentTarget.select()}
                         onKeyDown={(e) => {
                           if (e.key === "Enter")

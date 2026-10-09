@@ -34,6 +34,8 @@ keeps its existing `minimum_core` and needs no change.
 - `POST /api/notifications/read` answers 404 for another person's notification and for an id that does not exist. It answered 200 with `marked: 0`, so a client with a wrong id read it as a dismiss.
 - `POST /api/users/{name}/active` answers 404 "no user has that name" for a name with no roster row, the same answer the rename route gives. It answered 400 with different words for the same condition.
 - `GET /api/private/brief/{person}` bounds `days` to 1 through 366. A negative value answered an empty brief with `since` in the future, and a very large one answered the clock's overflow text.
+- A shared-chat steward who removes, promotes, or demotes a name that is not in the room now reads "That name is not a participant in this shared chat." The room answered "No shared chat was found." to its own steward.
+- The chat sidebar stops the rename draft at 60 characters and the new-folder draft at 40, the lengths the server accepts, instead of sending a long name and showing the server's validation sentence.
 
 ### Operations
 
