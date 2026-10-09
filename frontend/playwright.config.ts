@@ -13,6 +13,9 @@ const API = process.env.SKEIN_E2E_API_URL ?? "http://127.0.0.1:8600";
 const APP = process.env.SKEIN_E2E_APP_URL ?? "http://127.0.0.1:3600";
 const API_PORT = new URL(API).port;
 const APP_PORT = new URL(APP).port;
+// Per port, not one shared path: two runs on different ports (a second
+// checkout, a worktree) otherwise wipe each other's artifact files mid-run.
+const DATA_DIR = `/tmp/skein-e2e-${API_PORT}`;
 
 // Only the backend receives the database administrator URL. Build tools and
 // browser processes must not inherit a credential that can create databases.
@@ -42,10 +45,10 @@ export default defineConfig({
       // The runner creates a disposable PostgreSQL database and seeds the demo
       // team. SKEIN_DATA_DIR alone cannot isolate rows from a running dev app.
       command:
-        `bash -c 'rm -rf /tmp/skein-e2e && cd ../backend && ` +
+        `bash -c 'rm -rf ${DATA_DIR} && cd ../backend && ` +
         // trusted-header explicitly: the smoke drives the X-User name picker,
         // and the shipped default is api-key (fail closed)
-        `exec env SKEIN_DATA_DIR=/tmp/skein-e2e SKEIN_AUTH_MODE=trusted-header ` +
+        `exec env SKEIN_DATA_DIR=${DATA_DIR} SKEIN_AUTH_MODE=trusted-header ` +
         `SKEIN_MODEL_PROVIDER=mock SKEIN_SCHEDULER=0 SKEIN_E2E_PORT=${API_PORT} ` +
         // EMBEDDINGS off like the provider is mock, and for the same reason: a
         // developer's .env turns them on against a live ollama, and one slow
