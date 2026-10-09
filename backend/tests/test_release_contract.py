@@ -248,11 +248,11 @@ def test_chat_sdk_graph_is_pinned_in_both_builds():
     # Divergent snapshot/store implementations can loop on every chat update.
     # Both roots must resolve the graph exercised by the installed-package check.
     expected = {
-        "@assistant-ui/react": "0.15.21",
-        "@assistant-ui/react-markdown": "0.14.16",
-        "@assistant-ui/core": "0.3.20",
-        "@assistant-ui/store": "0.3.14",
-        "@assistant-ui/tap": "0.9.18",
+        "@assistant-ui/react": "0.15.25",
+        "@assistant-ui/react-markdown": "0.14.19",
+        "@assistant-ui/core": "0.3.24",
+        "@assistant-ui/store": "0.3.17",
+        "@assistant-ui/tap": "0.9.21",
     }
     for root in ("frontend", "examples/workplace-extension"):
         assert (

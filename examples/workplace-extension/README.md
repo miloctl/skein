@@ -52,15 +52,15 @@ The frontend root pins these exact dependencies:
 
 - `@miloctl/skein-frontend-host@0.6.14`
 - `@miloctl/skein-extension-api@1.0.0`
-- `next@16.3.8`
-- `react@19.2.4`
-- `react-dom@19.2.4`
+- `next@16.4.0`
+- `react@19.3.0`
+- `react-dom@19.3.0`
 
 Released deployments get the core wheel from PyPI. The two npm packages under the `@miloctl` scope are public on npmjs.com and install with no token.
 
 The executable contract builds the current Skein source in temporary staging and packs local npm tarballs before `npm ci`. These artifacts can differ from registry packages with the same version. Do not publish or distribute them. Release a new Skein version before production.
 
-The root also overrides `postcss` to `8.5.23`, `sharp` to `0.35.4`, and `@assistant-ui/tap` to `0.9.18`. The tap pin matches the tested assistant-ui 0.15 graph, which includes the thread-list snapshot fix. Installed package overrides do not affect the root installation.
+The root also overrides `postcss` to `8.5.23`, `sharp` to `0.35.5`, `katex` to `0.18.11`, and `@assistant-ui/tap` to `0.9.21`. The tap pin matches the tested assistant-ui 0.15 graph, which includes the thread-list snapshot fix. Installed package overrides do not affect the root installation.
 
 Atlas uses Node 22. The Atlas frontend remains a local npm workspace. The workplace root compiles it before it runs `skein-frontend-build`.
 

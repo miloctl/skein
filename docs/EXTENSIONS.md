@@ -1165,28 +1165,29 @@ Use Node 22. Pin the frontend host, its peers, and Next directly in the workplac
   "dependencies": {
     "@miloctl/skein-extension-api": "1.0.0",
     "@miloctl/skein-frontend-host": "0.6.14",
-    "next": "16.3.8",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "overrides": {
-    "@assistant-ui/tap": "0.9.18",
+    "@assistant-ui/tap": "0.9.21",
+    "katex": "0.18.11",
     "postcss": "8.5.23",
-    "sharp": "0.35.4"
+    "sharp": "0.35.5"
   }
 }
 ```
 
 An installed package cannot apply its overrides to the workplace root. `skein-frontend-build` refuses missing or different pins.
 
-The tested assistant-ui graph uses React wrapper 0.15.21, Markdown wrapper
-0.14.16, core 0.3.20, store 0.3.14, and tap 0.9.18. The core includes the
+The tested assistant-ui graph uses React wrapper 0.15.25, Markdown wrapper
+0.14.19, core 0.3.24, store 0.3.17, and tap 0.9.21. The core includes the
 thread-list snapshot fix. The tap override keeps source and workplace builds
 on the same tested dependency graph. Do not force the old 0.9.4 override
 into this graph.
 
 Update the frontend host and this root override together. Do not apply the
-0.9.18 pin to a host that still uses assistant-ui 0.14. Regenerate the workplace
+0.9.21 pin to a host that still uses assistant-ui 0.14. Regenerate the workplace
 lock with Node 22, then rebuild the frontend. A frontend host update alone
 cannot apply a root override. The release contract checks the complete
 assistant-ui graph in both locks, including nested copies.
