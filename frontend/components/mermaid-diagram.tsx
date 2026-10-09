@@ -62,6 +62,13 @@ export function MermaidDiagram({ code }: { code: string }) {
             "flowchart",
           ],
           theme: "base",
+          // mermaid 12 defaults to the ELK layout and the "neo" look. ELK is
+          // a separate chunk of about 500 kB that a dagre diagram never
+          // fetches, and neo paints node strokes with a gradient that
+          // ignores the palette wired below. Both stay explicit so an
+          // upgrade cannot move them.
+          layout: "dagre",
+          look: "classic",
           themeVariables: {
             background: read("--surface-card", "#ffffff"),
             primaryColor: read("--surface-raised", "#f3f1ec"),

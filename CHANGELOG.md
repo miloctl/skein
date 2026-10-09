@@ -31,6 +31,7 @@ keeps its existing `minimum_core` and needs no change.
 - A chat composer no longer sends or cancels on the Enter or Escape that ends an IME composition (assistant-ui 0.15.24).
 - The core and workplace Python locks select Strands Agents SDK 1.59.0. The session drill checked 1.57.1-written chats under 1.59.0 and a return to 1.57.1. The declared minimum stays 1.55.1.
 - The core and workplace Python locks take the current release of every dependency except the Strands SDK: FastAPI 0.143, Starlette 1.7, pydantic 2.14, uvicorn 0.54, psycopg 3.3.6, and the OpenTelemetry 1.45 line among them.
+- The frontend renders diagrams with mermaid 12.1.0 (was 11.16.1). Diagrams keep the dagre layout and the classic look, so an existing diagram draws as before. mermaid 12 is built for browsers that support ES2024 (Safari 17.4 and later).
 
 ## 0.6.14 - 2026-10-08
 
