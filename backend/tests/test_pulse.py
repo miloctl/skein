@@ -19,7 +19,7 @@ def test_pulse_shape_and_season(client):
     assert "standup_chain" in p and "season_totals" in p
 
 
-def test_standup_chain_roster_is_participation_based(fresh_db):
+def test_standup_chain_roster_is_participation_based(fresh_db, pinned_clock):
     import datetime
 
     from app.services import collab, pulse, users
@@ -38,7 +38,7 @@ def test_standup_chain_roster_is_participation_based(fresh_db):
     def post_on_last_weekday(author: str, text: str) -> None:
         collab.post_standup(author, today=text)
         sid = fresh_db.query_row("SELECT MAX(id) AS id FROM standups")["id"]
-        day = datetime.datetime.now(datetime.UTC).date()
+        day = pinned_clock.date()
         while True:
             day -= datetime.timedelta(days=1)
             if day.weekday() < 5:
@@ -100,7 +100,7 @@ def test_pulse_votes_are_unattributable(client, fresh_db):
     assert "feedback" not in dump
 
 
-def test_standup_chain_counts_backdated_weekdays_and_breaks_at_a_gap(fresh_db):
+def test_standup_chain_counts_backdated_weekdays_and_breaks_at_a_gap(fresh_db, pinned_clock):
     import datetime
 
     from app.services import collab, pulse, users
@@ -108,7 +108,7 @@ def test_standup_chain_counts_backdated_weekdays_and_breaks_at_a_gap(fresh_db):
     users.ensure_user("a")
     # the 5 most recent COMPLETED weekdays, newest first
     weekdays: list[datetime.date] = []
-    d = datetime.datetime.now(datetime.UTC).date()
+    d = pinned_clock.date()
     while len(weekdays) < 5:
         d -= datetime.timedelta(days=1)
         if d.weekday() < 5:

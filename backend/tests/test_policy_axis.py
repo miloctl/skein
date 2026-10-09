@@ -280,7 +280,7 @@ def test_share_still_widens_a_permitted_row(fresh_db):
         )
 
 
-def test_week_plan_decides_for_a_weak_owners_private_task(fresh_db):
+def test_week_plan_decides_for_a_weak_owners_private_task(fresh_db, pinned_clock):
     from app.services import weekly, work
 
     std, reg = _engagements()

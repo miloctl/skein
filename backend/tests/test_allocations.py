@@ -76,17 +76,17 @@ def test_deallocate_removes_row_and_missing_id_404s(client):
         engagements.deallocate(9999)
 
 
-def test_absences_shape_capacity_and_week_draft(client, fresh_db):
-    from datetime import datetime, timedelta
+def test_absences_shape_capacity_and_week_draft(client, fresh_db, pinned_clock):
+    from datetime import timedelta
 
     from app.services import absences, engagements, users, weekly, work
 
     users.ensure_user("dana")
     e = engagements.create_engagement("Staffed", actor="mira")
     engagements.allocate("dana", e["id"], percent=80, actor="mira")
-    # UTC, to match capacity()/draft_plan - local date.today() drifts a day at
-    # the UTC boundary and the absence window then misses the service's today
-    today = datetime.now(UTC).date()
+    # the clock capacity() and draft_plan read, held: a live one crosses into
+    # the next week, and local date.today() drifts a day at the UTC boundary
+    today = pinned_clock.date()
     # anchor to the week's Monday: run on a Friday, today-1..today+7 covers
     # too few weekdays of THIS week to trip the >= 3 skip threshold
     monday_anchor = today - timedelta(days=today.weekday())

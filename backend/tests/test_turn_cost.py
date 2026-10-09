@@ -104,7 +104,7 @@ def test_engagement_costs_join_through_the_link(fresh_db, monkeypatch):
     assert rows["(unlinked)"]["unpriced_calls"] == 1
 
 
-def test_month_to_date_reports_budget_and_blind_spots(fresh_db, monkeypatch):
+def test_month_to_date_reports_budget_and_blind_spots(fresh_db, monkeypatch, pinned_clock):
     monkeypatch.setattr(config, "MODEL_PRICES", {"m": (1.0, 1.0)})
     monkeypatch.setattr(config, "MONTHLY_BUDGET_USD", 50.0)
     usage.record_chat_usage("t1", "a", "m", 1_000_000, 0)
@@ -125,7 +125,7 @@ def test_budget_rule_is_off_without_a_budget(fresh_db, monkeypatch):
     assert insights._r_budget() == []
 
 
-def test_budget_rule_fires_at_the_ceiling(fresh_db, monkeypatch):
+def test_budget_rule_fires_at_the_ceiling(fresh_db, monkeypatch, pinned_clock):
     from app.services import insights
 
     monkeypatch.setattr(config, "MODEL_PRICES", {"m": (1.0, 1.0)})
@@ -140,7 +140,9 @@ def test_budget_rule_fires_at_the_ceiling(fresh_db, monkeypatch):
     assert "$2.00" in fired[0]["message"]
 
 
-def test_budget_rule_refuses_to_claim_under_budget_when_it_cannot_measure(fresh_db, monkeypatch):
+def test_budget_rule_refuses_to_claim_under_budget_when_it_cannot_measure(
+    fresh_db, monkeypatch, pinned_clock
+):
     """Budget set, calls made, nothing priced: silence would read as 'under
     budget' while nothing was being counted."""
     from app.services import insights
@@ -154,7 +156,9 @@ def test_budget_rule_refuses_to_claim_under_budget_when_it_cannot_measure(fresh_
     assert fired[0]["severity"] == "medium"
 
 
-def test_budget_rule_states_its_blind_spot_when_partially_priced(fresh_db, monkeypatch):
+def test_budget_rule_states_its_blind_spot_when_partially_priced(
+    fresh_db, monkeypatch, pinned_clock
+):
     from app.services import insights
 
     monkeypatch.setattr(config, "MODEL_PRICES", {"m": (1.0, 1.0)})
@@ -243,12 +247,12 @@ def test_engagement_costs_since_overrides_the_trailing_window(fresh_db, monkeypa
     assert usage.engagement_costs(since=five_days_ago) == []  # the bound wins
 
 
-def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
+def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch, pinned_clock):
     """A finding that says THIS month is over budget must not name last
     month's biggest spender as its evidence. Seeds the prior month at one hour
     before the month start - inside the trailing-30d window on most calendar
     days, so the buggy trailing-window receipt would include it."""
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     from app.services import chat_threads as ct
     from app.services import insights
@@ -263,7 +267,7 @@ def test_budget_receipt_is_month_bounded(fresh_db, monkeypatch):
     ct.update_thread("new", "ava", engagement_id=2)
 
     usage.record_chat_usage("old", "a", "m", 90_000_000, 0)  # $90, last month
-    month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_start = pinned_clock.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     just_before = (month_start - timedelta(hours=1)).isoformat(timespec="seconds")
     db.execute("UPDATE usage_log SET created_at = ? WHERE thread_id = 'old'", (just_before,))
     usage.record_chat_usage("new", "a", "m", 1_000_000, 0)  # $1, this month

@@ -710,7 +710,7 @@ def test_same_day_manual_backups_are_immutable(fresh_db):
     assert Path(second["database_path"]).exists()
 
 
-def test_backup_if_stale_recovers_without_deleting_an_existing_claim(fresh_db):
+def test_backup_if_stale_recovers_without_deleting_an_existing_claim(fresh_db, pinned_clock):
     from app import db
     from app.services import admin
 

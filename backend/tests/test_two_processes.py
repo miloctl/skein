@@ -93,11 +93,20 @@ def test_a_turn_claimed_by_a_process_that_died_is_reclaimed_after_its_lease(fres
     }
 
 
-def test_a_firing_and_a_delivery_each_apply_once_across_processes(fresh_db):
+def test_a_firing_and_a_delivery_each_apply_once_across_processes(fresh_db, pin_now):
+    from app.services import jobs
     from app.services.jobs import JobSpec, run_job
 
+    # the other process reads its own clock, so its firing is keyed by hand
+    # to the same instant: the 03:00 firing time passing between its run and
+    # ours would otherwise name two firings, and both apply
+    at = pin_now(jobs)
     other_process(
+        "from datetime import datetime\n"
+        "from app.services import jobs\n"
         "from app.services.jobs import JobSpec, run_job\n"
+        f"at = datetime.fromisoformat({at.isoformat()!r})\n"
+        "jobs.fire_key = lambda spec, now=None, real=jobs.fire_key: real(spec, at)\n"
         "run_job(JobSpec('two-proc', lambda: {'n': 1}, {'trigger': 'cron', 'hour': 3}, 24))\n"
         "print(json.dumps(db.claim_job('forge-delivery', 'd-9')))"
     )
@@ -107,11 +116,15 @@ def test_a_firing_and_a_delivery_each_apply_once_across_processes(fresh_db):
     assert not fresh_db.claim_job("forge-delivery", "d-9")
 
 
-def test_a_deployment_wide_cap_spent_elsewhere_refuses_here(fresh_db):
+def test_a_deployment_wide_cap_spent_elsewhere_refuses_here(fresh_db, pinned_window):
     from app import ratelimit
 
+    # the other process reads its own clock, so it is pinned to the same
+    # window by hand: a minute boundary between its last check and ours would
+    # otherwise start a fresh count here, and the refusal below never comes
     other_process(
         "from app import ratelimit\n"
+        f"ratelimit._window = lambda: {pinned_window}\n"
         "for _ in range(ratelimit.LIMITS['signin']):\n"
         "    ratelimit.check('signin', '198.51.100.4')\n"
         "print(json.dumps('spent'))"
