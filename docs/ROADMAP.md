@@ -717,10 +717,19 @@ larger than its finding.
   the hop whose `X-Forwarded-For` the rate buckets read, but nothing makes
   traffic arrive through it; a direct peer picks any address's bucket.
   Trigger: a deployment that exposes the backend Service outside the Route.
-- **example-dev overlay without an ingress NetworkPolicy** - its only
-  control is a router allowlist on the Routes; the credential-free backend
-  stays reachable on its ClusterIP and pod IP. Trigger: any use of that
-  overlay outside a single-tenant cluster.
+- **Pin the MCP connect to the addresses the SSRF check resolved** - the
+  check in `services/mcp_servers.py::check_url` resolves the host once at
+  registration and the connect resolves again on its own, so a name that
+  changes its answer between the two reaches loopback or link-local. The
+  egress NetworkPolicy holds on the cluster; a pinned transport
+  (`agents/mcp_tools.py`) would hold everywhere. Trigger: a deployment that
+  registers MCP servers from names it does not control.
+- **The Atlas example drain reports another engagement's retry as its own**
+  - `_has_deferred_status` in the workplace example's `integration.py`
+  answers for every deferred delivery, so one engagement's pending retry
+  makes every caller's delivery read as unavailable. Scope it to the
+  external ids the call delivered. Trigger: a workplace that adopts the
+  example's status outbox.
 - **Sign-out URL carrying an ID token the API accepts** - only when the ID
   token's audience includes the API audience; an identity-provider fact.
 - **The embeddings notice on the MCP tools and the CLI** - the search box
