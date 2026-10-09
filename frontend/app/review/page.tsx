@@ -893,7 +893,7 @@ export default function ReviewPage() {
                   }
                   className="h-4 w-4 disabled:opacity-40"
                 />
-                <h2 className="skein-section-title min-w-0 break-words">
+                <h2 className="skein-section-title min-w-0 wrap-anywhere">
                 #{c.id} · {c.label}
                 {/* the id after a task_completion names the TASK the sponsor is
                     accepting, not this proposal - the bare "#10" read as a
@@ -943,7 +943,7 @@ export default function ReviewPage() {
               </p>
             </div>
             {c.summary && (
-              <p className="mb-2 text-sm text-ink-2">{c.summary}</p>
+              <p className="mb-2 wrap-anywhere text-sm text-ink-2">{c.summary}</p>
             )}
             {c.action === "create" && TIERED.has(c.entity) ? (
               <p className="mb-2 text-xs text-ink-3">
@@ -1014,7 +1014,9 @@ export default function ReviewPage() {
                         <td className="w-32 py-0.5 pr-3 font-medium text-ink-3">
                           {k.replace(/_/g, " ")}
                         </td>
-                        <td className="py-0.5 text-ink-2">{cell(v)}</td>
+                        {/* break-all: a payload value is raw text that can be one
+                            long token, and a table cell grows to fit one */}
+                        <td className="break-all py-0.5 text-ink-2">{cell(v)}</td>
                       </tr>
                     ))}
                   </tbody>
