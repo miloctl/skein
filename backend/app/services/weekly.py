@@ -8,7 +8,7 @@ from datetime import timedelta
 from .. import db
 from . import scope, wording
 from .scope import WORKSPACE_ONLY
-from .work import WEEK_RE, redact_task_relationships, update_task
+from .work import redact_task_relationships, update_task, week_monday
 
 MAX_PER_PERSON = 5
 
@@ -20,8 +20,7 @@ def current_week(offset: int = 0) -> str:
 
 def week_view(week: str = "") -> dict:
     week = week or current_week()
-    if not WEEK_RE.match(week):
-        raise ValueError("week must look like 2026-W31")
+    week_monday(week)
     tasks = redact_task_relationships(
         db.query(
             "SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
@@ -71,25 +70,17 @@ def draft_plan(week: str = "") -> dict:
     """Deterministic draft: per active human, their open tasks ranked by
     priority then due date, capped so the line stays honest."""
     week = week or current_week()
-    if not WEEK_RE.match(week):
-        raise ValueError("week must look like 2026-W31")
+    monday = week_monday(week)
     items = []
     skipped: list[dict] = []
-    from datetime import date as _date
-
     from .absences import weekday_overlap
 
-    year, wk = week.split("-W")
-    try:
-        week_monday = _date.fromisocalendar(int(year), int(wk), 1)
-    except ValueError as exc:  # W53 in a 52-week ISO year passes the regex
-        raise ValueError(f"{year} has no ISO week {wk}") from exc
     humans = db.query(
         "SELECT name FROM users WHERE kind = 'human' AND active = 1"
         " AND name != 'anonymous' ORDER BY name"
     )
     for h in humans:
-        away_days = weekday_overlap(h["name"], week_monday)
+        away_days = weekday_overlap(h["name"], monday)
         if away_days >= 3:
             # committing tasks to someone away most of the week sets the
             # kept-% up to lie - skip them, say so
@@ -116,8 +107,7 @@ def apply_plan(
 ) -> dict:
     """Registry-applied: sets committed_week on each task. Called on approval
     of a weekly_plan proposal, or directly by a human."""
-    if not WEEK_RE.match(week or ""):
-        raise ValueError("week must look like 2026-W31")
+    week_monday(week)
     if not task_ids:
         raise ValueError("no tasks in the plan")
     # a task deleted between draft and commit must not wedge the plan: apply

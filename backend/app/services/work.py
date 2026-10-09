@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Callable
+from datetime import date
 
 from .. import db
 from . import scope, users
@@ -11,6 +12,20 @@ MILESTONE_STATUSES = ("planned", "in_progress", "blocked", "done")
 TASK_STATUSES = ("todo", "in_progress", "blocked", "done", "void")
 PRIORITIES = ("low", "medium", "high", "urgent")
 WEEK_RE = re.compile(r"^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$")
+
+
+def week_monday(week: str) -> date:
+    """The Monday of an ISO week string, or ValueError. The regex alone
+    accepts W53 of a 52-week year, and work committed to that week never
+    comes due on any week view."""
+    if not WEEK_RE.match(week or ""):
+        raise ValueError("week must look like 2026-W31")
+    year, number = week.split("-W")
+    try:
+        return date.fromisocalendar(int(year), int(number), 1)
+    except ValueError as exc:
+        raise ValueError(f"{year} has no ISO week {number}") from exc
+
 
 # Bounds for the two free-text fields, enforced HERE because this is the only
 # write path. routes/api.py imports these for its own Field(max_length=...) so
@@ -344,8 +359,11 @@ def validate_task_fields(
         if status and status not in TASK_STATUSES:
             raise ValueError(f"status must be one of {TASK_STATUSES}")
         committed_week = payload.get("committed_week", "")
-        if committed_week and committed_week != "-" and not WEEK_RE.match(committed_week):
-            raise ValueError("committed_week must look like 2026-W31 (or '-' to clear)")
+        if committed_week and committed_week != "-":
+            try:
+                week_monday(committed_week)
+            except ValueError as exc:
+                raise ValueError(f"committed_week: {exc} (or '-' to clear)") from None
         waiting_on = payload.get("waiting_on", "")
         if waiting_on and waiting_on != "-":
             kind, _, ref = waiting_on.partition(":")

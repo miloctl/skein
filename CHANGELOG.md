@@ -58,6 +58,8 @@ keeps its existing `minimum_core` and needs no change.
   every approval. The same check now covers an agent's empty decision, empty
   note, and unknown blocker impact, and a stored proposal of that kind leaves
   the queue as auto-rejected on its next verdict.
+- The week view, the week plan, and a task's `committed_week` refuse an ISO
+  week that does not exist (W53 of a 52-week year), as the draft already did.
 
 ### Operations
 
