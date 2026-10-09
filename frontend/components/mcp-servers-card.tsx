@@ -165,6 +165,19 @@ export function McpServersCard({
     }
   };
 
+  // Focus the sign-in link once it EXISTS: scheduled from the click handler,
+  // the frame could run before React committed the link (under load it
+  // did), found nothing, and focus stayed on a disabled button. The frame
+  // is still needed: act's finally restores focus to that button in its
+  // own frame, scheduled earlier, so this one runs after it.
+  useEffect(() => {
+    if (awaiting === null || !signInUrl) return;
+    const frame = requestAnimationFrame(() =>
+      document.getElementById(`mcp-sign-in-${awaiting}`)?.focus(),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [awaiting, signInUrl]);
+
   const cancelDelete = (id: number) => {
     setDeleting(null);
     requestAnimationFrame(() =>
@@ -271,11 +284,6 @@ export function McpServersCard({
                               awaitingRef.current = s.id;
                               setAwaiting(s.id);
                               setSignInUrl(url);
-                              // after act's own focus restore: that target is
-                              // this button, which is now disabled
-                              requestAnimationFrame(() =>
-                                document.getElementById(`mcp-sign-in-${s.id}`)?.focus(),
-                              );
                             }
                           }}
                           className="ml-2 rounded-lg border border-line-strong px-2 py-0.5 text-xs hover:border-thread-solid disabled:opacity-50"

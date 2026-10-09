@@ -163,7 +163,10 @@ describe("the Calendar page", () => {
     today = "2026-11-01";
     render(<CalendarPage />);
     expect(await screen.findByRole("heading", { name: "November 2026" })).toBeTruthy();
-    expect(calls.filter((c) => c.startsWith("/api/calendar?")).at(-1)).toContain("start=2026-10-26");
+    // the heading can commit before the month's fetch is recorded under load
+    await waitFor(() =>
+      expect(calls.filter((c) => c.startsWith("/api/calendar?")).at(-1)).toContain("start=2026-10-26"),
+    );
   });
 
   it("opens an event in a dialog and gives focus back on Escape", async () => {
