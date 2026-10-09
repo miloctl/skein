@@ -13,7 +13,7 @@ import {
 import { CommentsToggle } from "@/components/comments-toggle";
 import { VisibilityBadge } from "@/components/visibility-picker";
 import { PeekLink } from "@/components/task-peek";
-import { actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
+import { ApiError, actionError, api, getUser, loadError, subscribeUser } from "@/lib/api";
 import { useRememberedAudience, useStrongIdentity } from "@/lib/audience";
 import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { reportStatus } from "@/lib/status";
@@ -772,6 +772,16 @@ export default function Dashboard() {
       })
       .catch(() => {}); // pulse is decorative - its failure must not blank the page
   }, []);
+
+  // A refusal on a register action means the row changed under the page -
+  // a teammate resolved the blocker, answered the question, closed the
+  // engagement - so the message alone leaves the stale row and its control
+  // on screen. A 4xx refetches what the action would have refreshed; a
+  // network failure does not, because the same fetch fails the same way.
+  const refused = (e: unknown, names: string[]) => {
+    reportStatus(actionError(e));
+    if (e instanceof ApiError && e.status >= 400 && e.status < 500) refresh(names);
+  };
   const load = useCallback(() => refresh(COLLECTIONS), [refresh]);
   useEffect(load, [load]);
   // One landing owner includes independently fetched lessons, so a search
@@ -814,7 +824,7 @@ export default function Dashboard() {
         setTimeout(() => row.focus(), 0);
       }
     } catch (e) {
-      reportStatus(actionError(e));
+      refused(e, ["absences", "capacity", "activity"]);
     } finally {
       setSharingAbsence(null);
     }
@@ -826,7 +836,7 @@ export default function Dashboard() {
       setDeletingAbsence(null);
       refresh(["absences", "capacity", "activity"]);
     } catch (e) {
-      reportStatus(actionError(e));
+      refused(e, ["absences", "capacity", "activity"]);
     }
   };
 
@@ -844,7 +854,7 @@ export default function Dashboard() {
       refocusEdit(entity === "tasks" ? "task" : "milestone", id);
       refresh([entity, "activity"]);
     } catch (e) {
-      reportStatus(actionError(e));
+      refused(e, [entity, "activity"]);
     }
   };
 
@@ -857,7 +867,7 @@ export default function Dashboard() {
       setAssigningBlocker(null);
       refresh(["blockers", "activity"]);
     } catch (e) {
-      reportStatus(actionError(e));
+      refused(e, ["blockers", "activity"]);
     }
   };
 
@@ -871,7 +881,7 @@ export default function Dashboard() {
       refocusEdit("note", id);
       refresh(["notes", "activity"]);
     } catch (e) {
-      reportStatus(actionError(e));
+      refused(e, ["notes", "activity"]);
     }
   };
 
@@ -881,7 +891,7 @@ export default function Dashboard() {
       setDeletingNote(null);
       refresh(["notes", "activity"]);
     } catch (e) {
-      reportStatus(actionError(e));
+      refused(e, ["notes", "activity"]);
     }
   };
 
@@ -894,7 +904,7 @@ export default function Dashboard() {
       setAssigning(null);
       refresh(["questions", "activity"]);
     } catch (e) {
-      reportStatus(actionError(e));
+      refused(e, ["questions", "activity"]);
     }
   };
 
@@ -1168,7 +1178,7 @@ export default function Dashboard() {
                             "activity",
                           ]);
                         } catch (err) {
-                          reportStatus(actionError(err));
+                          refused(err, ["engagements", "capacity", "notes", "activity"]);
                         }
                       }}
                       title={CONCLUSION_HINTS[c]}
@@ -1307,7 +1317,7 @@ export default function Dashboard() {
                         });
                         refresh(["blockers", "tasks", "activity"]);
                       } catch (e) {
-                        reportStatus(actionError(e));
+                        refused(e, ["blockers", "tasks", "activity"]);
                       }
                     }}
                     className="rounded bg-ok/15 px-2 py-0.5 font-medium text-ok hover:bg-ok/20"
@@ -1349,7 +1359,7 @@ export default function Dashboard() {
                         });
                         refresh(["allocations", "capacity", "activity"]);
                       } catch (e) {
-                        reportStatus(actionError(e));
+                        refused(e, ["allocations", "capacity", "activity"]);
                       }
                     }}
                     // py-1 takes this to 24px tall, which WCAG 2.5.8 target
@@ -1385,7 +1395,7 @@ export default function Dashboard() {
                     setAllocDraft({ person: "", engagement: "", percent: "" });
                     refresh(["allocations", "capacity", "activity"]);
                   } catch (e) {
-                    reportStatus(actionError(e));
+                    refused(e, ["allocations", "capacity", "activity"]);
                   }
                 }}
               >
@@ -1624,7 +1634,7 @@ export default function Dashboard() {
                   setMsDraft({ title: "", due: "" });
                   refresh(["milestones", "activity"]);
                 } catch (e) {
-                  reportStatus(actionError(e));
+                  refused(e, ["milestones", "activity"]);
                 }
               }}
             >
@@ -1942,7 +1952,7 @@ export default function Dashboard() {
                             setAnswering(null);
                             refresh(["questions", "activity"]);
                           } catch (e) {
-                            reportStatus(actionError(e));
+                            refused(e, ["questions", "activity"]);
                           }
                         }}
                         className="w-64 rounded-lg border border-line-strong bg-transparent px-2 py-0.5 outline-none focus:border-thread-solid"

@@ -16,6 +16,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
 vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
 
 import Dashboard from "@/app/dashboard/page";
+import { ApiError } from "@/lib/api";
+import { getStatus } from "@/lib/status";
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/dashboard");
@@ -203,4 +205,36 @@ it.each(["assign", "answer"])("returns to question %s after Escape", async (mode
   fireEvent.click(await screen.findByRole("button", { name: new RegExp(mode === "assign" ? "unassigned - assign" : "answer…") }));
   fireEvent.keyDown(screen.getByLabelText(mode === "assign" ? "Assign this question to" : "Answer this question"), { key: "Escape" });
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: new RegExp(mode === "assign" ? "unassigned - assign" : "answer…") })));
+});
+
+describe("a refused register action", () => {
+  it("refetches the register, so a row resolved behind the page leaves it", async () => {
+    // a teammate resolved #3 before this click; the refusal alone left the
+    // row standing with its resolve button, as if it were still open
+    mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" && path === "/api/blockers/3/resolve")
+        return Promise.reject(new ApiError("blocker #3 is already resolved", 400));
+      if (opts?.method) return Promise.resolve({});
+      if (path === "/api/tasks/browse") return Promise.resolve({ open: [], done: [] });
+      if (path === "/api/blockers") {
+        const resolved = calls("POST").length > 0;
+        return Promise.resolve(
+          resolved
+            ? []
+            : [{ id: 3, title: "vendor contract unsigned", owner: "", impact: "medium", status: "open", visibility: "workspace", crew_id: 0 }],
+        );
+      }
+      if (path === "/api/pulse") return Promise.resolve(null);
+      return Promise.resolve([]);
+    });
+    render(<Dashboard />);
+    fireEvent.change(await screen.findByRole("combobox", { name: "Browse register" }), { target: { value: "browse-blockers" } });
+    const button = await screen.findByRole("button", { name: "Resolve blocker #3: vendor contract unsigned" });
+    const fetches = () => mocks.api.mock.calls.filter(([p, o]) => p === "/api/blockers" && !o?.method).length;
+    const before = fetches();
+    fireEvent.click(button);
+    await waitFor(() => expect(getStatus()?.message).toBe("blocker #3 is already resolved"));
+    await waitFor(() => expect(fetches()).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Resolve blocker #3: vendor contract unsigned" })).toBeNull());
+  });
 });
