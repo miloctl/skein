@@ -165,6 +165,37 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
     for field, cap in caps.get(entity, ()):
         if len(str(payload.get(field) or "")) > cap:
             return f"{entity} {field} must be {cap} characters or fewer"
+    # The create services' own static checks (collab.record_decision,
+    # collab.save_note, collab.ask_question, blockers.raise_blocker,
+    # promises.add_promise, work.create_milestone), asked here because a
+    # payload they refuse came back to pending on every approval, and the
+    # reviewer cannot change it. The capture grammar takes any
+    # \d{4}-\d{2}-\d{2} as a date, so "review by 2026-13-45" was one such
+    # payload; an agent's empty decision or "nuclear" impact was another.
+    if action == "create":
+        from .blockers import IMPACTS
+
+        required = {
+            "decision": (("title", "decision"), all, "decision title and text are required"),
+            "note": (("topic", "content"), any, "a note needs a topic or content"),
+            "question": (("question",), all, "the question text is required"),
+            "promise": (("promise",), all, "the promise text is required"),
+            "blocker": (("title",), all, "blocker title is required"),
+        }
+        if entity in required:
+            fields, rule, message = required[entity]
+            if not rule(str(payload.get(field) or "").strip() for field in fields):
+                return message
+        if entity == "blocker" and str(payload.get("impact") or "medium") not in IMPACTS:
+            return f"impact must be one of {IMPACTS}"
+    dated = {"decision": "review_by", "promise": "due_date", "milestone": "due_date"}
+    if date_field := dated.get(entity):
+        try:
+            db.validate_date(
+                date_field, str(payload.get(date_field) or ""), allow_clear=action == "update"
+            )
+        except ValueError as exc:
+            return str(exc)
     if entity == "document_edit" and entity_id:
         from .documents import edit_refusal
 
@@ -963,14 +994,18 @@ def _approve_change_locked(
                 # not at all. A failed apply returns safely to the review queue.
                 if fn is None:
                     raise ValueError("the core review handler is missing")
-                # Legacy task proposals can predate static validation. Repeating
-                # approval cannot fix their fields, so they must leave the queue.
-                if change["entity"] == "task":
-                    refusal = unappliable(
-                        "task", payload, change["action"], entity_id=int(change["entity_id"] or 0)
-                    )
-                    if refusal:
-                        raise db.TerminalReject(refusal)
+                # A stored proposal can predate a static check added since.
+                # Repeating approval cannot fix its fields, so it must leave
+                # the queue (TerminalReject below) rather than return to
+                # pending on every verdict.
+                refusal = unappliable(
+                    change["entity"],
+                    payload,
+                    change["action"],
+                    entity_id=int(change["entity_id"] or 0),
+                )
+                if refusal:
+                    raise db.TerminalReject(refusal)
                 # authorship stays with the proposer: created_by must say who
                 # wrote it, not who clicked approve (the verdict is recorded on
                 # the pending_changes row + activity)
