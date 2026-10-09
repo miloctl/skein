@@ -37,3 +37,34 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+---
+# Only the router and the frontend reach the API.
+#
+# The backend listens on 8000 with trusted-header, api-key and OIDC modes
+# that all assume the caller came through the Route. Without this, any
+# workload in the namespace reaches the pod directly and, in trusted-header
+# mode, names any teammate with one header. Same enforcement caveat as above.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: skein-backend-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: skein-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # The OpenShift router namespaces carry this label. Another ingress
+        # controller needs its own namespace selector here, or the Route
+        # stops reaching the pod.
+        - namespaceSelector:
+            matchLabels:
+              policy-group.network.openshift.io/ingress: ""
+        - podSelector:
+            matchLabels:
+              app: skein-frontend
+      ports:
+        - protocol: TCP
+          port: 8000

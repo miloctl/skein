@@ -1165,7 +1165,14 @@ skein sync-commit || true
 # merge and squash are skipped, where the message is assembled from other
 # commits and a trailer would claim this commit closed the task.
 COMMIT_MSG_HOOK = """#!/bin/sh
-case "$2" in merge|squash) exit 0 ;; esac
+# A merge or squash assembles its message from other commits, and a
+# Closes-Task trailer carried in from one of them would claim THIS commit
+# closed the task: drop every such line instead of leaving the message alone.
+case "$2" in
+  merge|squash)
+    grep -v '^Closes-Task:' "$1" > "$1.skein" && mv "$1.skein" "$1"
+    exit 0 ;;
+esac
 # symbolic-ref, not rev-parse: on a branch with no commits yet
 # (git init, then `skein task start`, then the first commit) rev-parse
 # cannot resolve HEAD and the trailer would be missed on exactly the
@@ -1333,9 +1340,15 @@ def cmd_pr_body(args):
 
 def cmd_sync_commit(args):
     msg = subprocess.run(
-        ["git", "log", "-1", "--format=%B%n%H"], capture_output=True, text=True
+        ["git", "log", "-1", "--format=%B%n%H%n%P"], capture_output=True, text=True
     ).stdout
-    sha = msg.strip().splitlines()[-1][:10] if msg.strip() else "unknown"
+    lines = msg.strip().splitlines()
+    # a merge commit's message quotes the commits it merged, trailers
+    # included; it closed nothing itself
+    if lines and len(lines[-1].split()) > 1:
+        return
+    msg = "\n".join(lines[:-1])
+    sha = lines[-2][:10] if len(lines) >= 2 else "unknown"
     matches = TRAILER.findall(msg)
     if not matches:
         return

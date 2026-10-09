@@ -35,3 +35,16 @@ def test_ics_datetime_format_is_rfc5545(client, fresh_db):
     client.post("/api/events", json={"title": "Ops", "starts_at": "2026-08-01T15:00"})
     body = client.get("/api/calendar.ics").text
     assert "DTSTART:20260801T150000" in body  # padded to 15 chars, not 13
+
+
+def test_feed_token_guesses_are_capped_per_address(client, fresh_db, monkeypatch, pinned_window):
+    """The feed secret is this path's only gate, and a calendar client
+    retries forever: uncapped, an address tests tokens at wire speed."""
+    from app import config, ratelimit
+
+    monkeypatch.setattr(config, "ICS_TOKEN", "feed-secret")
+    for _ in range(ratelimit.LIMITS["signin"]):
+        assert client.get("/api/calendar.ics?token=wrong").status_code == 401
+    limited = client.get("/api/calendar.ics?token=feed-secret")
+    assert limited.status_code == 429
+    assert int(limited.headers["retry-after"]) > 0
