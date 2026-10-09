@@ -219,7 +219,9 @@ describe("McpServersCard", () => {
     expect(link.getAttribute("href")).toBe("https://idp.example/authorize?state=s");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(getStatus()?.message).not.toMatch(/opened/);
-    await waitFor(() => expect(document.activeElement).toBe(link));
+    // focus moves in an effect after the sign-in await; the default 1 s bound
+    // sat 0.3 s from its miss under a full-suite run
+    await waitFor(() => expect(document.activeElement).toBe(link), { timeout: 3000 });
     expect(opened).toEqual([]);
     vi.unstubAllGlobals();
   });
