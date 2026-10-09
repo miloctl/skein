@@ -45,6 +45,25 @@ def test_team_notifications_dismissable(client, fresh_db):
     out = client.post("/api/notifications/read", json={"notification_id": n["id"]}).json()
     assert out["marked"] == 1
     assert client.get("/api/notifications").json() == []
+    # a second dismiss of the same team row is not an error
+    assert client.post("/api/notifications/read", json={"notification_id": n["id"]}).json() == {
+        "marked": 0
+    }
+
+
+def test_dismissing_a_notification_that_is_not_yours_is_absent(client, fresh_db):
+    """Another person's id and an id that does not exist both answered 200
+    with marked 0, so a client could not tell a wrong id from a dismiss."""
+    from app.services import notifications
+
+    theirs = notifications.notify("mira", "for mira", tier="immediate")
+    for wrong in (theirs["id"], 999_999):
+        r = client.post("/api/notifications/read", json={"notification_id": wrong})
+        assert r.status_code == 404, r.text
+        assert r.json()["detail"] == "No notification was found."
+    assert fresh_db.query_one(
+        "SELECT read_at FROM notifications WHERE id = ?", (theirs["id"],)
+    ) == {"read_at": None}
 
 
 def test_team_notifications_visible_in_inbox(client):
