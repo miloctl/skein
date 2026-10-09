@@ -606,8 +606,8 @@ the dumps 44 days after deactivation; the copies named above outlive that.
 what only you can read and deletes one of your private records at a time
 (`services/my_data.py`). It never deletes a shared record, because others can
 rely on it. Your download holds your private records, your solo chats,
-memories addressed to you and the 1:1 notes you wrote, and it names your files
-without their contents. The list and the download pass the workplace's
+memories addressed to you, the 1:1 notes you wrote and the feedback you gave on
+replies, and it names your files without their contents. The list and the download pass the workplace's
 projection policy per row, like every other read, and a task's links to
 records you can no longer read are redacted. All of it needs a strong
 identity.

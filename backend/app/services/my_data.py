@@ -222,6 +222,11 @@ def export(person: str, policy: ProjectionPolicy) -> dict:
         "memories": _permitted("memories", memories, policy),
         "chats": chats,
         "journal_notes": private_notes.export_author(person),
+        "feedback": db.query(
+            "SELECT id, kind, input, output, verdict, correction, created_at FROM feedback"
+            " WHERE created_by = ? ORDER BY id",
+            (person,),
+        ),
         "files": [
             {key: f[key] for key in ("id", "title", "size", "created_at")}
             for f in uploads.list_uploads(person)["files"]

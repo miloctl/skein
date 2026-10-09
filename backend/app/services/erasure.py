@@ -101,6 +101,10 @@ def _queries(name: str) -> dict[str, tuple[str, tuple]]:
     )
     queries["mcp_servers"] = ("SELECT id FROM mcp_servers WHERE owner = ?", (name,))
     queries["notifications"] = ('SELECT id FROM notifications WHERE "user" = ?', (name,))
+    # chat input and model output the person judged; read by named
+    # administrators only (feedback.list_feedback), so it is theirs to take
+    # and theirs to lose with the account. Pulse votes store '' and stay.
+    queries["feedback"] = ("SELECT id FROM feedback WHERE created_by = ?", (name,))
     return queries
 
 
@@ -203,6 +207,9 @@ def erase(name: str, *, actor: str = "scheduler") -> dict[str, int]:
             )
         erased["notifications"] = db.execute_rowcount(
             'DELETE FROM notifications WHERE "user" = ?', (name,)
+        )
+        erased["feedback"] = db.execute_rowcount(
+            "DELETE FROM feedback WHERE created_by = ?", (name,)
         )
         erased["mentions"] = db.execute_rowcount(
             "DELETE FROM mention_log WHERE person = ? OR mentioned_by = ?", (name, name)
