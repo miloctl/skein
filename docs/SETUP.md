@@ -369,13 +369,15 @@ Create the workplace root `package.json`:
   "dependencies": {
     "@miloctl/skein-extension-api": "file:dist/miloctl-skein-extension-api-1.0.0.tgz",
     "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.6.14.tgz",
-    "next": "16.3.8",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   },
   "overrides": {
+    "@assistant-ui/tap": "0.9.21",
+    "katex": "0.18.11",
     "postcss": "8.5.23",
-    "sharp": "0.35.4"
+    "sharp": "0.35.5"
   }
 }
 ```

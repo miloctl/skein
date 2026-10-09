@@ -27,6 +27,8 @@ keeps its existing `minimum_core` and needs no change.
 ### Operations
 
 - One new optional deployment setting, `SKEIN_AUX_MODEL`. No database migrations.
+- The frontend host moves to Next.js 16.4.0, React 19.3.0, and assistant-ui react 0.15.25 with react-markdown 0.14.19. The tested assistant-ui graph is core 0.3.24, store 0.3.17, and tap 0.9.21, so the workplace root override for `@assistant-ui/tap` becomes 0.9.21. Pin the same Next.js and React versions in the workplace root and regenerate its npm lock.
+- A chat composer no longer sends or cancels on the Enter or Escape that ends an IME composition (assistant-ui 0.15.24).
 - The core and workplace Python locks select Strands Agents SDK 1.59.0. The session drill checked 1.57.1-written chats under 1.59.0 and a return to 1.57.1. The declared minimum stays 1.55.1.
 - The core and workplace Python locks take the current release of every dependency except the Strands SDK: FastAPI 0.143, Starlette 1.7, pydantic 2.14, uvicorn 0.54, psycopg 3.3.6, and the OpenTelemetry 1.45 line among them.
 
