@@ -325,9 +325,11 @@ def mark_read(
             "SELECT * FROM notifications WHERE id = ? AND \"user\" IN (?, 'team')",
             (notification_id, user),
         )
-        if (
-            row
-            and row.get("source_entity") in {"chat_invitation", "chat_message"}
+        # the same answer for another reader's row and an absent id: a 200
+        # with marked 0 reads as a dismiss that landed, and a 404 that only
+        # the absent id gets confirms that the other row exists
+        if not row or (
+            row.get("source_entity") in {"chat_invitation", "chat_message"}
             and not policy_filter(
                 [row],
                 None,
