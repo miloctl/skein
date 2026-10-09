@@ -294,6 +294,18 @@ def test_brief_pulls_are_bounded(client, fresh_db, monkeypatch):
     assert client.post("/api/private/notes", json=note, headers=headers).status_code == 200
 
 
+def test_brief_window_is_bounded(client, fresh_db):
+    """days=-5 answered an empty brief with `since` in the future, and a
+    huge value answered the clock's own overflow text."""
+    headers = _setup_key(client, fresh_db)
+    _dana_lets_manager_prepare()
+    for days in (-5, 0, 99999999):
+        assert (
+            client.get(f"/api/private/brief/dana?days={days}", headers=headers).status_code == 422
+        )
+    assert client.get("/api/private/brief/dana?days=366", headers=headers).status_code == 200
+
+
 def test_brief_degrades_to_empty(client, fresh_db):
     headers = _setup_key(client, fresh_db)
     _dana_lets_manager_prepare()
