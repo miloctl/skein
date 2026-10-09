@@ -94,6 +94,13 @@ def test_the_export_holds_the_person_s_own_data_and_no_file_contents(client):
     )
     client.post("/api/chat", json={"thread_id": "ava-chat", "message": "/help"}, headers=ava)
     private_notes.add_note("ava", "bo", "bo wants to lead")
+    for who, text in ((ava, "ava's question"), (bo, "bo's question")):
+        client.post(
+            "/api/feedback",
+            json={"kind": "chat", "input_text": text, "output": "r", "verdict": "down"},
+            headers=who,
+        )
+    assert client.get("/api/my-data", headers=ava).json()["counts"]["feedback"] == 1
 
     response = client.get("/api/my-data/export", headers=ava)
     assert response.status_code == 200
@@ -105,6 +112,8 @@ def test_the_export_holds_the_person_s_own_data_and_no_file_contents(client):
     assert "resume bytes" not in response.text and "bo's plan" not in response.text
     assert [c["id"] for c in body["chats"]] == ["ava-chat"] and body["chats"][0]["messages"]
     assert [n["body"] for n in body["journal_notes"]] == ["bo wants to lead"]
+    assert [f["input"] for f in body["feedback"]] == ["ava's question"]
+    assert "bo's question" not in response.text
     assert db.query_one("SELECT 1 FROM private.audit WHERE author = 'ava' AND action = 'export'")
     ledger = db.query_row("SELECT detail FROM activity WHERE action = 'export_my_data'")
     assert "plan" not in json.dumps(ledger)

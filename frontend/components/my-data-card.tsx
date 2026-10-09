@@ -41,6 +41,7 @@ const ELSEWHERE: Record<string, [string, string]> = {
   private_proposals: ["Proposals only you can see", "Review"],
   mcp_servers: ["Your MCP servers", "Settings, then Connections"],
   notifications: ["Notifications", "My Day"],
+  feedback: ["Feedback you gave on replies", "Chat"],
 };
 
 /** What Skein holds that only you can read, with a delete for each private

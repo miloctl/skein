@@ -72,6 +72,16 @@ def _departing_person(client) -> dict:
     private_notes.add_note("leaver", "ava", "ava wants to lead")
     private_notes.add_note("ava", "leaver", "leaver asked for a raise")
     notifications.notify("leaver", "Your key expires soon.")
+    client.post(
+        "/api/feedback",
+        json={
+            "kind": "chat",
+            "input_text": "my private question",
+            "output": "r",
+            "verdict": "down",
+        },
+        headers=leaver,
+    )
     made["proposal"] = review.propose_change(
         "note",
         "create",
@@ -91,6 +101,7 @@ def test_a_deactivated_person_is_erased_after_the_grace_period(client, fresh_db)
     before = erasure.holdings("leaver")
     assert before["standups"] == before["tasks"] == before["engagements"] == 1
     assert before["solo_chats"] == before["memories"] == before["journal_notes"] == 1
+    assert before["feedback"] == 1
 
     deactivated = users.set_active("leaver", False, actor="ava")
     assert deactivated["erase_on"]
@@ -102,6 +113,7 @@ def test_a_deactivated_person_is_erased_after_the_grace_period(client, fresh_db)
     assert not made["upload_path"].exists()
     assert not fresh_db.query("SELECT 1 FROM chat_messages WHERE thread_id = 'leaver-chat'")
     assert not fresh_db.query("SELECT 1 FROM search_index WHERE entity = 'memory'")
+    assert not fresh_db.query("SELECT 1 FROM feedback WHERE created_by = 'leaver'")
     person = fresh_db.query_row("SELECT * FROM users WHERE name = 'leaver'")
     assert person["erased_at"] and person["growth_interests"] == ""
     # shared records stay, with the name; another author's note about them stays
