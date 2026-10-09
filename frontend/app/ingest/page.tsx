@@ -9,7 +9,7 @@ import { subscribeSession, trustedHeaderIdentity } from "@/lib/auth";
 import { Shortcut } from "@/components/shortcut";
 
 type IngestResult = {
-  proposals: { id: number; kind: string; line: string }[];
+  proposals: { id: number; kind: string; line: string; already_pending?: boolean }[];
   unclassified: string[];
   skipped_private: number;
 };
@@ -88,6 +88,9 @@ export default function IngestPage() {
     }
   };
 
+  // a line already pending from an earlier paste is named, never counted as created
+  const created = (result?.proposals ?? []).filter((p) => !p.already_pending);
+  const pending = (result?.proposals ?? []).filter((p) => p.already_pending);
   return (
     <main id="content" tabIndex={-1} className="mx-auto w-full max-w-5xl xl:max-w-6xl p-4 sm:p-6">
       <h1 className="mb-1 font-display text-[24px]/[1.15] font-semibold tracking-[-0.01em] text-ink">Paste meeting notes</h1>
@@ -157,8 +160,18 @@ export default function IngestPage() {
               "No proposals - nothing in the notes matched a known line type."
             ) : (
               <>
-                ✅ {result.proposals.length} proposal
-                {result.proposals.length === 1 ? "" : "s"} created - {" "}
+                {created.length > 0 && (
+                  <>
+                    ✅ {created.length} proposal{created.length === 1 ? "" : "s"} created
+                  </>
+                )}
+                {created.length > 0 && pending.length > 0 && " · "}
+                {pending.length > 0 && (
+                  <>
+                    {pending.length} already pending from an earlier paste
+                  </>
+                )}
+                {" - "}
                 <Link href="/review" className="font-medium underline">
                   review them
                 </Link>
@@ -173,12 +186,16 @@ export default function IngestPage() {
             )}
           </p>
           <ul className="space-y-1">
-            {result.proposals.map((p) => (
-              <li key={p.id} className="text-ink-2">
+            {result.proposals.map((p, i) => (
+              // the id repeats when one paste holds the same line twice
+              <li key={`${p.id}-${i}`} className="text-ink-2">
                 <span className="mr-2 rounded bg-raised px-1.5 py-0.5 text-xs">
                   {p.kind}
                 </span>
                 {p.line}
+                {p.already_pending && (
+                  <span className="ml-2 text-ink-3">already pending as #{p.id}</span>
+                )}
               </li>
             ))}
           </ul>

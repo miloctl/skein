@@ -801,10 +801,6 @@ codes can now show.
 - **A stall latch across daily runs** [S] - the daily run skips a task
   whose last two runs filed nothing and that no human touched since.
   Trigger: job outcomes show repeated `nothing_filed` for one agent.
-- **Refuse an identical pending proposal** [XS-S] - hash the proposer,
-  entity, action, target and canonical payload under `db.name_lock`, and
-  answer "already pending as #N". Duplicate rejections distort the demotion
-  streak. Trigger: duplicates reach Approvals.
 - **Base values on update proposals** [S-M] - store the payload keys' values
   at filing, and at approval name a field a teammate changed since. The diff
   already shows current → proposed; it cannot say the current value is newer

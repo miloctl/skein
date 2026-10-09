@@ -167,20 +167,28 @@ def ingest_notes(text: str, *, actor: str, private: bool = False, event_id: int 
         ):
             unclassified.append(line)
             continue
-        p = review.propose_change(
-            _ENTITY.get(kind, kind),
-            "create",
-            payload,
-            summary=line[:80],
-            actor=actor,
-            origin="human",
-            notify_team=False,
-            # the paster's alone: the payloads reached every reader of the
-            # queue before anyone approved them, and an approval is the
-            # share, at the tier the paster picks
-            review_visibility=scope.PRIVATE if private else scope.WORKSPACE,
-            review_owner=actor if private else "",
-        )
+        try:
+            p = review.propose_change(
+                _ENTITY.get(kind, kind),
+                "create",
+                payload,
+                summary=line[:80],
+                actor=actor,
+                origin="human",
+                notify_team=False,
+                # the paster's alone: the payloads reached every reader of the
+                # queue before anyone approved them, and an approval is the
+                # share, at the tier the paster picks
+                review_visibility=scope.PRIVATE if private else scope.WORKSPACE,
+                review_owner=actor if private else "",
+            )
+        except review.DuplicateProposal as dup:
+            # the same notes pasted twice: name the row that already waits
+            # instead of filing a twin the reviewer would have to reject
+            proposals.append(
+                {"id": dup.pending_id, "kind": kind, "line": line[:80], "already_pending": True}
+            )
+            continue
         proposals.append({"id": p["id"], "kind": kind, "line": line[:80]})
 
     db.log_activity(

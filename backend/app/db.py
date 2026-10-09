@@ -640,6 +640,7 @@ LOCK_ENGAGEMENT = 13
 LOCK_KEY_REQUEST = 14
 LOCK_PAIRING = 15
 LOCK_CI_SOURCE = 16
+LOCK_PROPOSAL = 17
 
 # EVERY advisory lock is scoped to the current database by this expression.
 # PostgreSQL advisory locks are CLUSTER-global: the key space is shared by

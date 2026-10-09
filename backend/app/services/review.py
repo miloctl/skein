@@ -2,6 +2,7 @@
 approve. Approval applies the payload through the same service registry the
 rest of the platform uses, stamped origin='agent_verified'."""
 
+import hashlib
 import json
 import logging
 from collections.abc import Callable
@@ -270,6 +271,19 @@ def requester_judges(
     )
 
 
+class DuplicateProposal(ValueError):
+    """The same proposer already has this exact change pending. A ValueError,
+    so every producer's existing refusal path (the gate's error receipt, the
+    REST 400) carries it; the ingester reads `pending_id` to hand the line
+    back as already filed instead of as unclassified."""
+
+    def __init__(self, pending_id: int):
+        self.pending_id = pending_id
+        super().__init__(
+            f"An identical proposal is already pending as #{pending_id}. Review that one."
+        )
+
+
 def propose_change(
     entity: str,
     action: str,
@@ -358,6 +372,39 @@ def _propose_change_locked(
     refusal = unappliable(entity, payload, action, entity_id=entity_id)
     if refusal:
         raise ValueError(refusal)
+    # The same paste or the same agent turn, filed twice, made two pending
+    # rows; the reviewer rejected the second, and that rejection counted
+    # against the proposer's demotion streak. The read below decides the
+    # insert, so it holds the lock (CLAUDE.md): two identical filings in
+    # flight both read "absent" without it. Pending rows only - a settled
+    # proposal can be re-filed, which is how a rejected one gets a second try.
+    # The requester is part of the key: the gate files as the agent, and two
+    # people asking it for the same change are two reviews, each judged on
+    # its requester (approver groups, strength). Extension invocations are
+    # not keyed at all: their payload is the public part of a call whose
+    # arguments live in the invocation store, so two different calls to one
+    # tool read as twins, and a stale one (its definition changed) must be
+    # re-filed, not pointed back at.
+    if not extension_entity:
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        db.name_lock(
+            db.LOCK_PROPOSAL,
+            hashlib.sha256(
+                f"{actor}|{requested_by}|{entity}|{action}|{entity_id or 0}|{canonical}".encode()
+            ).hexdigest(),
+        )
+        for row in db.query(
+            "SELECT id, payload FROM pending_changes WHERE status = 'pending'"
+            " AND proposed_by = ? AND COALESCE(requested_by, '') = ? AND entity = ?"
+            " AND action = ? AND COALESCE(entity_id, 0) = ?",
+            (actor, requested_by or "", entity, action, entity_id or 0),
+        ):
+            try:
+                same = json.dumps(json.loads(row["payload"]), sort_keys=True, separators=(",", ":"))
+            except ValueError:
+                continue
+            if same == canonical:
+                raise DuplicateProposal(int(row["id"]))
     pid = db.execute(
         "INSERT INTO pending_changes (entity, entity_id, action, payload, summary,"
         " proposed_by, origin, created_at, requested_by, policy_obligations,"

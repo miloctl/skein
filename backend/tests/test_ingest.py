@@ -199,3 +199,18 @@ def test_a_stored_proposal_with_an_impossible_date_leaves_the_queue_on_approval(
     assert r.status_code == 400 and "auto-rejected" in r.json()["detail"]
     row = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (pid,))
     assert row["status"] == "rejected"
+
+
+def test_the_same_notes_pasted_twice_name_the_pending_proposals(client, fresh_db):
+    """A twin proposal is one the reviewer has to reject, and that rejection
+    counted against the paster (review.DuplicateProposal)."""
+    first = client.post("/api/ingest", json={"text": NOTES}, headers={"X-User": "manager"}).json()
+    again = client.post("/api/ingest", json={"text": NOTES}, headers={"X-User": "manager"})
+    assert again.status_code == 200
+    body = again.json()
+    assert all(p.get("already_pending") for p in body["proposals"])
+    assert sorted(p["id"] for p in body["proposals"]) == sorted(p["id"] for p in first["proposals"])
+    assert body["unclassified"] == first["unclassified"]
+    assert len(fresh_db.query("SELECT 1 FROM pending_changes WHERE status = 'pending'")) == len(
+        first["proposals"]
+    )

@@ -1300,13 +1300,14 @@ def test_the_stranded_check_reads_past_its_first_page(fresh_db, monkeypatch):
         review.propose_change(
             "note",
             "create",
-            {"topic": "t", "content": "c"},
+            # distinct contents: an identical pending proposal is refused
+            {"topic": "t", "content": f"c{index}"},
             actor="scribe",
             requested_by="ava",
             review_visibility=scope.PRIVATE,
             review_owner="ava",
         )["id"]
-        for _ in range(3)
+        for index in range(3)
     ]
     users.set_active("ava", False)
     assert [row["id"] for row in review.stranded_proposals()] == stuck
@@ -1557,3 +1558,58 @@ def test_a_document_edit_diff_is_unified_against_its_base(client, fresh_db, monk
     assert (moved["base_revision"], moved["head_revision"]) == (1, 2)
     # still the base the agent read: the head's new line is not the agent's
     assert "+delta" in moved["unified"] and "epsilon" not in moved["unified"]
+
+
+def test_an_identical_pending_proposal_is_refused_until_the_first_settles(fresh_db):
+    """The reviewer rejected the twin, and that rejection counted against the
+    proposer's demotion streak."""
+    from app.services import review, users
+
+    users.ensure_user("scout", kind="agent")
+    users.ensure_user("ava")
+    payload = {"title": "rotate the key", "detail": "", "owner": "ava"}
+    first = review.propose_change("task", "create", payload, actor="scout")
+    with pytest.raises(review.DuplicateProposal) as refused:
+        review.propose_change("task", "create", dict(reversed(payload.items())), actor="scout")
+    assert refused.value.pending_id == first["id"]
+    assert f"#{first['id']}" in str(refused.value)
+    # another proposer, another payload, or another target is not a twin
+    assert review.propose_change("task", "create", payload, actor="ava")["id"] != first["id"]
+    assert review.propose_change(
+        "task", "create", {**payload, "title": "rotate the cert"}, actor="scout"
+    )
+    # a settled proposal can be filed again
+    review.reject_change(first["id"], "not now", actor="ava")
+    assert review.propose_change("task", "create", payload, actor="scout")["id"] != first["id"]
+
+
+def test_two_identical_filings_in_flight_land_one_proposal(fresh_db, monkeypatch):
+    """The read that decides the insert holds db.LOCK_PROPOSAL; without it
+    both filings read "absent" and both land."""
+    from concurrent.futures import ThreadPoolExecutor
+    from time import sleep
+
+    from app.services import review, users
+
+    users.ensure_user("scout", kind="agent")
+    query = review.db.query
+
+    def slow_pending_read(sql, params=()):
+        rows = query(sql, params)
+        if sql.startswith("SELECT id, payload FROM pending_changes"):
+            sleep(0.05)
+        return rows
+
+    monkeypatch.setattr(review.db, "query", slow_pending_read)
+
+    def file_once(_index):
+        try:
+            return review.propose_change("task", "create", {"title": "twin"}, actor="scout")["id"]
+        except review.DuplicateProposal as dup:
+            return ("duplicate", dup.pending_id)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(file_once, range(2)))
+    landed = [r for r in results if isinstance(r, int)]
+    assert len(landed) == 1 and ("duplicate", landed[0]) in results
+    assert len(fresh_db.query("SELECT 1 FROM pending_changes WHERE status = 'pending'")) == 1

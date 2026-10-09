@@ -7,6 +7,8 @@ pair to each pending row, read from `delegation.trust_scores` so a second
 definition of "streak" cannot disagree with the promotion job.
 """
 
+import itertools
+
 from app import db
 from app.services import delegation, review, users
 
@@ -25,17 +27,21 @@ def _settle(client, change_id: int, verdict: str) -> None:
     )
 
 
+_titles = itertools.count()
+
+
 def _propose(n: int = 1) -> list[int]:
     # scout is registered as an AGENT identity, which is what the delegation
     # and persona paths do before an agent ever proposes anything. Without the
     # row the record is withheld by design, and every assertion below would
     # pass against a service that computed nothing.
     users.ensure_user("scout", kind="agent")
+    # distinct titles across calls: an identical pending proposal is refused
     return [
-        review.propose_change("task", "create", {"title": f"t{i}"}, actor="scout", origin="agent")[
-            "id"
-        ]
-        for i in range(n)
+        review.propose_change(
+            "task", "create", {"title": f"t{next(_titles)}"}, actor="scout", origin="agent"
+        )["id"]
+        for _ in range(n)
     ]
 
 
