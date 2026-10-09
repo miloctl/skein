@@ -171,6 +171,10 @@ def update_milestone(
 ) -> dict:
     if status and status not in MILESTONE_STATUSES:
         raise ValueError(f"status must be one of {MILESTONE_STATUSES}")
+    # `if v` below keeps a whitespace title, and the row then has no name
+    # anywhere it is listed
+    if title and not title.strip():
+        raise ValueError("milestone title is required")
     _bounded("milestone", title, description)
     db.validate_date("due_date", due_date)
     with db.transaction():

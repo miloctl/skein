@@ -108,7 +108,9 @@ def test_capture_classification(fresh_db, text, kind):
 
 
 def test_playbook_instantiate_and_handoff(fresh_db):
-    from app.services import engagements, handoff, playbooks, work
+    from app.services import engagements, handoff, playbooks, users, work
+
+    users.ensure_user("alice")
 
     engagements.record_lesson("Always dry-run cutover", project_class="migration")
     created = playbooks.instantiate("migration", "Billing move", lead="alice")

@@ -213,7 +213,9 @@ def test_read_transaction_holds_one_snapshot(fresh_db):
 
 
 def test_playbook_instantiate_is_atomic(fresh_db, monkeypatch):
-    from app.services import engagements, playbooks, schedule
+    from app.services import engagements, playbooks, schedule, users
+
+    users.ensure_user("ava")
 
     def explode(**kwargs):
         raise RuntimeError("ritual scheduling failed")
