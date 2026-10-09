@@ -827,20 +827,12 @@ codes can now show.
 
 **Existing surfaces, small.**
 
-- **Opening a task clears its notifications** [S] - the task panel posts
-  the source task, so the notice leaves My Day. Model: fizzy readings.
 - **Tell the person who typed a waiting-on edge when its target finishes**
   [S] - blockers already do this; a finished task, an answered question and
   a kept promise do not. It answers the 2026-08-09 diagnosis that edges give
   their typist nothing back.
-- **Shared-chat drafts survive a room switch** [XS] - `sessionStorage`
-  keyed by viewer and room, cleared with the identity.
-- **`kind=` on `GET /api/search`** [XS] - the service already filters by
-  entity. No `from:` filter: it leans toward per-person views.
 - **A "Gone quiet" fold in My Day → Your work** [XS-S] - the reader's own
   non-urgent, uncommitted, untouched tasks, folded with a reason line.
-- **Tell administrators when a new identity first signs in** [XS] - OIDC
-  creates the person with only an activity row today. Model: buzz #4900.
 
 **Engineering practice, not adopted.**
 

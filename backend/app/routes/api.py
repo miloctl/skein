@@ -2083,7 +2083,13 @@ def get_search(
     viewer: ViewerDep,
     request: Request,
     subject: PolicySubjectDep,
+    kind: str = Query("", max_length=40),
 ):
+    if kind and kind not in search.INDEXED_KINDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"kind must be one of {', '.join(sorted(search.INDEXED_KINDS))}.",
+        )
     fieldguide.mark(user, "search")
     policy = projection_policy.ProjectionPolicy(
         request.app.state.skein_registry.policy_engine,
@@ -2093,7 +2099,9 @@ def get_search(
         viewer,
     )
     with db.read_transaction():
-        return search.search(q, viewer=viewer, row_filter=policy.filter_resources, reader=user)
+        return search.search(
+            q, viewer=viewer, row_filter=policy.filter_resources, reader=user, entity=kind
+        )
 
 
 @router.get("/ask")
@@ -2519,10 +2527,16 @@ def get_notifications(
 class MarkReadIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     notification_id: int = 0  # 0 = mark all read
+    # a source instead of an id: the task panel clears every notice about
+    # the task it shows (the reader has seen the thing the notice named)
+    source_entity: str = Field("", max_length=40)
+    source_id: int = 0
 
 
 @router.post("/notifications/read")
 def post_notifications_read(body: MarkReadIn, user: CurrentUser, viewer: ViewerDep):
+    if body.source_entity or body.source_id:
+        return notifications.mark_source_read(user, body.source_entity, body.source_id)
     return notifications.mark_read(user, body.notification_id, viewer=viewer)
 
 

@@ -2,6 +2,8 @@
 Overlay slugs join the roster, an overlay file with a stock slug wins, and no
 overlay means the stock roster exactly."""
 
+import pytest
+
 OVERLAY_YAML = """\
 name: Vendor audit
 description: Deployment-specific audit playbook
@@ -161,3 +163,20 @@ def test_a_non_slug_stem_never_enters_the_roster(fresh_db, tmp_path, monkeypatch
 
     _overlay(tmp_path, monkeypatch, {"My Playbook.yaml": OVERLAY_YAML})
     assert all(" " not in p["slug"] for p in playbooks.list_playbooks())
+
+
+def test_playbook_refusals_name_a_fix_and_echo_nothing(fresh_db):
+    from app.services import engagements, playbooks
+
+    with pytest.raises(ValueError) as unknown:
+        playbooks.instantiate("../etc", "x")
+    assert "../etc" not in str(unknown.value)
+    with pytest.raises(ValueError) as absent:
+        playbooks.instantiate("nosuchplaybook", "x")
+    assert "nosuchplaybook" not in str(absent.value) and "Pick one of:" in str(absent.value)
+    assert "[" not in str(absent.value)  # prose, not a Python list
+    slug = playbooks.list_playbooks()[0]["slug"]
+    with pytest.raises(ValueError, match="year 1000 to 9000"):
+        playbooks.instantiate(slug, "Far future", start_date="9999-12-31")
+    with pytest.raises(ValueError, match="project_class"):
+        engagements.record_lesson("x", project_class="../x", actor="ava")

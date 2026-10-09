@@ -64,6 +64,8 @@ _ENTITY_TABLE = {
     "standup": "standups",
     "task": "tasks",
 }
+# the `kind=` values GET /api/search accepts, in the entity's own name
+INDEXED_KINDS = frozenset(_ENTITY_TABLE)
 
 
 def _tier_of(entity: str, entity_id: int) -> tuple[str, int | None] | None:

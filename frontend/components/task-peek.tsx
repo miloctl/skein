@@ -289,6 +289,15 @@ export function TaskPeek() {
             detail: { taskId, status: "loaded" },
           }),
         );
+        // the reader has now seen the thing the notice named, so it leaves
+        // My Day (services/notifications.py::mark_source_read); the event
+        // makes My Day and the nav badge refetch
+        api("/api/notifications/read", {
+          method: "POST",
+          body: JSON.stringify({ source_entity: "task", source_id: taskId }),
+        })
+          .then(() => window.dispatchEvent(new CustomEvent("skein-attention-change")))
+          .catch(() => {});
       })
       // 404 covers "no such task" AND "not yours to read", deliberately -
       // services/scope.py raises the same sentence for both, because any

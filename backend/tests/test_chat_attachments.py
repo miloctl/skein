@@ -530,3 +530,9 @@ def test_an_image_description_is_stored_as_the_name_alone():
     payload = {"message": {"role": "user", "content": [block, {"text": "where is it?"}]}}
     stored = session_store._without_attachment_bytes(payload)["message"]["content"]
     assert stored == [{"text": "[attached file: plan.png]"}, {"text": "where is it?"}]
+
+
+def test_an_upload_with_no_file_name_gets_a_plain_refusal(client):
+    r = client.post("/api/files", files={"file": ("", b"bytes", "text/plain")})
+    assert r.status_code == 422
+    assert r.json()["detail"] == "The upload has no file name. Attach a file with a name."

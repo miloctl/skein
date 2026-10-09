@@ -537,3 +537,36 @@ def test_migration_005_retargets_old_row_links_and_nothing_else(fresh_db):
     assert links[b] == "/dashboard#blocker-3"
     assert links[deliberate] == "/review"
     assert links[untyped] == "/"
+
+
+def test_opening_the_source_clears_the_notices_about_it(client, fresh_db):
+    """A notice about a task stayed on My Day after the reader had opened the
+    task; the panel now posts the source (components/task-peek.tsx)."""
+    from app.services import notifications, users, work
+
+    users.ensure_user("ava")
+    users.ensure_user("bo")
+    tid = work.create_task("renew the vendor contract", assignee="ava", actor="bo")["id"]
+    other = work.create_task("another task", assignee="ava", actor="bo")["id"]
+    # a typed notice takes a builder: the message is rendered from the source row
+    notifications.notify("ava", lambda _s: "Task assigned.", source_entity="task", source_id=tid)
+    notifications.notify("team", lambda _s: "Team task.", source_entity="task", source_id=tid)
+    notifications.notify("ava", lambda _s: "Other task.", source_entity="task", source_id=other)
+    headers = {"X-User": "ava"}
+    r = client.post(
+        "/api/notifications/read",
+        json={"source_entity": "task", "source_id": tid},
+        headers=headers,
+    )
+    assert r.status_code == 200 and r.json()["marked"] == 2
+    unread = [n["message"] for n in client.get("/api/notifications", headers=headers).json()]
+    assert unread == ["Other task."]
+    # the team row is read for ava alone
+    assert "Team task." in [
+        n["message"] for n in client.get("/api/notifications", headers={"X-User": "bo"}).json()
+    ]
+    assert client.post(
+        "/api/notifications/read",
+        json={"source_entity": "task", "source_id": 999999},
+        headers=headers,
+    ).json() == {"marked": 0}

@@ -228,3 +228,13 @@ def test_an_event_year_outside_four_digits_is_refused_so_the_list_keeps_answerin
     r = client.post("/api/events", json={"title": "far", "starts_at": "9999-12-31T23:59"})
     assert r.status_code == 400
     assert client.get("/api/events").status_code == 200
+
+
+def test_a_bad_time_part_on_from_date_is_refused(fresh_db):
+    """The prefix check accepted any tail: "2026-10-01T99" compared as a
+    string and answered [] as if nothing was planned."""
+    from app.services import schedule
+
+    with pytest.raises(ValueError, match="real date"):
+        schedule.list_events(from_date="2026-10-01T99")
+    assert schedule.list_events(from_date="2026-10-01T09:00") == []

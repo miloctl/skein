@@ -352,6 +352,11 @@ export async function signOut(everywhere = false): Promise<boolean> {
       // The weak fallback reads the last picked name (lib/api.ts USER_KEY).
       // Left in place, the next person on a shared browser acts as it.
       try { window.localStorage.removeItem("skein-user"); } catch {}
+      // the shared-chat drafts this person left in the tab (components/shared-chat.tsx)
+      try {
+        for (const key of Object.keys(window.sessionStorage))
+          if (key.startsWith("skein-shared-draft:")) window.sessionStorage.removeItem(key);
+      } catch {}
       publish({ ...ANONYMOUS, status: "ready", error: "" });
       window.localStorage.setItem(SESSION_EVENT_KEY, randomString(16));
     });

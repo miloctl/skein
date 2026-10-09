@@ -300,6 +300,31 @@ def mark_read_matching(prefix: str) -> int:
     )
 
 
+def mark_source_read(user: str, source_entity: str, source_id: int) -> dict:
+    """Clear this reader's unread notices about one record - the task panel
+    calls it when the task opens, so a notice stays on My Day only until the
+    reader has looked at the thing it named. Rows addressed to the reader by
+    name clear their own read_at; a 'team' row gets a per-person read, like
+    mark_read. Unknown source or id: nothing to clear, and nothing to tell."""
+    source_entity = _SOURCE_ALIASES.get(source_entity, source_entity)
+    if not source_entity or source_id <= 0:
+        return {"marked": 0}
+    now = db.now()
+    n = db.execute_rowcount(
+        'UPDATE notifications SET read_at = ? WHERE "user" = ? AND read_at IS NULL'
+        " AND source_entity = ? AND source_id = ?",
+        (now, user, source_entity, source_id),
+    )
+    n += db.execute_rowcount(
+        'INSERT INTO notification_reads (notification_id, "user", read_at)'
+        " SELECT id, ?, ? FROM notifications WHERE \"user\" = 'team' AND read_at IS NULL"
+        " AND source_entity = ? AND source_id = ?"
+        " ON CONFLICT DO NOTHING",
+        (user, now, source_entity, source_id),
+    )
+    return {"marked": n}
+
+
 def mark_read(
     user: str,
     notification_id: int = 0,

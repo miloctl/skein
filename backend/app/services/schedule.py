@@ -362,8 +362,12 @@ def list_events(
             raise ValueError("from_date must be YYYY-MM-DD or an ISO timestamp")
         try:
             date.fromisoformat(head)
+            if len(from_date) > 10:
+                # the pattern accepts any tail; "2026-10-01T99" compared as a
+                # string and answered [] as if nothing was planned
+                datetime.fromisoformat(from_date)
         except ValueError as exc:
-            raise ValueError("from_date must be a real date (YYYY-MM-DD)") from exc
+            raise ValueError("from_date must be a real date (YYYY-MM-DD) or ISO timestamp") from exc
     frag, vp = scope.visible_filter(viewer, "events")
     if from_date:
         rows = db.query(

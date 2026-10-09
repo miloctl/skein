@@ -994,3 +994,20 @@ def test_token_endpoint_log_allows_only_standard_oauth_error_codes(monkeypatch, 
     assert canary not in caplog.text
     assert "operator signed in" not in caplog.text
     assert "HTTP 400" in caplog.text
+
+
+def test_a_first_sign_in_tells_the_named_administrators(fresh_db, monkeypatch):
+    """OIDC created the person with only a ledger row; nobody who runs the
+    roster heard about it."""
+    from app import config
+    from app.services import notifications, oidc_identities, users
+
+    users.ensure_user("ava")
+    monkeypatch.setattr(config, "ADMINS", frozenset({"ava", "nina"}))
+    nina = oidc_identities.resolve("https://idp.example", "sub-nina", "nina")["name"]
+    assert nina == "nina"
+    for_ava = [n["message"] for n in notifications.list_notifications("ava")]
+    assert for_ava == ["nina signed in for the first time and joined the roster."]
+    assert notifications.list_notifications("nina") == []  # never told about herself
+    oidc_identities.resolve("https://idp.example", "sub-nina", "nina")  # a second sign-in
+    assert len(notifications.list_notifications("ava")) == 1

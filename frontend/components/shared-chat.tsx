@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { PersonInput } from "@/components/person-input";
-import { actionError, api } from "@/lib/api";
+import { actionError, api, getUser } from "@/lib/api";
 import {
   announceSharedChatActivity,
   isIdentityEvent,
@@ -155,6 +155,8 @@ function runMessage(run: SharedChatAgentRun): string {
   return `${run.agent} could not complete the response. Send a new @${run.agent} message to try again.`;
 }
 
+const draftKey = (room: string) => `skein-shared-draft:${getUser()}:${room}`;
+
 export function SharedChat({
   threadId,
   onTitle,
@@ -175,6 +177,30 @@ export function SharedChat({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
+  // The draft belongs to the room it was typed in. Switching rooms remounts
+  // or re-props this component, and the text went with it; sessionStorage
+  // keyed by person and room keeps it for this tab and is cleared with the
+  // sign-out (lib/auth.ts). Restored DURING RENDER when the room changes
+  // (React's prop-change adjustment, never an effect): an effect restored it
+  // one commit late, and the write effect below had already stored the OLD
+  // room's text under the NEW room's key in between.
+  const [draftRoom, setDraftRoom] = useState<string | null>(null);
+  if (draftRoom !== threadId) {
+    setDraftRoom(threadId);
+    let saved = "";
+    try {
+      saved = window.sessionStorage.getItem(draftKey(threadId)) ?? "";
+    } catch {}
+    setDraft(saved);
+  }
+  useEffect(() => {
+    if (draftRoom === null) return;
+    try {
+      const key = draftKey(draftRoom);
+      if (draft) window.sessionStorage.setItem(key, draft);
+      else window.sessionStorage.removeItem(key);
+    } catch {}
+  }, [draft, draftRoom]);
   const [sel, setSel] = useState(0);
   const [busy, setBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);

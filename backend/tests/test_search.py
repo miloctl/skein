@@ -204,3 +204,18 @@ def test_a_private_document_is_never_indexed(client, fresh_db):
     assert not db.query(
         "SELECT 1 FROM search_index WHERE entity = 'document' AND entity_id = ?", (doc,)
     )
+
+
+def test_kind_limits_the_hits_to_one_entity(client, fresh_db):
+    """The service filtered by entity for recall; the route exposed no way to."""
+    from app.services import collab, work
+
+    work.create_task("renew the vendor contract")
+    collab.save_note("vendor", "the vendor contract renews in March", actor="ava")
+    hits = client.get("/api/search", params={"q": "vendor contract"}).json()
+    assert {h["entity"] for h in hits} == {"task", "note"}
+    notes = client.get("/api/search", params={"q": "vendor contract", "kind": "note"}).json()
+    assert [h["entity"] for h in notes] == ["note"]
+    refused = client.get("/api/search", params={"q": "vendor contract", "kind": "widget"})
+    assert refused.status_code == 400 and "widget" not in refused.json()["detail"]
+    assert "note" in refused.json()["detail"]

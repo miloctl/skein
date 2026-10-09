@@ -175,8 +175,12 @@ def get_playbook(slug: str) -> dict:
         raise ValueError("playbook slug must be lowercase letters, digits, - or _")
     path = _playbook_files().get(slug)
     if path is None or not path.exists():
+        # never the rejected slug back (CLAUDE.md), and the list as prose,
+        # not a Python repr
         raise ValueError(
-            f"no playbook '{slug}' - available: {[p['slug'] for p in list_playbooks()]}"
+            "No playbook has that slug. Pick one of: "
+            + ", ".join(p["slug"] for p in list_playbooks())
+            + "."
         )
     try:
         pb = yaml.safe_load(path.read_text())
@@ -322,6 +326,10 @@ def instantiate(
     except ValueError:
         # date's own message quotes the rejected string back
         raise ValueError("start_date must be a date in YYYY-MM-DD form") from None
+    if not 1000 <= start.year <= 9000:
+        # the milestone arithmetic below overflowed on 9999-12-31 and the
+        # generic handler said "value out of range" with no fix
+        raise ValueError("start_date must be a date from the year 1000 to 9000")
     workflow_result = None
     authorized_context = workflow_context
     if prepared_workflow is not None and workflow_engine is not None:

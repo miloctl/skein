@@ -20,6 +20,11 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- `GET /api/search` takes `kind=` to limit the hits to one entity (`task`, `note`, `decision`, ...); an unknown kind is refused with the list.
+- Opening a task in the panel clears the notices about that task from My Day and the badge: the reader has seen the thing they named.
+- A shared-chat draft survives switching rooms and comes back when the room is reopened in the same tab; it is kept per person and leaves with the sign-out.
+- The named administrators (`SKEIN_ADMINS`) get a notice when a person signs in through OIDC for the first time and joins the roster.
+- Five refusals say what to do: an events range with a broken time part (`2026-10-01T99`) is refused instead of answering an empty list; the playbook that does not exist names the available slugs as prose and never echoes the slug; a playbook start date outside the years 1000 to 9000 is refused with the bound; a lesson's `project_class` must be a slug; an upload with no file name reads "The upload has no file name. Attach a file with a name." instead of a library sentence.
 - A chat turn recalls the memories its own message is about, not only the newest ones, and each memory line in the prompt carries its date. Recall matches a reworded question by its words when the exact phrase finds nothing, the way `/ask` already did.
 - An identical proposal (same proposer, entity, action, target and payload) is refused while the first one is pending, with the waiting proposal's id. Before, the same notes pasted twice, or the same agent change filed twice, made two rows, and the reviewer's rejection of the twin counted against the proposer. Paste notes names such a line as already pending instead of counting it as created.
 - The Technical Writer persona reviews a document with an editor's frame (its job, substance, trust, and ending), leads with the largest material issue, and refuses to invent or strengthen a fact, number, date, or quotation to improve a sentence - it asks or leaves a marked gap instead.

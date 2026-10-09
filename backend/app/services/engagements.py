@@ -2,6 +2,7 @@
 lessons captured at retro time."""
 
 import logging
+import re
 
 from .. import db
 from . import scope, wording
@@ -723,6 +724,9 @@ def capacity(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     return rows
 
 
+_PROJECT_CLASS = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+
+
 def record_lesson(
     lesson: str,
     recommendation: str = "",
@@ -736,6 +740,13 @@ def record_lesson(
 ) -> dict:
     if not lesson.strip():
         raise ValueError("the lesson text is required")
+    if project_class and not _PROJECT_CLASS.match(project_class):
+        # it is matched against playbook project classes and printed into a
+        # memory title; "../x" was stored as one
+        raise ValueError(
+            "project_class must be lowercase letters, digits, dashes or underscores,"
+            " 40 characters or fewer"
+        )
     # filtered like the other link probes: an unfiltered probe accepts a
     # scoped id and refuses an absent one, and it also let a non-reader attach
     # a lesson to an engagement they cannot read

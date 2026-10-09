@@ -1076,6 +1076,10 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
         errors.append({"loc": loc, "msg": str(err.get("msg", ""))[:300], "type": err.get("type")})
     first = errors[0] if errors else {}
     detail = f"{first.get('loc', 'request body')}: {first.get('msg', 'is not valid')}"
+    if "Expected UploadFile" in str(first.get("msg", "")):
+        # a multipart part with an empty filename parses as a plain field, and
+        # the library's sentence names a type the caller never typed
+        detail = "The upload has no file name. Attach a file with a name."
     return JSONResponse(status_code=422, content={"detail": detail, "errors": errors})
 
 

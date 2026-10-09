@@ -75,6 +75,18 @@ def resolve(issuer: str, subject: str, display_name: str) -> dict:
             "oidc_identity_bound",
             f"{human['name']}: OIDC identity bound",
         )
+        # the only sign a person joined was this ledger row. SKEIN_ADMINS
+        # names people; an IdP admin group cannot be enumerated here.
+        from .. import config
+        from .notifications import notify
+
+        for admin in sorted(config.ADMINS):
+            if admin != human["name"]:
+                notify(
+                    admin,
+                    f"{human['name']} signed in for the first time and joined the roster.",
+                    link="/people",
+                )
         return human
 
 
