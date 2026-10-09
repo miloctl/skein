@@ -21,9 +21,11 @@ Three decisions are settled and the rest of this file depends on them:
    `app_settings['team_theme']`.
 3. **A non-workspace row is read only by a `StrongUser`.** An API key or a
    validated OIDC sign-in. This matches `routes/private.py` and degrades
-   honestly: in trusted-header mode a person can create a private row but
-   reads nothing scoped, including their own. The alternative ships a
-   privacy claim that one rewritten `X-User` header defeats.
+   honestly: in trusted-header mode a person reads nothing scoped, including
+   their own, and a write that names the private tier is refused with a 403
+   (`extensions/fastapi.py::enforce_mutation_policy`) because nobody could
+   read the row it would make. The alternative ships a privacy claim that
+   one rewritten `X-User` header defeats.
 
 ## The constraints this design answers to
 

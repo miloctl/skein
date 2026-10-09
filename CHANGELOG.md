@@ -64,6 +64,7 @@ keeps its existing `minimum_core` and needs no change.
   meeting title no longer produces a line a strict client refuses.
 - The CLI names the URL and the fix when a server answers an HTTP error with
   no Skein API response (the web app's origin, a proxy error page).
+- In trusted-header mode a name with no key cannot write a row at the `private` tier. The request answers 403 with the strong-identity instruction. Before, the row landed and nobody could read it, its author included, until that person signed in with a key.
 
 ### Operations
 

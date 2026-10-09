@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Annotated, Any
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.routing import APIRoute
 
 from .. import db
@@ -332,6 +332,22 @@ def enforce_mutation_policy(
     from ..routes.deps import _resolve, authentication_source
 
     user, strong, groups = _resolve(x_user, authorization, request.method, request)
+    if (
+        request.method == "POST"
+        and not strong
+        and str(payload.get("visibility") or "").strip().lower() == "private"
+    ):
+        # a weak viewer reads no private row (services/scope.py::Viewer), its
+        # own included, so this row would be unreadable by everyone the moment
+        # it landed. routes/api.py::_personal_default steers an UNNAMED tier
+        # to the roster for the same reason; this is the named one. Creates
+        # only: every edit body forbids the field (extra="forbid"), and that
+        # 422 is the true answer there - a key would not make it allowed.
+        from ..services import wording
+
+        raise HTTPException(
+            status_code=403, detail=wording.strong_identity_required("A private record")
+        )
     registry = request.app.state.skein_registry
     attributes = registry.identity_attributes(user, tuple(groups), strong)
     roles = tuple(str(value) for value in attributes.pop("roles", ()))
