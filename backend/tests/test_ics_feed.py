@@ -48,3 +48,17 @@ def test_feed_token_guesses_are_capped_per_address(client, fresh_db, monkeypatch
     limited = client.get("/api/calendar.ics?token=feed-secret")
     assert limited.status_code == 429
     assert int(limited.headers["retry-after"]) > 0
+
+
+def test_ics_content_lines_are_folded_at_75_octets(client, fresh_db):
+    """RFC 5545 3.1: a content line is at most 75 octets, and a longer one
+    continues on the next line after one space. A 200-character title is one
+    line the write path accepts, so the feed folds it rather than emitting a
+    line a strict client refuses."""
+    title = "Quarterly planning " + "é" * 120
+    client.post("/api/events", json={"title": title, "starts_at": "2026-08-01T15:00"})
+    body = client.get("/api/calendar.ics").text
+    lines = body.split("\r\n")
+    assert all(len(line.encode()) <= 75 for line in lines), [len(line.encode()) for line in lines]
+    unfolded = body.replace("\r\n ", "")
+    assert f"SUMMARY:{title}" in unfolded

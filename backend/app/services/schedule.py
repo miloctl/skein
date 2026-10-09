@@ -607,6 +607,25 @@ def _ics_escape(text: str) -> str:
     )
 
 
+def _ics_fold(line: str) -> str:
+    """RFC 5545 3.1: a content line is at most 75 octets, and a longer one
+    continues on the next line after one space. Split between characters,
+    never inside a multi-byte one, or the client reads a broken sequence."""
+    parts: list[str] = []
+    chunk: list[str] = []
+    size = 0
+    for char in line:
+        width = len(char.encode())
+        # a continuation line spends one octet on its leading space
+        if size + width > (75 if not parts else 74):
+            parts.append("".join(chunk))
+            chunk, size = [], 0
+        chunk.append(char)
+        size += width
+    parts.append("".join(chunk))
+    return "\r\n ".join(parts)
+
+
 def _ics_dt(iso: str) -> str:
     """RFC 5545 DATE-TIME is exactly YYYYMMDDTHHMMSS - pad the seconds our
     API's own suggested format (2026-07-24T15:00) omits."""
@@ -703,7 +722,7 @@ def ics_feed() -> str:
             "END:VEVENT",
         ]
     lines.append("END:VCALENDAR")
-    return "\r\n".join(lines) + "\r\n"
+    return "\r\n".join(_ics_fold(line) for line in lines) + "\r\n"
 
 
 # A meeting older than this with no outcome recorded is worth asking about.
