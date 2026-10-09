@@ -753,6 +753,11 @@ const Composer = () => {
   };
 
   const onKeyDownCapture = (e: React.KeyboardEvent) => {
+    // An IME conversion ends with Enter (and Escape cancels one). With a
+    // popup open that Enter ran the active row, so committing a Pinyin or
+    // Kana conversion inserted a mention or sent a bare command. keyCode 229
+    // is the Safari form of the same event.
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     // a MODIFIED arrow belongs to the textarea: Shift+Up extends a selection,
     // Alt/Meta+Up jumps the caret. Swallowing those left a multi-line draft
     // uneditable by keyboard, and let Shift+Up replace the whole draft from
@@ -1055,8 +1060,8 @@ export function Thread() {
                 <ThreadPrimitive.Suggestion
                   key={s}
                   prompt={s}
-                  method="replace"
-                  autoSend
+                  send
+                  clearComposer
                   className="cursor-pointer rounded-full border border-line-strong bg-card px-3 py-1.5 text-xs text-ink-2 transition-colors hover:border-thread-solid hover:text-thread"
                 >
                   {s.startsWith("/") ? <code>{s}</code> : s}

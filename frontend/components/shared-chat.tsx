@@ -1472,7 +1472,8 @@ export function SharedChat({
                 aria-controls={suggested.length ? "shared-chat-agents" : undefined}
                 aria-activedescendant={pick ? `agent-option-${pick}` : undefined}
                 onKeyDown={(event) => {
-                  if (event.nativeEvent.isComposing) return;
+                  // keyCode 229 is Safari's form of a composition keystroke
+                  if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
                   // only with something to choose: with one match the arrows
                   // still move the caret through a multi-line draft
                   if (suggested.length > 1 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {

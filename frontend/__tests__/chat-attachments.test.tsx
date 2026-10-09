@@ -117,9 +117,9 @@ describe("attaching a file", () => {
   });
 
   it("tells the person why a refused upload did not attach", async () => {
-    // throwing keeps the draft, but the rejection then dies unhandled inside
-    // aui's fire-and-forget send - so the backend's usable sentence reached
-    // the console and nowhere a person looks
+    // throwing keeps the draft (assistant-ui returns it on a rejected upload),
+    // but the library only logs the reason to the console - so the backend's
+    // usable sentence reaches a person only through the status report
     mocks.authenticatedFetch.mockResolvedValue(
       new Response(JSON.stringify({ detail: "the file is larger than 8 MB." }), {
         status: 400,
