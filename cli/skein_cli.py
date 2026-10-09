@@ -212,7 +212,13 @@ def api(
                     for d in detail
                 )
         except Exception:
-            detail = str(exc)
+            # not a Skein answer: the web app's origin says 404 in HTML, a
+            # proxy says 502 in HTML, and `HTTP Error 404: Not Found` named
+            # neither the URL nor what to do about it
+            detail = (
+                f"{url} answered HTTP {exc.code} with no Skein API response."
+                " Check the API URL with `skein config --url ...`."
+            )
         sys.exit(_printable(f"error: {detail}"))
     # Order matters: HTTPError is a URLError, and URLError is an OSError.
     # RemoteDisconnected is both an OSError and an HTTPException.

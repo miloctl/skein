@@ -62,6 +62,8 @@ keeps its existing `minimum_core` and needs no change.
   week that does not exist (W53 of a 52-week year), as the draft already did.
 - The calendar feed folds content lines at 75 octets (RFC 5545), so a long
   meeting title no longer produces a line a strict client refuses.
+- The CLI names the URL and the fix when a server answers an HTTP error with
+  no Skein API response (the web app's origin, a proxy error page).
 
 ### Operations
 

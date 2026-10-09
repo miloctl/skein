@@ -1414,3 +1414,26 @@ def test_sync_commit_ignores_a_merge_commit(tmp_path, monkeypatch):
     monkeypatch.chdir(repo)
     cli.cmd_sync_commit(None)
     assert calls == []
+
+
+def test_an_html_error_page_names_the_url_and_the_fix(monkeypatch, capsys, tmp_path):
+    """The web app's origin answers 404 with HTML. Printed as `HTTP Error 404:
+    Not Found`, the message named neither the URL nor what to do about it."""
+    import io
+    import urllib.error
+
+    cli = _load_cli()
+    monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
+    cli.save_config({"url": "http://127.0.0.1:3000", "key": "sk-skein-x"})
+
+    def not_found(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "http://127.0.0.1:3000/api/briefing", 404, "Not Found", {}, io.BytesIO(b"<html>")
+        )
+
+    monkeypatch.setattr(cli, "_request", not_found)
+    with pytest.raises(SystemExit) as stop:
+        cli.api("GET", "/api/briefing")
+    message = str(stop.value)
+    assert "http://127.0.0.1:3000" in message and "404" in message
+    assert "skein config --url" in message
