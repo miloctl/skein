@@ -55,6 +55,17 @@ def test_week_validation_everywhere(client):
         client.patch(f"/api/tasks/{t['id']}", json={"committed_week": "2026-W00"}).status_code
         == 400
     )
+    # W53 passes the regex, and 2027 is a 52-week ISO year: the draft refused
+    # it while the view, the plan and the task patch committed work to a week
+    # that never comes
+    assert client.get("/api/week?week=2027-W53").status_code == 400
+    plan = client.post("/api/week/plan", json={"week": "2027-W53", "task_ids": [t["id"]]})
+    assert plan.status_code == 400
+    assert (
+        client.patch(f"/api/tasks/{t['id']}", json={"committed_week": "2027-W53"}).status_code
+        == 400
+    )
+    assert client.get("/api/week?week=2026-W53").status_code == 200  # 2026 has 53 weeks
 
 
 def test_committed_week_clearable(client, fresh_db):
