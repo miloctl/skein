@@ -65,7 +65,9 @@ this file is only for accepted trade-offs that must eventually be repaid.
   `renovate.json` (weekly, non-major updates grouped) waits for the
   instance flip. The CI half landed 2026-08-04:
   `npm audit --omit=dev` gates pushes, so production dependencies block
-  and dev-only noise does not.
+  and dev-only noise does not. The npm half moved to Dependabot on GitHub
+  2026-10-09 (one grouped weekly PR across both roots) after 0.6.14's first
+  CI run failed on advisories days old; pip still waits for Renovate.
 
 - **`semantic_search` scans the whole embeddings table per request.**
   Deferred at the query site (services/search.py) and genuinely fine at

@@ -95,7 +95,7 @@ If a step fails, fix the cause before you continue.
 
 1. Add the release notes to the three `CHANGELOG.md` Unreleased sections.
 2. Remove each shipped item from `docs/ROADMAP.md`.
-3. Run `python3.12 scripts/prepare-release.py X.Y.Z`.
+3. Run `python3.12 scripts/prepare-release.py X.Y.Z`. It runs `./scripts/audit-deps.sh all` first and refuses to prepare on an advisory.
 4. Review every generated change.
 
 The script updates all synchronized versions and artifact paths. It builds the exact artifacts before it regenerates the locks. It writes `.github/release-version` last.

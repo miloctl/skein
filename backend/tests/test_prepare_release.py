@@ -112,7 +112,9 @@ class FakeRun:
         changed_api_source: bool = False,
         untracked_api_source: bool = False,
         trusted_tag: str = "annotated",
+        fail_audit: bool = False,
     ):
+        self.fail_audit = fail_audit
         self.root = root
         self.version = version
         self.old = (root / ".github/release-version").read_text().strip()
@@ -130,6 +132,8 @@ class FakeRun:
         self.calls.append((args, marker))
         if args == ["node", "--version"]:
             return subprocess.CompletedProcess(args, 0, stdout="v22.23.2\n", stderr="")
+        if args == ["./scripts/audit-deps.sh", "all"] and self.fail_audit:
+            raise subprocess.CalledProcessError(1, args)
         if args[:3] == ["git", "ls-remote", "--exit-code"]:
             if self.trusted_tag == "unavailable":
                 raise subprocess.CalledProcessError(2, args)
@@ -519,3 +523,14 @@ def test_stale_check_is_not_fooled_by_a_version_prefix():
     assert prepare_release._names_prior_release("newTag: 0.3.2-prod\n", token)
     assert not prepare_release._names_prior_release("newTag: 0.3.20\n", token)
     assert not prepare_release._names_prior_release("newTag: 0.3.21-prod\n", token)
+
+
+def test_a_failed_dependency_audit_refuses_before_release_writes(release_tree):
+    runner = FakeRun(release_tree.root, release_tree.target, fail_audit=True)
+    before = {path: path.read_bytes() for path in release_tree.root.rglob("*") if path.is_file()}
+    with pytest.raises(prepare_release.ReleaseError, match="dependency audit failed"):
+        prepare_release.prepare(release_tree.root, release_tree.target, runner=runner)
+    after = {path: path.read_bytes() for path in release_tree.root.rglob("*") if path.is_file()}
+    assert after == before
+    assert ["./scripts/audit-deps.sh", "all"] in [args for args, _ in runner.calls]
+    assert not any(args[:2] in (["uv", "build"], ["npm", "pack"]) for args, _ in runner.calls)

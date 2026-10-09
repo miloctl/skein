@@ -12,6 +12,11 @@
       "matchManagers": ["github-actions"],
       "matchFileNames": [".github/workflows/**"],
       "enabled": false
+    },
+    {
+      "description": "Dependabot owns the two npm roots on GitHub (.github/dependabot.yml, one grouped PR across both). Renovate keeps pip, which Dependabot cannot read under requirements.lock.",
+      "matchManagers": ["npm"],
+      "enabled": false
     }
   ]
 }
