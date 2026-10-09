@@ -20,6 +20,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- The Technical Writer persona reviews a document with an editor's frame (its job, substance, trust, and ending), leads with the largest material issue, and refuses to invent or strengthen a fact, number, date, or quotation to improve a sentence - it asks or leaves a marked gap instead.
+
 ### Operations
 
 ## 0.6.15 - 2026-10-09

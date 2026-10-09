@@ -42,11 +42,12 @@ near-duplicate.
 | codebase-archaeologist | specialized-codebase-archaeologist | cross-session drift: parallel implementations, orphaned config |
 | migration-steward | agent-skills/deprecation-and-migration | sunset sequencing, consumer tracking, removal dates |
 | org-psychologist | specialized/organizational-psychologist | team conditions - safety, load, friction; patterns, never people |
-| technical-writer | engineering-technical-writer | doc audits and the deferred draft |
+| technical-writer | engineering-technical-writer + clarity/review | doc audits with an editor's frame, the deferred draft, no invented facts |
 | experiment-tracker | project-management-experiment-tracker | hypothesis, success criterion, stop rule before shipping |
 
 Discipline personas (security-engineer, test-engineer, plan-reviewer,
-minimal-change-engineer, code-reviewer, sprint-prioritizer) carry a
+minimal-change-engineer, code-reviewer, sprint-prioritizer,
+technical-writer) carry a
 "Rationalizations you refuse" list: the three excuses most used to argue
 the persona out of its discipline mid-conversation, each with its
 rebuttal. Keep the list at three - it is armor for the persona's spine,
