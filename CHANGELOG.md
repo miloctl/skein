@@ -22,6 +22,7 @@ keeps its existing `minimum_core` and needs no change.
 
 - `GET /api/search` takes `kind=` to limit the hits to one entity (`task`, `note`, `decision`, ...); an unknown kind is refused with the list.
 - Opening a task in the panel clears the notices about that task from My Day and the badge: the reader has seen the thing it named.
+- Reopening a task the panel already read reports it as opened at once, so First Watch's Search step counts the open even when the panel is closed before the refetch lands. Before, the receipt waited on the refetch, and a quick close lost it.
 - After an MCP sign-in request, keyboard focus lands on the sign-in link once it is on the page. Before, the focus could be scheduled before the link existed and stayed on a disabled button.
 - A shared-chat draft survives switching rooms and comes back when the room is reopened in the same tab; it is kept per person and leaves with the sign-out.
 - The named administrators (`SKEIN_ADMINS`) get a notice when a person signs in through OIDC for the first time and joins the roster.

@@ -275,12 +275,27 @@ export function TaskPeek() {
   // that owns `loaded`.
   const [nonce, setNonce] = useState(0);
   const noticesCleared = useRef<number | null>(null);
+  const loadedRef = useRef<typeof loaded>(null);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
+
+  useEffect(() => {
+    loadedRef.current = loaded;
+  }, [loaded]);
 
   useEffect(() => {
     if (!taskId) return;
     let live = true;
     const refresh = nonce ? `?refresh=${nonce}` : "";
+    if (!nonce && loadedRef.current?.id === taskId && loadedRef.current.task) {
+      // a reopen: the scoped read already succeeded this session and the
+      // panel renders that task now, so the receipt is due now. Tied to the
+      // refetch below, it was lost whenever a close landed first - and after
+      // the notices write cleared lib/api's GET cache, every reopen was a
+      // real fetch, so First Watch's search step counted nothing.
+      window.dispatchEvent(
+        new CustomEvent("skein-peek-result", { detail: { taskId, status: "loaded" } }),
+      );
+    }
     api<PeekTask>(`/api/tasks/${taskId}${refresh}`)
       .then((t) => {
         if (!live) return;

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ fail: false }));
@@ -50,5 +50,36 @@ describe("Task Peek result receipts", () => {
       expect(receipts).toEqual([{ taskId: 4, status: "unavailable" }]),
     );
     window.removeEventListener("skein-peek-result", onReceipt);
+  });
+});
+
+describe("a reopen of a task the panel already read", () => {
+  it("reports loaded at once, before the refetch lands", async () => {
+    const receipts: unknown[] = [];
+    const onReceipt = (event: Event) => receipts.push((event as CustomEvent).detail);
+    window.addEventListener("skein-peek-result", onReceipt);
+    const show = (url: string) => {
+      // what openTaskPeek and a close do: the URL changes and the panel is told
+      window.history.replaceState({}, "", url);
+      window.dispatchEvent(new Event("skein-peek"));
+    };
+    try {
+      render(<TaskPeek />);
+      await screen.findByText("Build the path");
+      await waitFor(() => expect(receipts).toHaveLength(1));
+      await act(async () => show("/"));
+      expect(screen.queryByText("Build the path")).toBeNull();
+      // the panel keeps the task it read, so a reopen renders it before any
+      // fetch; the refetch cannot be what produces the receipt
+      state.fail = true;
+      await act(async () => show("/?task=4"));
+      // loaded at once for the retained task, then the refetch reports on its own
+      expect(receipts.slice(1)).toEqual([
+        { taskId: 4, status: "loaded" },
+        { taskId: 4, status: "unavailable" },
+      ]);
+    } finally {
+      window.removeEventListener("skein-peek-result", onReceipt);
+    }
   });
 });
