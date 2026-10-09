@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.16 - 2026-10-09
+
+### Contracts
+
 - No extension API or data-format changes. Extension API 1.0 remains compatible. The REST additions (`kind=` on search, a source on the mark-read body, `already_pending` on an ingest result) are optional fields.
 
 ### Behavior
