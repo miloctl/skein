@@ -161,3 +161,41 @@ def test_a_line_with_an_invisible_character_does_not_abandon_the_paste(client):
     assert r.status_code == 200, r.text
     assert [p["kind"] for p in r.json()["proposals"]] == ["task"]
     assert any("login page" in line for line in r.json()["unclassified"])
+
+
+def test_a_line_with_an_impossible_date_is_handed_back_not_proposed(client, fresh_db):
+    """The service refuses the date at apply time, so the proposal came back
+    to pending on every approval and nobody could fix it - the person who
+    pasted the line is the one who can, while the text is still in front of
+    them (review.unappliable is where this is decided)."""
+    text = (
+        "- decided: use postgres review by 2026-13-45\n"
+        "- awaiting: acme - the contract by 2026-10-32\n"
+        "- decided: ship on fridays review by 2026-10-30\n"
+    )
+    body = client.post("/api/ingest", json={"text": text}, headers={"X-User": "manager"}).json()
+    assert [p["kind"] for p in body["proposals"]] == ["decision"]
+    assert len(body["unclassified"]) == 2
+    assert all("2026-1" in line for line in body["unclassified"])
+
+
+def test_a_stored_proposal_with_an_impossible_date_leaves_the_queue_on_approval(client, fresh_db):
+    """A row filed before the date check existed, written the way an old
+    database holds it. Approving it failed at the service and reset it to
+    pending on every verdict. It settles as rejected, the way a vanished
+    target does, so the queue stops asking."""
+    import json
+
+    from conftest import _strong
+
+    payload = {"title": "t", "decision": "d", "decided_by": "mira", "review_by": "2026-13-45"}
+    pid = fresh_db.execute(
+        "INSERT INTO pending_changes (entity, action, payload, summary, proposed_by, origin,"
+        " created_at, status) VALUES ('decision', 'create', ?, 'legacy', 'mira', 'human', ?,"
+        " 'pending') RETURNING id",
+        (json.dumps(payload), fresh_db.now()),
+    )
+    r = client.post(f"/api/review/{pid}/approve", json={}, headers=_strong(client))
+    assert r.status_code == 400 and "auto-rejected" in r.json()["detail"]
+    row = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (pid,))
+    assert row["status"] == "rejected"

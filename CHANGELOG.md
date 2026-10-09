@@ -53,6 +53,11 @@ keeps its existing `minimum_core` and needs no change.
 - The MCP `week` tool answers again in a workspace that has an engagement.
   It judged each engagement without its tool name, so the core policy asked
   for review and the tool refused every call.
+- A pasted line whose date cannot exist (`review by 2026-13-45`) is handed
+  back under "Not captured" instead of becoming a proposal that fails at
+  every approval. The same check now covers an agent's empty decision, empty
+  note, and unknown blocker impact, and a stored proposal of that kind leaves
+  the queue as auto-rejected on its next verdict.
 
 ### Operations
 
