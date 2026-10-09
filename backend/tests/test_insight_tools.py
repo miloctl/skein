@@ -90,6 +90,7 @@ def test_attention_answers_for_the_requester_and_takes_no_name(client):
 
     assert not inspect.signature(_unwrap(get_attention)).parameters
 
+    client.post("/api/users/growth-interests", json={"interests": "x"}, headers={"X-User": "ava"})
     client.post("/api/questions", json={"question": "Who owns infra?", "assigned_to": "ava"})
     token = identity.set_requester_viewer(scope.Viewer("ava", True))
     try:

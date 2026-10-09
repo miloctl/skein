@@ -33,3 +33,30 @@ def test_answer_notifies_asker(fresh_db):
     q = collab.ask_question("who owns DNS?", asked_by="mira", actor="mira")
     collab.answer_question(q["id"], "tomas does", actor="claude")
     assert _unread_for(fresh_db, "mira", "%was answered%")
+
+
+def test_ask_question_resolves_the_assignee_against_the_roster(client):
+    """assign_question refused a typo'd assignee and ask_question stored the
+    literal, so a question created with `assigned_to: "mria"` looked assigned
+    and notified nobody - and `Dana` notified nobody either, because the
+    notice matches the roster name exactly."""
+    client.post("/api/users/growth-interests", json={"interests": "x"}, headers={"X-User": "dana"})
+    r = client.post("/api/questions", json={"question": "who?", "assigned_to": "mria"})
+    assert r.status_code == 400
+    assert "assignee" in r.json()["detail"]
+    r = client.post("/api/questions", json={"question": "who?", "assigned_to": "team"})
+    assert r.status_code == 400
+    body = {"question": "who?", "assigned_to": "Dana"}
+    qid = client.post("/api/questions", json=body).json()["id"]
+    row = next(q for q in client.get("/api/questions").json() if q["id"] == qid)
+    assert row["assigned_to"] == "dana"
+
+
+def test_an_empty_answer_leaves_the_question_open(client):
+    """A whitespace answer flipped the status to answered with nothing to
+    read, and the question left every open list."""
+    qid = client.post("/api/questions", json={"question": "who owns DNS?"}).json()["id"]
+    r = client.post(f"/api/questions/{qid}/answer", json={"answer": "   "})
+    assert r.status_code == 400
+    row = next(q for q in client.get("/api/questions").json() if q["id"] == qid)
+    assert row["status"] == "open"
