@@ -1,8 +1,10 @@
+import atexit
 import contextlib
 import hashlib
 import os
 import re
 import secrets
+import shutil
 import tempfile
 
 os.environ["SKEIN_DATA_DIR"] = tempfile.mkdtemp(prefix="skein-test-")
@@ -56,6 +58,10 @@ import psycopg
 import pytest
 from psycopg import sql as pgsql
 from psycopg.conninfo import make_conninfo
+
+# one directory per process (xdist makes nine), and nothing else removes
+# them: 414 sat in /tmp after a week of runs
+atexit.register(shutil.rmtree, os.environ["SKEIN_DATA_DIR"], ignore_errors=True)
 
 _POSTGRES_MISSING = (
     "SKEIN_DATABASE_URL is not set. Start PostgreSQL with the documented"
