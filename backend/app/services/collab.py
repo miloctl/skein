@@ -9,6 +9,18 @@ from .search import index_record
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+def _resolve_assignee(assigned_to: str, actor: str) -> str:
+    """The roster name a question is assigned to, or empty.
+
+    Both the ask and the reassignment take it: notify matches `"user" = ?`
+    exactly, so a stored literal that is not a roster name reaches nobody.
+    allow_team=False: "team" is the broadcast target of notify, and a question
+    nobody in particular owns is never answered."""
+    from .users import resolve_teammate
+
+    return resolve_teammate(assigned_to, actor, "assignee", allow_team=False)
+
+
 def ask_question(
     question: str,
     asked_by: str,
@@ -47,6 +59,10 @@ def _ask_question_locked(
 ) -> dict:
     if not question.strip():
         raise ValueError("the question text is required")
+    # the same roster match assign_question makes: the notify below matches
+    # `"user" = ?` exactly, so a typo'd or differently-cased name is a
+    # question that looks assigned and reaches nobody
+    assigned_to = _resolve_assignee(assigned_to, actor or asked_by)
     # one transaction, because scope.resolve_write checks crew membership and
     # the check has to hold until the row lands - bare, it opens its own
     # connection and a person removed in between still scopes the row
@@ -127,16 +143,8 @@ def _assign_question_locked(
     scope.assert_editable("questions", row, actor, verb="assign")
     if row["status"] != "open":
         raise ValueError(f"question #{question_id} is already {row['status']}")
-    assigned_to = assigned_to.strip()
+    assigned_to = _resolve_assignee(assigned_to, actor)
     if assigned_to:
-        # a typo'd assignee looks handled but notifies nobody - refuse it
-        from .users import list_users
-
-        known = {u["name"].lower(): u["name"] for u in list_users()}
-        match = known.get(assigned_to.lower())
-        if not match:
-            raise ValueError("assigned_to is not an active user")
-        assigned_to = match
         # the same check ask_question makes at the create: the notify below
         # quotes 80 characters of the question, and a reassignment reaches a
         # name the original write never checked
@@ -186,6 +194,10 @@ def _answer_question_locked(
     if not row:
         raise scope.missing("questions", question_id)
     scope.assert_editable("questions", row, actor or answered_by, verb="answer")
+    if not answer.strip():
+        # the status flips on this write: an empty answer closes the question
+        # with nothing to read, and it leaves every open list
+        raise ValueError("the answer text is required")
     if row["status"] == "answered" and row["answer"] and row["answer"] != answer:
         raise ValueError(
             f"question #{question_id} already has an answer - read it first,"
