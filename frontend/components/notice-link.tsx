@@ -12,7 +12,10 @@ const TASK_LINK = /^\?task=(\d+)(?:#(.*))?$/;
 export function NoticeLink({
   href,
   children,
-  className = "hover:underline",
+  // wrap-anywhere, not break-words: a title is one long token often enough (a
+  // pasted id, a URL), and break-word keeps the token as the min-content
+  // width, so the My Day column still grew past a phone's width around it
+  className = "wrap-anywhere hover:underline",
 }: {
   href: string;
   children: React.ReactNode;

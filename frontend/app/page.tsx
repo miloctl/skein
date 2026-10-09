@@ -1179,7 +1179,10 @@ export default function MyDay() {
                 data-action-row
                 className="flex items-center justify-between gap-2"
               >
-                <span>
+                {/* min-w-0: a flex child never shrinks below its content, so
+                    one long token in a title pushed the action buttons off a
+                    phone screen */}
+                <span className="min-w-0 wrap-anywhere">
                   <PeekLink taskId={Number(t.id)}>
                     <span className="text-ink-3">#{t.id}</span> {t.title}
                   </PeekLink>{" "}

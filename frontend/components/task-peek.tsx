@@ -161,7 +161,7 @@ export function PeekLink({
         onActivate?.();
         openTaskPeek(taskId, anchor);
       }}
-      className={`text-left underline decoration-line-strong underline-offset-2 hover:decoration-ink-3 ${className}`}
+      className={`wrap-anywhere text-left underline decoration-line-strong underline-offset-2 hover:decoration-ink-3 ${className}`}
     >
       {/* the verb is ADDED, never an aria-label: a label replaces the whole
           subtree, so the task title left the accessibility tree entirely and
