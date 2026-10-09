@@ -554,3 +554,53 @@ def test_a_persons_mcp_agent_is_hidden_from_other_peoples_trust_view(client, fre
 
     assert "ava-mcp" in seen("ava")
     assert "ava-mcp" not in seen("bo") and "shared-bot" in seen("bo")
+
+
+def test_the_week_tool_answers_in_a_workspace_that_has_an_engagement(fresh_db, monkeypatch):
+    """The opaque gate judges every engagement as a project input. Judged
+    without the tool name, the core policy read the call as an ungoverned
+    agent write and asked for review, so `week` was refused in every
+    workspace with one engagement - the fresh-database test above saw none.
+    AGENT_REVIEW on, as shipped: conftest turns it off, and off is the one
+    setting under which the ungoverned read was still permitted."""
+    from app import config
+    from app.services import engagements, users
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+    users.ensure_user("ava")
+    engagements.create_engagement("Onboarding revamp")
+
+    async def scenario(session):
+        return json.loads(_text(await session.call_tool("week", {})))
+
+    week = _session(_key("ava"), scenario)
+    assert "error" not in week
+    assert "committed" in week
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("log_decision", {"title": "", "decision": ""}),
+        ("add_blocker", {"title": "red build", "impact": "nuclear"}),
+        ("save_knowledge", {"topic": "", "content": ""}),
+        ("capture", {"text": "   "}),
+    ],
+)
+def test_a_payload_the_service_refuses_is_refused_at_the_tool_not_queued(
+    fresh_db, monkeypatch, tool, arguments
+):
+    """Each of these queued a proposal that failed at every approval
+    ("decision title and text are required", "impact must be one of") and
+    went back to pending, where no reviewer could change it. The answer
+    belongs to the caller who can (review.unappliable)."""
+    from app import config
+
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
+
+    async def scenario(session):
+        return await session.call_tool(tool, arguments)
+
+    result = _session(_key("ava"), scenario)
+    assert result.is_error, _text(result)
+    assert fresh_db.query("SELECT id FROM pending_changes WHERE status = 'pending'") == []
