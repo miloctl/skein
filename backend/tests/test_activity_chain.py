@@ -670,7 +670,7 @@ def test_verify_endpoint_is_a_pure_read(client):
     assert activity._anchor() == (0, "")
 
 
-def test_verify_rate_cap_is_shared_across_trusted_header_names(client):
+def test_verify_rate_cap_is_shared_across_trusted_header_names(client, pinned_window):
     assert client.get("/api/activity/verify", headers={"X-User": "one"}).status_code == 200
     assert client.get("/api/activity/verify", headers={"X-User": "two"}).status_code == 200
     assert client.get("/api/activity/verify", headers={"X-User": "three"}).status_code == 429
