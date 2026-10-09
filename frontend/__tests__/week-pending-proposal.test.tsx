@@ -162,6 +162,7 @@ describe("Planning's weekly plan", () => {
     mockWeek();
     render(<PlanningPage />);
     await screen.findByRole("button", { name: "Draft a plan" });
-    expect(document.activeElement?.id).toBe("planning-this-week");
+    // focus moves in a passive effect: it can land after the DOM commit findBy resolves on
+    await waitFor(() => expect(document.activeElement?.id).toBe("planning-this-week"));
   });
 });

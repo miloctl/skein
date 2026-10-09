@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { waitFor, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 
 /** A chat's title is its first line. When the auth gate replaces the page
@@ -14,7 +14,8 @@ import { ThreadTitle } from "@/components/thread-title";
 it("leaves no chat title in the tab once the chat is gone", async () => {
   const { unmount } = render(<ThreadTitle threadId="t1" />);
   await screen.findByText("interview with Acme on Friday");
-  expect(document.title).toBe("interview with Acme on Friday - Skein");
+  // the title is a passive effect: it can land after the DOM commit findBy resolves on
+  await waitFor(() => expect(document.title).toBe("interview with Acme on Friday - Skein"));
   unmount();
-  expect(document.title).toBe("Skein");
+  await waitFor(() => expect(document.title).toBe("Skein"));
 });
