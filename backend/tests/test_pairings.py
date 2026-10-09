@@ -108,3 +108,17 @@ def test_only_your_exact_account_skips_the_pairing(fresh_db):
     with pytest.raises(PermissionError):
         pairings.record_brief("Mira", "mira")
     pairings.record_brief("mira", "mira")
+
+
+def test_a_pairing_names_people_only(client, fresh_db):
+    """resolve_teammate matches agents too, so a pair could name one as its
+    lead or subject: an agent never pulls a brief, and offering one as the
+    subject was accepted at once and read as consent nobody gave."""
+    users.ensure_user("ava")
+    users.ensure_user("scout", kind="agent")
+    ava = _strong(client, "ava")
+    for role in ("lead", "subject"):
+        r = client.post("/api/private/pairs", json={"person": "scout", "role": role}, headers=ava)
+        assert r.status_code == 400, r.text
+        assert "agent" in r.json()["detail"]
+    assert db.query("SELECT 1 FROM one_on_one_pairs") == []
