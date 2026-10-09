@@ -89,16 +89,16 @@ mkdir -p \
 # immediately before the dependency-model change, so the rehearsal never
 # rewrites one package identity with different dependency metadata.
 PRIOR_CORE="0.2.3"
-PRIOR_ATLAS_REF="60f03de5"
+PRIOR_ATLAS_REF="9c16cf97"
 export PRIOR_CORE
-prior_backend_tree="$(git rev-parse a9f67dd4e2c5a6adc50e896a9360330d8f6b6c39:backend)"
+prior_backend_tree="$(git rev-parse ec513ac9b6226530bd8fefe84ea9533032fd0d41:backend)"
 next_backend_tree="$(git rev-parse HEAD:backend)"
 if [[ "$prior_backend_tree" == "$next_backend_tree" ]]; then
     echo "reference-extension-contract: backend implementations must differ" >&2
     exit 1
 fi
 
-git archive a9f67dd4e2c5a6adc50e896a9360330d8f6b6c39 backend \
+git archive ec513ac9b6226530bd8fefe84ea9533032fd0d41 backend \
     | tar -x -C "$tmp/prior-core-source"
 UV_CACHE_DIR="${UV_CACHE_DIR:-$tmp/uv-cache}" \
     uv build --quiet --wheel --out-dir "$tmp/prior-core" "$tmp/prior-core-source/backend"
