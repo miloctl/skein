@@ -40,6 +40,26 @@ def test_user_deactivate_removes_from_roster(client, fresh_db):
     assert "typo" in [u["name"] for u in users.list_users(active_only=False)]
 
 
+def test_deactivating_an_unknown_name_is_absent(client, fresh_db, monkeypatch):
+    """A name with no roster row answered 400 "no user with that name" while
+    the rename route answered 404 "no user has that name" for the same
+    condition: one condition, one wording, and a lookup miss is a 404."""
+    from conftest import _strong
+
+    from app import config
+    from app.services import users
+
+    users.ensure_user("ava")
+    monkeypatch.setattr(config, "ADMINS", ["tester"])
+    headers = _strong(client, "tester")
+    for name in ("nobody", "Ava"):
+        r = client.post(f"/api/users/{name}/active", json={"active": False}, headers=headers)
+        assert r.status_code == 404, r.text
+        assert r.json()["detail"] == "no user has that name"
+    with pytest.raises(db.NotFound):
+        users.set_active("nobody", False, actor="tester")
+
+
 def test_deactivate_revokes_keys(client, fresh_db):
     from app.services import api_keys, users
 
