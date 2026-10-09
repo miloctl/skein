@@ -67,7 +67,9 @@ def test_a_given_promise_keeps_the_date_it_names(client, fresh_db):
     ledger could not say the deck was late; awaiting: already read the tail."""
     r = client.post("/api/capture", json={"text": "promised: the deck by 2026-10-20"})
     assert r.status_code == 200
-    row = fresh_db.query_one("SELECT promise, due_date FROM promises WHERE id = ?", (r.json()["id"],))
+    row = fresh_db.query_one(
+        "SELECT promise, due_date FROM promises WHERE id = ?", (r.json()["id"],)
+    )
     assert (row["promise"], row["due_date"]) == ("the deck", "2026-10-20")
     bad = client.post("/api/capture", json={"text": "promised: the deck by 2026-02-30"})
     assert bad.status_code == 400

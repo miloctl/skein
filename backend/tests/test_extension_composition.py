@@ -1772,10 +1772,12 @@ def test_inbound_mcp_composites_do_not_return_denied_project_content(fresh_db, m
     regulated = engagements.create_engagement(
         "MCP composite regulated secret", project_class="regulated"
     )["id"]
+    users.ensure_user("sponsor")
+    # before the tasks: the roster rule on assignees (services/work.py)
+    # assigns only to an identity the roster knows
+    users.ensure_agent_identity("acme-mcp", owner="mcp")
     work.create_task("MCP regulated task secret", engagement_id=regulated, assignee="acme-mcp")
     work.create_task("MCP standard task", engagement_id=standard, assignee="acme-mcp")
-    users.ensure_user("sponsor")
-    users.ensure_agent_identity("acme-mcp", owner="mcp")
     crew_id = crews.create_crew("MCP delegated policy", actor="sponsor")["id"]
     crew_project = engagements.create_engagement(
         "MCP delegated regulated",

@@ -15,6 +15,11 @@ def _notice_items(client):
 
 
 def test_due_soon_excludes_other_peoples_tasks(fresh_db):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("ava")
+    _roster.ensure_user("bob")
     from app.services import briefing, work
 
     today = _utc_today().isoformat()

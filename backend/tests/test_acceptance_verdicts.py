@@ -103,6 +103,10 @@ def test_verdict_follows_the_sponsor_after_re_delegation(client, fresh_db):
 
 
 def test_orphaned_acceptance_requires_a_reason_and_feeds_no_streak(client, fresh_db):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("tester")
     from app.services import delegation, work
 
     tid = _delegated_task(fresh_db)

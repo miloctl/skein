@@ -6054,6 +6054,10 @@ def test_portfolio_health_filters_each_project_on_rest(fresh_db):
 
 
 def test_rest_composites_filter_or_refuse_denied_projects(fresh_db):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("mira")
     from app.extensions.policy import policy_input_data
     from app.services import engagements, review, work
 
@@ -6327,6 +6331,10 @@ def test_engagement_composites_drop_conflicting_legacy_tasks(fresh_db):
 
 
 def test_explicit_engagement_composites_filter_each_nested_resource(fresh_db):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("mira")
     from app.services import blockers, engagements, handoff, promises, work
 
     engagement = engagements.create_engagement(

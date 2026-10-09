@@ -527,6 +527,10 @@ def test_mission_control_marks_machine_owned_identities_not_delegatable(client):
 
 
 def test_reassign_ends_delegation(client, fresh_db):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("zoe")
     t = client.post("/api/tasks", json={"title": "work"}).json()
     client.post(
         f"/api/tasks/{t['id']}/delegate",

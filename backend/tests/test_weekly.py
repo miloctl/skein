@@ -129,6 +129,10 @@ def test_committed_week_validation(client):
 
 
 def test_stale_wip_nudge_claims_week(client, fresh_db):
+    # the roster rule on assignees (services/work.py): a task is assigned only to a teammate
+    from app.services import users as _roster
+
+    _roster.ensure_user("ava")
     from app.services import notifications, portfolio
 
     t = client.post("/api/tasks", json={"title": "old", "assignee": "ava"}).json()

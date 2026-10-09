@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable
 
 from .. import db
-from . import scope
+from . import scope, users
 from .search import index_record
 
 MILESTONE_STATUSES = ("planned", "in_progress", "blocked", "done")
@@ -430,6 +430,10 @@ def _create_task_locked(
             from .schedule import check_event_link
 
             check_event_link(event_id, actor=actor, tier=tier, crew_id=cid, label="task")
+        # the roster match blockers and questions already make: a typo'd or
+        # differently cased name landed as a phantom assignee that no My Day
+        # listed and no notification reached (users.resolve_teammate)
+        assignee = users.resolve_teammate(assignee, actor=actor, label="assignee", allow_team=False)
         scope.assert_readable_by(tier, cid, assignee, label="assignee", author=actor)
         tid = db.execute(
             "INSERT INTO tasks (milestone_id, engagement_id, title, description, assignee,"
@@ -920,6 +924,8 @@ def _update_task_locked(
     )
     if not fields:
         raise ValueError("nothing to update")
+    if "title" in fields and not str(fields["title"]).strip():
+        raise ValueError("title cannot be blank")
     if committed_week == "-":
         fields["committed_week"] = None
     # "-" clears any clearable field - the single write path must be able to
@@ -939,6 +945,8 @@ def _update_task_locked(
     if assignee == "-":
         assignee = ""
     if assignee:
+        assignee = users.resolve_teammate(assignee, actor=actor, label="assignee", allow_team=False)
+        fields["assignee"] = assignee
         # the same check create_task makes: a reassignment reaches a name the
         # original write never saw, and an assignee who cannot read the task
         # is given work that does not exist for them
