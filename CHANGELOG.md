@@ -36,6 +36,15 @@ keeps its existing `minimum_core` and needs no change.
 - `GET /api/private/brief/{person}` bounds `days` to 1 through 366. A negative value answered an empty brief with `since` in the future, and a very large one answered the clock's overflow text.
 - A shared-chat steward who removes, promotes, or demotes a name that is not in the room now reads "That name is not a participant in this shared chat." The room answered "No shared chat was found." to its own steward.
 - The chat sidebar stops the rename draft at 60 characters and the new-folder draft at 40, the lengths the server accepts, instead of sending a long name and showing the server's validation sentence.
+- A question's assignee is matched against the roster when the question is asked, as it already was on reassignment. A name not on the roster, or `team`, is refused with a 400, and a differently cased name is stored as the roster spells it, so the assignee is notified. Before, the literal text was stored and nobody was notified.
+- An empty or whitespace answer no longer marks a question answered. Before, the question left every open list with no answer text.
+- A task that is done or void cannot be delegated. Before, the delegation reached the agent inbox as work to do, and the agent's completion was then refused as already done.
+- Updating a milestone with a whitespace title is refused. Before, the title was replaced with blank text.
+- An engagement's lead is matched against the roster on create, update, and playbook instantiate. `-` still clears it. Before, any text was accepted and printed on Health and in readouts as the person accountable.
+- An allocation whose end date is before its start date is refused. Before, it was stored, counted on no day, and still listed as staffing.
+- Sharing a row that everyone on the roster already sees, written by someone else, answers "Everyone on the roster already sees this." Before, it answered "no task #N" about a row the caller can open.
+- On Browse, a register action the server refuses (a blocker resolved by a teammate first, a question already answered, an engagement already closed) refetches the register after the message, so the stale row and its control leave the page. Before, the row stayed as if the action were still available.
+- A closed engagement's empty blocker list reads "Nothing is blocked - this engagement is closed." Before, it invited a capture into the archive, where the open-work list already did not.
 
 ### Operations
 
