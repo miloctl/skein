@@ -291,8 +291,18 @@ def _opaque_refusal(action: str, resource_type: str) -> str:
     rule routes/api.py::_require_opaque_project_policy applies to /week."""
     if refusal := _policy_refusal(action, resource_type):
         return refusal
+    # agent and tool, as every other tool's ProjectionPolicy here: without
+    # the tool name the core policy cannot see this is a read, judges each
+    # engagement as an ungoverned agent write, and asks for review - so the
+    # aggregate was refused in every workspace that had one engagement
     policy = projection_policy.ProjectionPolicy(
-        current_policy_engine(), current_policy_subject(), action, "mcp", scope.NOBODY
+        current_policy_engine(),
+        current_policy_subject(),
+        action,
+        "mcp",
+        scope.NOBODY,
+        agent=_actor(),
+        tool=action,
     )
     if not policy.allows_all_projects() or not policy.allows_unclassified():
         return json.dumps(

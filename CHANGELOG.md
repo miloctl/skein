@@ -50,6 +50,9 @@ keeps its existing `minimum_core` and needs no change.
   without its leading zeros, and that one row made the events list and the
   calendar answer 400 for every person. A year past 9999 was a 500 in a team
   zone west of UTC.
+- The MCP `week` tool answers again in a workspace that has an engagement.
+  It judged each engagement without its tool name, so the core policy asked
+  for review and the tool refused every call.
 
 ### Operations
 
