@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 from .. import db
 from .notifications import notify
-from .users import fold, rename_user, resolve_teammate
+from .users import fold, is_agent, rename_user, resolve_teammate
 
 # A request is one strong call, which a stolen key can make. It lapses after
 # this many days, and deactivation or key revocation cancels it (cancel_for),
@@ -46,6 +46,11 @@ def request(target: str, *, actor: str) -> dict:
     named = resolve_teammate(target, actor, "target", allow_team=False)
     if not named or fold(named) == fold(actor):
         raise ValueError("Name the other account, not this one.")
+    # resolve_teammate matches agent rows too. No agent confirms on REST, so
+    # the request stays pending for good and blocks every later one from this
+    # source (one pending request per source, merge_requests_pending).
+    if is_agent(named):
+        raise ValueError(f"'{named}' is an agent identity. Name a person's account.")
     with db.transaction():
         # both identities, sorted, before anything is read: the pending check
         # decides the insert (merge_requests_pending), and a rename of the
