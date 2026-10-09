@@ -20,7 +20,7 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.1"
+    "@playwright/test": "1.63.0"
   },
   "overrides": {
     "@assistant-ui/tap": "0.9.21",
