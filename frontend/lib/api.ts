@@ -62,6 +62,20 @@ export function getUser(): string {
   try { return window.localStorage.getItem(USER_KEY) ?? "anonymous"; } catch { return "anonymous"; }
 }
 
+// One @mention token, the charset services/mentions.py tokenizes and the
+// wall routes/deps.py puts on the X-User header: a name outside it is refused
+// on every request, so the picker must refuse it before it is saved.
+const ROSTER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+export const ROSTER_NAME_RULE =
+  "A name must start with a letter or digit and use only letters, digits, dots, dashes and underscores.";
+
+export function rosterNameProblem(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "Type a name.";
+  if (trimmed.length > 64) return "A name must be 64 characters or fewer.";
+  return ROSTER_NAME.test(trimmed) ? "" : ROSTER_NAME_RULE;
+}
+
 export function setUser(name: string) {
   window.localStorage.setItem(USER_KEY, name.trim() || "anonymous");
   // storage events don't fire in the writing tab - nudge same-tab

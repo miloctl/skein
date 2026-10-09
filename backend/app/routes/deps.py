@@ -1,4 +1,5 @@
 import hmac
+import re
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
@@ -29,6 +30,10 @@ NEED_LOGIN = (
 # names no name on purpose: this refuses caller-supplied identity in
 # trusted-header mode, and an error never echoes the rejected value back
 INACTIVE = "This roster entry is not active. Ask whoever runs the server to reactivate it."
+
+
+# one @mention token, the charset services/mentions.py tokenizes
+_NAME_SHAPE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*", re.ASCII)
 
 
 def agent_on_rest(owner: str) -> str:
@@ -284,6 +289,16 @@ def _resolve(
     if auth_mode == "api-key":
         raise HTTPException(status_code=401, detail=NEED_KEY)
     supplied_name = (x_user or "").strip()[:64]
+    # The header is a free string, and a weak write made a roster row of
+    # whatever it carried ("../etc", "a b", "x;drop"). A roster name must be
+    # one @mention token (services/mentions.py::_MENTION), so the same
+    # charset is the wall here. The value is never echoed.
+    if supplied_name and not _NAME_SHAPE.fullmatch(supplied_name):
+        raise HTTPException(
+            status_code=400,
+            detail="The X-User name must start with a letter or digit and use only"
+            " letters, digits, dots, dashes and underscores. Pick another name.",
+        )
     name = supplied_name or "anonymous"
     # Weak reads do not reserve a roster row. Apply the stable reserved,
     # inactive, and agent walls before that early return.

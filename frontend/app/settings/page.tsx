@@ -11,16 +11,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import {
-  API_URL,
-  actionError,
-  api,
-  backendUnreachable,
-  getUser,
-  isUnreachable,
-  loadError,
-  setUser,
-} from "@/lib/api";
+import { API_URL, actionError, api, backendUnreachable, getUser, isUnreachable, loadError, rosterNameProblem, setUser } from "@/lib/api";
 import { authConfig, sessionEnd, sessionSnapshot, signInWithKey, signOut, subscribeSession, trustedHeaderIdentity } from "@/lib/auth";
 import { startFirstWatch } from "@/lib/first-watch";
 import { subscribeIdentity } from "@/lib/shared-chats";
@@ -1062,6 +1053,11 @@ export default function SettingsPage() {
   };
 
   const saveName = () => {
+    const problem = rosterNameProblem(name);
+    if (problem) {
+      reportStatus(problem);
+      return;
+    }
     setUser(name);
     window.location.reload();
   };

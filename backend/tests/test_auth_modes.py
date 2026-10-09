@@ -947,3 +947,22 @@ def test_every_door_stashes_the_group_claims(client, monkeypatch, fresh_db):
     assert who["can_administer"] is True
     assert client.get("/api/keys", headers=hdr).status_code == 200
     assert client.get("/api/admin/keys", headers=hdr).status_code == 200
+
+
+def test_a_trusted_header_name_must_be_one_mention_token(client, fresh_db):
+    """Any header string made a roster row: "../etc", "a b" and "x;drop" all
+    joined the team on their first write. A roster name is what @mention
+    tokenizes, so that charset is the wall, and the value is never echoed."""
+    for bad in ("../etc", "a b", "ava;drop", "-ava", ".hidden", "ava@corp"):
+        r = client.post("/api/notes", json={"topic": "t", "content": "x"}, headers={"X-User": bad})
+        assert r.status_code == 400, bad
+        assert bad not in r.json()["detail"]
+        assert client.get("/api/notes", headers={"X-User": bad}).status_code == 400
+    assert (
+        client.post(
+            "/api/notes", json={"topic": "t", "content": "x"}, headers={"X-User": "ava.b-c_1"}
+        ).status_code
+        == 200
+    )
+    names = {u["name"] for u in fresh_db.query("SELECT name FROM users")}
+    assert "../etc" not in names and "a b" not in names and "ava.b-c_1" in names
