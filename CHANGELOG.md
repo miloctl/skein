@@ -60,6 +60,8 @@ keeps its existing `minimum_core` and needs no change.
   the queue as auto-rejected on its next verdict.
 - The week view, the week plan, and a task's `committed_week` refuse an ISO
   week that does not exist (W53 of a 52-week year), as the draft already did.
+- The calendar feed folds content lines at 75 octets (RFC 5545), so a long
+  meeting title no longer produces a line a strict client refuses.
 
 ### Operations
 
