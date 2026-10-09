@@ -108,7 +108,7 @@ class MockAgent:
                     "Filed question #{id}. Unanswered questions age poorly here - by design.",
                 ),
                 "note": (
-                    "Noted as #{id}. The knowledge base grows stronger.",
+                    "Noted as #{id}. Search knows it now.",
                     "Note #{id} saved. Future-you says thanks.",
                 ),
                 "decision": (

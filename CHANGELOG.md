@@ -21,6 +21,7 @@ keeps its existing `minimum_core` and needs no change.
 ### Behavior
 
 - The Technical Writer persona reviews a document with an editor's frame (its job, substance, trust, and ending), leads with the largest material issue, and refuses to invent or strengthen a fact, number, date, or quotation to improve a sentence - it asks or leaves a marked gap instead.
+- Three voice lines say only what the code guarantees: the digest no longer opens with "A short list today" on a day of any length, the resolve-blocker card no longer names a three-day clock that is the low-impact default only, and the mock agent's note receipt says the note is searchable instead of praising the knowledge base. The routine and page-help cards state why they exist in plainer words.
 
 ### Operations
 

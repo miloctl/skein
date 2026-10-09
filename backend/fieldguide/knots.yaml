@@ -12,6 +12,8 @@
 # drift away from Page Help, the Field Guide, and Bosun on the next edit.
 #
 # Voice rules: dry, terse, no exclamation marks, no praise adjectives.
+# The dash-tail punchline (`- and the X does Y`) is already in fourteen
+# pitches; the next one does not reach for it.
 #
 # Write the SEARCH shortcut as the literal ⌘K. It is a TOKEN, not the text
 # the reader gets: the guide page renders pitch/how through
@@ -285,7 +287,7 @@ knots:
     knot: Eskimo Bowline
     set: loops
     ties: mark
-    pitch: A loose end is easier to tie when the right knot is already beside it.
+    pitch: Help opens on the cards for the page you are on - the right knot, already beside the loose end.
     how: Open Help in the top bar. Read the first page cards or ask the Bosun. If you need more, select Show more.
     link: /
     since: 2026-08-16
@@ -358,7 +360,7 @@ knots:
     feature: Routines
     knot: Daisy Chain
     set: loops
-    pitch: One loop, tied again and again down the line. Write the work once, and each week ties the next loop.
+    pitch: Write the work once, and each week ties the next loop.
     how: "Open Work → Plan the week → Routines. Write the task, and pick the days and the time. If an agent does the work, pick the agent. Skein creates a new task each time. If the last task is still open, Skein skips that time."
     link: /planning#planning-routines
     since: 2026-09-29
@@ -517,7 +519,7 @@ knots:
     feature: Resolve a blocker
     knot: Wall Knot
     set: stoppers
-    pitch: Stops the escalation clock; three-day-old blockers get a funeral.
+    pitch: Stops the escalation clock; an unresolved blocker gets a funeral.
     how: "On Work → Browse, select Blockers. Resolve a blocker that you own."
     link: /dashboard#browse-blockers
     since: 2026-07-31

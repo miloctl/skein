@@ -36,7 +36,6 @@ OPENERS_CLEAR = (
 )
 OPENERS_BUSY = (
     "Coffee first. Then the blockers.",
-    "A short list today - sharp, like the team.",
     "The work below is sorted by how much it wants your attention.",
     "Yesterday happened. Here's what it left behind.",
     "One list, no meetings required.",
