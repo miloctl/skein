@@ -228,6 +228,16 @@ def _preflight(
     node = _run(runner, ["node", "--version"], cwd=root, capture=True).stdout.strip()
     if not re.fullmatch(r"v22(?:\.[0-9]+){2}", node):
         raise ReleaseError("Release preparation requires Node 22.")
+    # Advisories land between releases: 0.6.14's first CI run failed both npm
+    # audits and the workplace pip-audit on packages published days before
+    # the push (run 37853281498). A release prepared on a red audit publishes
+    # the advisory, so the audit gates preparation, before any file changes.
+    try:
+        _run(runner, ["./scripts/audit-deps.sh", "all"], cwd=root)
+    except ReleaseError as exc:
+        raise ReleaseError(
+            "The dependency audit failed. Fix the advisories it names, then prepare again."
+        ) from exc
     release_sha = _trusted_release_sha(root, marker, runner)
     try:
         _run(

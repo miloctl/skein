@@ -3,9 +3,20 @@
 # immutable-pin rule in backend/tests/test_release_contract.py holds across
 # a bump. One grouped PR a week, not one per action.
 #
-# github-actions only, on purpose. pip and npm belong to renovate.json, which
-# waits for the Gitea instance to enable Renovate (TODO.md). renovate.json in
-# turn leaves .github/workflows alone, so the two never open competing PRs.
+# npm covers both roots in ONE grouped PR: backend/tests/test_release_contract.py
+# requires the workplace template to pin the same next, react and react-dom as
+# the frontend host, so a bump of one root alone fails CI. The template lock
+# also pins the packed host tarball by digest; CI re-pins a copy of that lock
+# for its own contract run, and prepare-release.py re-pins the tracked one, so
+# a merged npm PR needs no hand re-pin before a release.
+#
+# pip stays manual: the Python locks are pip-compile output under a custom
+# name (requirements.lock, hashes included), which Dependabot does not read.
+# CI installs the backend unpinned, so a new Python release is still tested
+# on every push, and audit-deps.sh fails the push on an advisory against the
+# lock. Renovate (renovate.json) takes pip over when the Gitea instance
+# enables it (TODO.md); it leaves .github/workflows and these npm roots alone,
+# so the two never open competing PRs.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -16,5 +27,21 @@ updates:
     groups:
       github-actions:
         patterns: ["*"]
+    commit-message:
+      prefix: chore
+  - package-ecosystem: npm
+    directories:
+      - /frontend
+      - /examples/workplace-extension
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # the host tarball and the frozen extension API are release outputs
+      - dependency-name: "@miloctl/*"
     commit-message:
       prefix: chore
