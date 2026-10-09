@@ -10,6 +10,7 @@ workspace, so the FILTER is uniform even where the picker is not
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import _strong
 
 from app import db
 from app.services import blockers, collab, crews, delegation, scope, users, work
@@ -896,3 +897,26 @@ def test_a_create_body_exposes_the_tier_its_service_accepts():
         "these POST bodies feed a service that accepts a tier, and do not"
         f" offer one - so the caller's choice is discarded: {sorted(set(missing))}"
     )
+
+
+def test_a_weak_identity_cannot_name_the_private_tier(client):
+    """A trusted-header name with no key reads no private row (scope.Viewer),
+    its own included, so the row would be unreadable by everyone at once."""
+    weak = {"X-User": "ava"}
+    refused = client.post(
+        "/api/tasks", json={"title": "mine", "visibility": "private"}, headers=weak
+    )
+    assert refused.status_code == 403
+    assert "strong identity" in refused.json()["detail"]
+    assert not db.query_one("SELECT 1 FROM tasks WHERE title = 'mine'")
+    # the roster tier still lands for that name, and a key opens the private one
+    team = client.post(
+        "/api/tasks", json={"title": "team", "visibility": "workspace"}, headers=weak
+    )
+    assert team.status_code == 200
+    mine = client.post(
+        "/api/tasks",
+        json={"title": "mine", "visibility": "private"},
+        headers=_strong(client, "ava"),
+    )
+    assert mine.status_code == 200
