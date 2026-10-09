@@ -712,3 +712,46 @@ def test_detail_shares_human_read_cursors_with_members_only(client):
     cursors = {row["person"]: row.get("last_read_message_id") for row in members}
     assert cursors["dana"] == message["id"]
     assert cursors["mira"] == message["id"]  # the sender's own cursor advanced on send
+
+
+def test_a_name_outside_the_room_is_refused_as_a_participant_not_as_a_missing_chat(client):
+    # the steward is a verified member, so "No shared chat was found" here
+    # told them the room was gone when only the person had already left
+    room, mira = create_room(client)
+    dana = auth("dana")
+    invitation = invite(client, room["id"], mira, "dana")
+    client.post(f"/api/shared-chats/invitations/{invitation['id']}/accept", headers=dana)
+    assert client.post(f"/api/shared-chats/{room['id']}/leave", headers=dana).status_code == 200
+
+    removed = client.request(
+        "DELETE",
+        f"/api/shared-chats/{room['id']}/members",
+        json={"person": "dana"},
+        headers=mira,
+    )
+    assert removed.status_code == 404
+    assert removed.json()["detail"] == "That name is not a participant in this shared chat."
+    promoted = client.post(
+        f"/api/shared-chats/{room['id']}/members/role",
+        json={"person": "dana", "role": "steward"},
+        headers=mira,
+    )
+    assert promoted.status_code == 404
+    assert promoted.json()["detail"] == "That name is not a participant in this shared chat."
+    agent = client.request(
+        "DELETE",
+        f"/api/shared-chats/{room['id']}/agents",
+        json={"agent": "bosun"},
+        headers=mira,
+    )
+    assert agent.status_code == 404
+    assert agent.json()["detail"] == "That name is not a participant in this shared chat."
+    # an outsider still learns nothing: the room answers as absent
+    outsider = client.request(
+        "DELETE",
+        f"/api/shared-chats/{room['id']}/members",
+        json={"person": "mira"},
+        headers=auth("eve"),
+    )
+    assert outsider.status_code == 404
+    assert outsider.json()["detail"] == "No shared chat was found."

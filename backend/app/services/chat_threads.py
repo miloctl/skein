@@ -638,6 +638,13 @@ def _invitation_missing() -> db.NotFound:
     return db.NotFound("No invitation was found.")
 
 
+def _participant_missing() -> db.NotFound:
+    # The actor is a verified member by the time this is raised, so the roster
+    # is already theirs to read: "no shared chat" here told a steward removing
+    # a person who had just left that the room itself was gone.
+    return db.NotFound("That name is not a participant in this shared chat.")
+
+
 def _lock_shared(thread_id: str) -> dict:
     _check_id(thread_id)
     row = db.query_one("SELECT * FROM chat_threads WHERE id = ? FOR UPDATE", (thread_id,))
@@ -1413,7 +1420,7 @@ def set_shared_member_role(thread_id: str, actor: str, person: str, role: str) -
         _require_locked_member(thread_id, actor, steward=True)
         target = _active_member(thread_id, person)
         if not target:
-            raise _shared_missing()
+            raise _participant_missing()
         target_user = db.query_one("SELECT kind FROM users WHERE name = ?", (person,))
         if target_user and target_user["kind"] == "agent" and role == "steward":
             raise ValueError("an agent cannot steward a shared chat")
@@ -1447,10 +1454,10 @@ def _leave_shared_chat(
         _require_locked_member(thread_id, actor, steward=steward)
         target = _active_member(thread_id, person)
         if not target:
-            raise _shared_missing()
+            raise _participant_missing()
         target_user = db.query_one("SELECT kind FROM users WHERE name = ?", (person,))
         if agent_only and (not target_user or target_user["kind"] != "agent"):
-            raise _shared_missing()
+            raise _participant_missing()
         if target_user and target_user["kind"] == "agent" and _active_agent_run(thread_id, person):
             raise db.Conflict("Wait for the agent response before you remove this agent.")
         if target_user and target_user["kind"] == "human":
