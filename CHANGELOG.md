@@ -18,6 +18,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- No extension API or data-format changes. Extension API 1.0 remains compatible. The REST additions (`kind=` on search, a source on the mark-read body, `already_pending` on an ingest result) are optional fields.
+
 ### Behavior
 
 - `GET /api/search` takes `kind=` to limit the hits to one entity (`task`, `note`, `decision`, ...); an unknown kind is refused with the list.
