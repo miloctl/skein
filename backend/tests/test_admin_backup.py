@@ -678,7 +678,7 @@ def test_mirror_only_recovery_is_explicitly_partial(scratch_db, tmp_path, monkey
         admin.set_extension_stores({}, set())
 
 
-def test_manual_backup_route_has_a_deployment_wide_cap(client, monkeypatch):
+def test_manual_backup_route_has_a_deployment_wide_cap(client, monkeypatch, pinned_window):
     from app.services import admin
     from app.services.api_keys import create_key
 

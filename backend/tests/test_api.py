@@ -172,7 +172,7 @@ def test_users_autoregister_on_first_write_not_read(client):
     assert "newperson" in names
 
 
-def test_admin_backup_and_export(client, monkeypatch):
+def test_admin_backup_and_export(client, monkeypatch, pinned_window):
     # backup and export are admin surfaces: strong identity required
     assert client.post("/api/admin/backup").status_code == 403
     assert client.get("/api/admin/export").status_code == 403
