@@ -27,7 +27,7 @@ if not __debug__:
     raise SystemExit("Optimized Python disables the checks. Run without -O or PYTHONOPTIMIZE.")
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSIONS = {"write": "1.56.0", "append": "1.57.1", "restart": "1.57.1", "rollback": "1.56.0"}
+VERSIONS = {"write": "1.57.1", "append": "1.59.0", "restart": "1.59.0", "rollback": "1.57.1"}
 
 
 def guard_target(conninfo: str, owned: str) -> None:
