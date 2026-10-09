@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 
 from .. import db
 from .notifications import notify
-from .users import fold, resolve_teammate
+from .users import fold, is_agent, resolve_teammate
 
 # A subject who declined or ended a pair is not asked again, with a new
 # immediate notice, before this many days pass.
@@ -33,6 +33,12 @@ def _teammate(name: str, actor: str) -> str:
     person = resolve_teammate(name, actor, "person", allow_team=False)
     if not person or fold(person) == fold(actor):
         raise ValueError("Name a teammate other than yourself.")
+    # resolve_teammate matches agent rows too. An agent reads through the
+    # gated tool surface and never pulls a brief, and an offer with an agent
+    # as the lead is accepted at once (propose), which records a consent no
+    # person gave.
+    if is_agent(person):
+        raise ValueError(f"'{person}' is an agent identity. Name a person.")
     return person
 
 
