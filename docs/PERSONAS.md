@@ -7,9 +7,9 @@ identity**, so the authority matrix and trust scores track each persona
 separately. By default a persona shares the full tool registry; frontmatter
 behavior fields can narrow that (see "Behavior fields" below).
 
-Source material: definitions adapted from `agency-agents`
-(867 agents; we vendor a curated subset as repo files - no runtime
-dependency on the external checkout).
+Source material: the definitions are adapted from the third-party
+projects credited in NOTICE, vendored as repo files - no runtime
+dependency on any external checkout.
 
 ## The bench
 

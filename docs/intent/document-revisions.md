@@ -101,8 +101,8 @@ then. Retire the file when a recovery drill finds the volume and the dump out of
   no revision 9. Revision 6 is the newest. Read revision 6, then make the change again."
 - **Restore (owner: no confirm dialog).** A restore copies revision n as `head + 1` with
   `restored_from = n`, and the bad revision stays. Restoring the previous head undoes it.
-- Prior art: buzz canvases (`buzz`, b6a26556) check the expected revision before
-  any side effect and replay an identical head as success, as these rules do.
+- Prior art: buzz canvases check the expected revision before any side effect and
+  replay an identical head as success, as these rules do.
 
 ### D5. A stale agent proposal auto-rejects and does not count (owner)
 

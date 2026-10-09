@@ -78,11 +78,10 @@ that on every open.
 Four columns: To do, In progress, Blocked, Done. `void` is not a column. The
 peek keeps its confirmed void control (`task-peek.tsx:714`). Open cards use
 the Browse order, priority then id. Done orders by `completed_at DESC`.
-There is no rank column. Fizzy sorts by field and has no rank
-(`fizzy/app/models/card.rb:22-24`). Kaneo keeps a rank and
-rewrites every card in both columns on each drop, with no rollback
-(`kaneo/apps/web/src/components/kanban-board/index.tsx`). Skein
-already has priority, and a rank is a migration plus a write per drop.
+There is no rank column. Fizzy sorts by field and has no rank. Kaneo keeps
+a rank and rewrites every card in both columns on each drop, with no
+rollback. Skein already has priority, and a rank is a migration plus a
+write per drop.
 
 ### D3. Rows pass the Browse policy action
 
@@ -344,9 +343,8 @@ from a running instance (CLAUDE.md conventions).
   `grid grid-cols-1 md:grid-cols-4 gap-3`. Below 768px the columns stack
   and the page scrolls down. There is no horizontal scroll region, so the
   keyboard-reachable-scroll probe in `e2e/responsive.spec.ts` has nothing to
-  catch. Fizzy's horizontal snap scroll at phone width
-  (`fizzy/app/assets/stylesheets/card-columns.css:77`) and
-  kaneo's `overflow-x-auto` both need a focusable scroll region. At 1024px
+  catch. Fizzy's horizontal snap scroll at phone width and kaneo's
+  `overflow-x-auto` both need a focusable scroll region. At 1024px
   each column is about 190px beside the 240px sidebar, so titles clamp at
   two lines, and the peek has the full title.
 - The card, every item a fact about the task, never about the person:

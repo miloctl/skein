@@ -782,8 +782,8 @@ larger than its finding.
 
 ## From the external-repo discovery (2026-09-28)
 
-Twenty-four repositories under `~/external` were read against FEATURES and
-this file. The hardening branch `fix/trust-loop-and-hardening` shipped what
+Twenty-four external repositories were read against FEATURES and this
+file. The hardening branch `fix/trust-loop-and-hardening` shipped what
 was built. Everything below is open.
 
 **Agent loop, not built.** Each waits on a trigger the new wake outcome

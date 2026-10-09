@@ -5,7 +5,7 @@ _pack_files, whose merge is the behavior docs/PERSONAS.md documents).
 
 A persona file is frontmatter (name/description/emoji/vibe) plus a system-
 prompt body. Files are edited like code (the playbooks precedent) - adapted
-from agency-agents, vendored so there is no runtime dependency.
+from the projects credited in NOTICE, vendored so there is no runtime dependency.
 Slugs double as agent identities in the authority matrix and trust scores,
 hence the strict charset.
 

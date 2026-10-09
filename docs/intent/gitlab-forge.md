@@ -315,9 +315,8 @@ write sends `tier`, and that write is the use.
 
 Owner decision, and an owner-approved exception to the CLAUDE.md rule that
 fixtures come from a running instance. `backend/tests/gitlab_payloads.py`
-builds them from GitLab's documented webhook shapes and kaneo's types
-(`kaneo/apps/api/src/plugins/gitlab/`
-`webhooks/push.ts`, `webhooks/merge-request-opened.ts`, `utils/payload.ts`).
+builds them from GitLab's documented webhook shapes and the types in
+kaneo's GitLab plugin.
 Kaneo has no pipeline type, so that shape comes from GitLab's documentation
 alone. A Python module, because JSON has no comments: its docstring header
 says the payloads are unverified and names the ROADMAP row that replaces

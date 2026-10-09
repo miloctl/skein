@@ -90,7 +90,7 @@ from now, so a pause never catches up. A restart at 07:20 fires the 07:00 routin
 (`catch_up=True`). A backup restored three days late fires each active routine once. This
 replaced a 24-hour window after which Skein recorded `missed` and created nothing. Hermes
 makes the same choice: past its grace window a dispatch is `catch_up`, "accumulated misses
-skipped, executed once now" (`hermes-agent/cron/jobs.py` 941-947).
+skipped, executed once now".
 
 A firing is `late` when it runs more than `ON_TIME` (10 minutes, two tick periods) after
 its time. The `agent-run` job has `catch_up=False` because a restart must not buy a turn
@@ -132,8 +132,7 @@ take `CurrentUser`.
 ### D9. A new routine starts active
 
 The form states the schedule in words above Save, and saving is the consent. OpenClaw
-found that a disabled job is invisible to every guard and never explains itself
-(`openclaw/docs/automation/cron-jobs/how-it-works.md` 79-90).
+found that a disabled job is invisible to every guard and never explains itself.
 
 ### D10. No agent write path, and `WAKE_TOOLS` stay as they are
 

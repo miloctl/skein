@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ASD-STE100 gate for the field guide's `how:` strings.
 
-Ported from SimpleEnglish/evals/ste_lint.py. Counts the
+Ported from the SimpleEnglish project's linter (credited in NOTICE). Counts the
 violations a regex can catch: sentence length, contractions, banned modals,
 perfect tenses, "-ing" clauses, semicolons, Latin abbreviations, slop words,
 trailing conditions, synonym rotation. The rotation sets carry Skein's
