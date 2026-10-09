@@ -68,6 +68,19 @@ def test_a_consented_merge_moves_what_only_the_source_could_read(client, fresh_d
     )
 
 
+def test_a_merge_request_names_a_person(fresh_db):
+    """resolve_teammate matches agent rows, so a request could name one as the
+    target. No agent confirms on REST, so the request sat pending, and it
+    blocked every later request from the source (one pending per source)."""
+    users.ensure_user("ava")
+    users.ensure_user("scout", kind="agent")
+    with pytest.raises(ValueError, match="agent"):
+        merges.request("scout", actor="ava")
+    assert db.query("SELECT 1 FROM merge_requests") == []
+    users.ensure_user("bob")
+    assert merges.request("bob", actor="ava")["status"] == "pending"
+
+
 def test_either_account_can_stop_a_merge_request(fresh_db):
     for name in ("ava", "ava2", "cy"):
         users.ensure_user(name)

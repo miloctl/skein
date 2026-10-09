@@ -30,6 +30,7 @@ keeps its existing `minimum_core` and needs no change.
 - A title made of one long token (a pasted id, a URL) wraps on My Day, in a task row, and in an approval's payload table, so a phone page no longer scrolls sideways.
 - `SKEIN_AUX_MODEL` names a second model, on the same provider, for the side calls nobody reads as a reply: the summary a long chat makes to stay inside its context window, and the title of a new chat. Empty, the team-default model does both, as before. A summary by the aux model records its own usage row at that model's price. Settings → AI runtime shows the model in force under "Summaries and titles".
 - A 1:1 pairing names people only. `POST /api/private/pairs` refuses an agent identity as the lead or the subject; an offer with an agent as the lead was accepted at once and recorded a consent no person gave.
+- A merge request names a person's account. `POST /api/merge-requests` refuses an agent identity as the target; such a request sat pending for good, because no agent confirms, and it blocked every later request from the same account.
 
 ### Operations
 
