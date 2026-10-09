@@ -149,7 +149,7 @@ def test_a_row_the_viewer_cannot_read_is_counted_by_neither(client, fresh_db):
     assert client.get("/api/attention").json()["yours"] == 0
 
 
-def test_committed_work_leads_the_day(client):
+def test_committed_work_leads_the_day(client, pinned_clock):
     """The weekly ritual produces a commitment and a priority-and-date sort
     ignores it: an unplanned high-priority row outranks the work the reader
     told the team they would do.
@@ -176,7 +176,7 @@ def test_committed_work_leads_the_day(client):
     assert [t["id"] for t in tasks][:2] == [quiet["id"], loud["id"]]
 
 
-def test_urgent_work_is_not_buried_under_the_plan(client):
+def test_urgent_work_is_not_buried_under_the_plan(client, pinned_clock):
     """The commitment leads the day, but it is not the FIRST key. `urgent` is
     the word this team reserves for "drop what you are doing", and a Monday
     plan capped at five per person would otherwise put it at position six."""

@@ -142,12 +142,12 @@ def test_an_account_that_is_not_due_is_never_erased(client, fresh_db):
     assert erasure.holdings("leaver")["standups"] == 1
 
 
-def test_the_first_erase_lands_on_the_date_shown(client, fresh_db):
+def test_the_first_erase_lands_on_the_date_shown(client, fresh_db, pin_now):
     """The roster says "on <date>". A clock that counted to the second
     erased a day later than it said for most deactivations."""
     users.ensure_human_identity("leaver")
     users.set_active("leaver", False, actor="ava")
-    day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    day = pin_now(erasure).replace(hour=0, minute=0, second=0, microsecond=0)
     late_on_the_day = day - timedelta(days=erasure.GRACE_DAYS) + timedelta(hours=23)
     db.execute(
         "UPDATE users SET deactivated_at = ? WHERE name = 'leaver'",

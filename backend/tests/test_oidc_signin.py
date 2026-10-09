@@ -560,7 +560,7 @@ def test_token_is_off_outside_oidc_mode(client):
     assert r.status_code == 404
 
 
-def test_token_is_rate_capped_for_anonymous_callers(client, monkeypatch, fresh_db):
+def test_token_is_rate_capped_for_anonymous_callers(client, monkeypatch, fresh_db, pinned_window):
     """The one surface a signed-out caller can use to make the server call the
     identity provider. Uncapped, it is an amplifier pointed at the IdP."""
     _as_oidc(monkeypatch)

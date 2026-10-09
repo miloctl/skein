@@ -47,7 +47,7 @@ def test_the_viewer_reaches_the_scoped_parts(fresh_db):
     assert {d["title"] for d in other} == {"workspace one"}
 
 
-def test_last_week_carryover_is_only_unfinished_work(fresh_db):
+def test_last_week_carryover_is_only_unfinished_work(fresh_db, pinned_clock):
     """The carryover is the part a kept-% cannot show. Including done tasks
     would make every week look like it rolled forward."""
     done = work.create_task("shipped", actor="tester")
@@ -76,7 +76,7 @@ def test_the_weeks_ahead_are_bounded(fresh_db):
     assert len(planning.cockpit(ahead_weeks=0)["capacity_ahead"]) == 1
 
 
-def test_a_private_absence_reason_never_leaves_the_workspace_tier(fresh_db):
+def test_a_private_absence_reason_never_leaves_the_workspace_tier(fresh_db, pinned_clock):
     """Proven by mutation to be uncovered: deleting the mask in
     portfolio.py::capacity_ahead leaked every private absence REASON through
     GET /api/planning to every CurrentUser, and 90 tests across five files
@@ -120,7 +120,7 @@ def test_a_private_absence_reason_never_leaves_the_workspace_tier(fresh_db):
     assert away["mira"] == "pto"
 
 
-def test_a_short_allocation_still_loads_its_week(fresh_db):
+def test_a_short_allocation_still_loads_its_week(fresh_db, pinned_clock):
     """Overlap, not containment. The comment says containment would hide every
     allocation shorter than seven days, and only a sub-week window can tell
     the two predicates apart - a length check cannot."""

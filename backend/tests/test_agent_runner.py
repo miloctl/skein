@@ -1360,7 +1360,7 @@ def test_an_unopened_consult_budget_refuses(fresh_db):
     assert identity.take_consult() is False
 
 
-def test_a_runs_sub_agent_spend_counts_toward_its_daily_ceiling(fresh_db):
+def test_a_runs_sub_agent_spend_counts_toward_its_daily_ceiling(fresh_db, pinned_clock):
     """Consults and the planner record under their own names on the run's
     thread, so the daily ceiling read only the outer agent's rows."""
     from app import db

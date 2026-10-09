@@ -106,7 +106,7 @@ def test_insights_returns_no_person_keyed_rows(fresh_db):
     assert "mira" not in str(adoption.adoption())
 
 
-def test_the_two_rolling_windows_are_the_same_width(fresh_db):
+def test_the_two_rolling_windows_are_the_same_width(fresh_db, pinned_clock):
     """The current window counted back a full WINDOW_DAYS from an inclusive
     today, giving 29 days against the prior window's 28."""
     from datetime import timedelta

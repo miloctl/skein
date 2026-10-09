@@ -1514,7 +1514,10 @@ def test_job_trigger_input_is_copied_and_read_only():
         job.trigger["hours"] = 2  # type: ignore[index]
 
 
-def test_extension_job_claims_one_run_per_time_window(fresh_db):
+def test_extension_job_claims_one_run_per_time_window(fresh_db, pin_now):
+    from app import main
+
+    pin_now(main)
     calls: list[str] = []
     module = _module(
         jobs=(
@@ -2044,12 +2047,14 @@ def test_event_visibility_selectors_come_from_the_closed_catalog():
             ExtensionRegistry.build((module,))
 
 
-def test_one_dispatch_window_is_claimed_once(fresh_db):
+def test_one_dispatch_window_is_claimed_once(fresh_db, pin_now):
     """Two workers that both selected the same pending rows invoked one
     subscriber twice before either wrote its receipt. The job claims its
     minute window with the same CAS every other job uses."""
+    from app import main
     from app.main import _job_specs
 
+    pin_now(main)
     registry = ExtensionRegistry.build(())
     spec = next(
         item

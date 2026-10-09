@@ -494,6 +494,47 @@ def pinned_window(monkeypatch):
     return pinned
 
 
+@pytest.fixture
+def pinned_clock(monkeypatch):
+    """Hold db.now() and db.today() at one instant.
+
+    Every surface a person reads as "today" (spent_today, the stale-work
+    cutoff, the standup chain, the daily backup claim, the rolling windows)
+    reads db.today() when it runs. A test that computes the same day up
+    front disagrees with it across a midnight, and a row it filed as today
+    reads as yesterday. The test derives its dates from the value returned
+    here, and the service reads the same one."""
+    from app import config, db
+
+    at = datetime.fromisoformat(db.now())
+    monkeypatch.setattr(db, "now", lambda: at.isoformat(timespec="seconds"))
+    monkeypatch.setattr(db, "today", lambda: at.astimezone(config.TZ).date())
+    return at
+
+
+@pytest.fixture
+def pin_now(monkeypatch):
+    """Freeze `datetime.now` inside one module that reads the clock directly
+    rather than through db.now(): services/jobs.py keys a firing on
+    `timestamp // period`, main.py claims the extension job and
+    event-dispatch windows the same way, and services/erasure.py::_due_before
+    starts the UTC day. pinned_clock does not reach them. Returns the instant,
+    so the test derives its own stamps from it."""
+
+    def pin(module, at=None):
+        at = at or datetime.now(UTC)
+
+        class Pinned(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return at.astimezone(tz) if tz else at.replace(tzinfo=None)
+
+        monkeypatch.setattr(module, "datetime", Pinned)
+        return at
+
+    return pin
+
+
 def _strong(client=None, name="tester"):
     from app.services.api_keys import create_key
 

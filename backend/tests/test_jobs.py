@@ -84,9 +84,11 @@ def test_health_endpoint_reports_jobs(client):
     assert {j["job"] for j in body["jobs"]} >= {"daily-digest", "daily-backup", "findings"}
 
 
-def test_one_process_runs_each_firing_and_a_lapsed_claim_is_retaken(fresh_db):
+def test_one_process_runs_each_firing_and_a_lapsed_claim_is_retaken(fresh_db, pin_now):
+    from app.services import jobs
     from app.services.jobs import JobSpec, run_job
 
+    pin_now(jobs)
     runs = []
     spec = JobSpec(
         "test-fire", lambda: runs.append(1), {"trigger": "cron", "hour": 3}, 24, retry_safe=True
@@ -152,8 +154,10 @@ def test_job_heartbeat_renews_only_its_live_acquisitions(fresh_db, retry_safe):
     assert fresh_db.query("SELECT 1 FROM job_runs WHERE job = 'active:live-work'") == []
 
 
-def test_an_unknown_job_failure_does_not_repeat_committed_effects(fresh_db):
+def test_an_unknown_job_failure_does_not_repeat_committed_effects(fresh_db, pin_now):
     from app.services import collab, jobs
+
+    pin_now(jobs)
 
     def interrupted():
         collab.save_note("Committed effect", "The external job stopped later", actor="system")
@@ -169,8 +173,10 @@ def test_an_unknown_job_failure_does_not_repeat_committed_effects(fresh_db):
     assert outcome["status"] == "error" and "unknown" in outcome["detail"].lower()
 
 
-def test_an_unsafe_job_records_unknown_completion_before_its_body(fresh_db):
+def test_an_unsafe_job_records_unknown_completion_before_its_body(fresh_db, pin_now):
     from app.services import jobs
+
+    pin_now(jobs)
 
     def stopped():
         raise SystemExit(1)
@@ -190,10 +196,11 @@ def test_an_unsafe_job_records_unknown_completion_before_its_body(fresh_db):
 
 @pytest.mark.parametrize("retry_safe", [False, True])
 def test_a_successful_body_keeps_its_receipt_when_outcome_logging_fails(
-    fresh_db, monkeypatch, retry_safe
+    fresh_db, monkeypatch, retry_safe, pin_now
 ):
     from app.services import jobs
 
+    pin_now(jobs)
     runs = []
 
     def unavailable(*_args, **_kwargs):

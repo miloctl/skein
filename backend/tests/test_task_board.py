@@ -109,7 +109,7 @@ def test_done_holds_the_last_seven_days(client, fresh_db):
     assert _ids(client.get("/api/tasks/board").json()["done"]) == [inside["id"]]
 
 
-def test_quiet_days_marks_only_in_progress_past_the_stale_cutoff(client, fresh_db):
+def test_quiet_days_marks_only_in_progress_past_the_stale_cutoff(client, fresh_db, pinned_clock):
     from app.services import slas, work
 
     cutoff = datetime.fromisoformat(
@@ -139,7 +139,7 @@ def test_quiet_days_marks_only_in_progress_past_the_stale_cutoff(client, fresh_d
         (datetime.now(UTC) - timedelta(days=30)).isoformat(timespec="seconds"),
     )
     cards = {row["id"]: row for row in client.get("/api/tasks/board").json()["open"]}
-    expected = (datetime.now(UTC) - (cutoff - timedelta(hours=1))).days
+    expected = (pinned_clock - (cutoff - timedelta(hours=1))).days
     assert cards[stale["id"]]["quiet_days"] == expected >= slas.STALE_WIP_DAYS
     assert cards[fresh["id"]]["quiet_days"] is None
     assert cards[old_todo["id"]]["quiet_days"] is None

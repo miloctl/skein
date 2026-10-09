@@ -24,7 +24,7 @@ def test_week_rituals_produce_packets_and_notify(client, fresh_db):
     assert any("Your week:" in n["message"] for n in notes)
 
 
-def test_manual_ritual_run_consumes_the_weekly_claim(fresh_db):
+def test_manual_ritual_run_consumes_the_weekly_claim(fresh_db, pinned_clock):
     from app.services import rituals, users
 
     users.ensure_user("mira")
