@@ -67,6 +67,17 @@ describe("a shared-chat draft", () => {
     expect(window.sessionStorage.getItem("skein-shared-draft:mira:other-room")).toBe("other draft");
   });
 
+  it("comes back after a remount of the same room", async () => {
+    // the chat page mounts a room with key={threadId}, so a switch remounts
+    render(<SharedChat threadId="shared-room" />);
+    await screen.findByRole("heading", { name: "Launch room" });
+    fireEvent.change(box("Launch room"), { target: { value: "still here" } });
+    cleanup();
+    render(<SharedChat threadId="shared-room" />);
+    await screen.findByRole("heading", { name: "Launch room" });
+    expect(box("Launch room").value).toBe("still here");
+  });
+
   it("is forgotten once the message is sent", async () => {
     render(<SharedChat threadId="shared-room" />);
     await screen.findByRole("heading", { name: "Launch room" });

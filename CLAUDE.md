@@ -272,9 +272,9 @@ what someone remembered to write down and silently condemns the rest.
 
 Never warm, no exceptions: destructive confirmations, permission refusals,
 data-loss warnings, anything shown during an incident, and any string that
-carries a count, measure, or time the reader must act on. An entity id, a
-zero-count line drawn only in the state that makes it zero, and a number
-inside a pitch's story are not that.
+carries a number the reader must act on - a count, a measure, or a time. An
+entity id, a zero-count line drawn only in the state that makes it zero, and
+a number inside a pitch's story are not that.
 
 Five places must MAINTAIN the voice rather than merely permit it - a
 future author is expected to keep feeding them: `lib/whimsy.ts` pools,

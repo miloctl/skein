@@ -41,7 +41,7 @@ describe("a paste that repeats an earlier one", () => {
       fireEvent.click(screen.getByRole("button", { name: /Extract proposals/i }));
     });
     expect(await screen.findByText(/1 proposal created/)).toBeTruthy();
-    expect(screen.getByText(/1 already pending from an earlier paste/)).toBeTruthy();
+    expect(screen.getByText(/1 already pending/)).toBeTruthy();
     expect(screen.getByText("already pending as #3")).toBeTruthy();
   });
 });

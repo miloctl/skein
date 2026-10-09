@@ -44,6 +44,22 @@ def check_kind(kind: str, timebox_end: str) -> None:
     db.validate_date("timebox_end", timebox_end, allow_clear=False)
 
 
+_PROJECT_CLASS = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+
+
+def _check_project_class(value: str) -> None:
+    """At every door the value enters (engagement create and update, a
+    lesson): it is matched against playbook project classes and printed into
+    a memory title, and "../x" was stored as one. Checked on input ONLY -
+    the close path hands a stored value to record_lesson, and a guard there
+    refused closing an experiment whose class was stored before the rule."""
+    if value and not _PROJECT_CLASS.match(value):
+        raise ValueError(
+            "project_class must be lowercase letters, digits, dashes or underscores,"
+            " 40 characters or fewer"
+        )
+
+
 def create_engagement(
     name: str,
     project_class: str = "general",
@@ -67,6 +83,7 @@ def create_engagement(
     ts = db.now()
     # one transaction: scope.resolve_write's membership check must not be able
     # to pass and then have the author leave the crew before the INSERT lands
+    _check_project_class(project_class)
     with db.transaction():
         _hold_name(name)
         # Closed names stay reserved too, or usage rollups split across
@@ -724,9 +741,6 @@ def capacity(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     return rows
 
 
-_PROJECT_CLASS = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
-
-
 def record_lesson(
     lesson: str,
     recommendation: str = "",
@@ -740,13 +754,7 @@ def record_lesson(
 ) -> dict:
     if not lesson.strip():
         raise ValueError("the lesson text is required")
-    if project_class and not _PROJECT_CLASS.match(project_class):
-        # it is matched against playbook project classes and printed into a
-        # memory title; "../x" was stored as one
-        raise ValueError(
-            "project_class must be lowercase letters, digits, dashes or underscores,"
-            " 40 characters or fewer"
-        )
+    _check_project_class(project_class)
     # filtered like the other link probes: an unfiltered probe accepts a
     # scoped id and refuses an absent one, and it also let a non-reader attach
     # a lesson to an engagement they cannot read

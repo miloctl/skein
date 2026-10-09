@@ -238,3 +238,5 @@ def test_a_bad_time_part_on_from_date_is_refused(fresh_db):
     with pytest.raises(ValueError, match="real date"):
         schedule.list_events(from_date="2026-10-01T99")
     assert schedule.list_events(from_date="2026-10-01T09:00") == []
+    with pytest.raises(ValueError, match="offset"):
+        schedule.list_events(from_date="2026-10-01T09:00+02:00")

@@ -315,7 +315,10 @@ def mark_source_read(user: str, source_entity: str, source_id: int) -> dict:
         " AND source_entity = ? AND source_id = ?",
         (now, user, source_entity, source_id),
     )
-    n += db.execute_rowcount(
+    # the team row's read is recorded and NOT counted: a count that moved on
+    # a team row the reader cannot list (its source dropped below workspace
+    # tier, policy_filter) answered "does (entity, id) exist" for any id
+    db.execute_rowcount(
         'INSERT INTO notification_reads (notification_id, "user", read_at)'
         " SELECT id, ?, ? FROM notifications WHERE \"user\" = 'team' AND read_at IS NULL"
         " AND source_entity = ? AND source_id = ?"

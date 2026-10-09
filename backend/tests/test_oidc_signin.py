@@ -1003,7 +1003,8 @@ def test_a_first_sign_in_tells_the_named_administrators(fresh_db, monkeypatch):
     from app.services import notifications, oidc_identities, users
 
     users.ensure_user("ava")
-    monkeypatch.setattr(config, "ADMINS", frozenset({"ava", "nina"}))
+    # the configured spelling differs from the roster's, as routes/deps.py allows
+    monkeypatch.setattr(config, "ADMINS", frozenset({"Ava", "Nina"}))
     nina = oidc_identities.resolve("https://idp.example", "sub-nina", "nina")["name"]
     assert nina == "nina"
     for_ava = [n["message"] for n in notifications.list_notifications("ava")]

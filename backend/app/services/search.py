@@ -65,7 +65,7 @@ _ENTITY_TABLE = {
     "task": "tasks",
 }
 # the `kind=` values GET /api/search accepts, in the entity's own name
-INDEXED_KINDS = frozenset(_ENTITY_TABLE)
+INDEXED_KINDS = frozenset(_ENTITY_TABLE) - {"comment"}  # never indexed, see above
 
 
 def _tier_of(entity: str, entity_id: int) -> tuple[str, int | None] | None:
@@ -245,6 +245,9 @@ _STOPWORDS = frozenset({
 # fmt: on
 
 
+FALLBACK_WORDS = 32
+
+
 def fallback_terms(q: str) -> list[str]:
     """The words worth an any-word search once the phrase found nothing:
     3+ characters and not a function word. Empty when the question was
@@ -256,7 +259,9 @@ def fallback_terms(q: str) -> list[str]:
     tokens = q.split()
     words = [w for w in tokens if len(w) > 2 and w.strip(".,;:!?").lower() not in _STOPWORDS]
     if words and (len(words) > 1 or len(words) != len(tokens)):
-        return words
+        # bounded: one tsquery per word, OR-ed, and a 20k-character chat
+        # message (every turn recalls memories by its text) cost a second
+        return words[:FALLBACK_WORDS]
     return []
 
 
@@ -352,7 +357,9 @@ def search(
     hits = visible_hits(hits, viewer or scope.NOBODY, reader)[:limit]
     # the by-id fetch is its own door: `note 4` resolves a row without
     # matching anything, so the tier has to be checked here too
-    direct = None if terms or entity else _short_id_hit(q)
+    direct = None if terms else _short_id_hit(q)
+    if direct and entity and direct["entity"] != entity:
+        direct = None
     if direct and not visible_hits([direct], viewer or scope.NOBODY, reader):
         direct = None
     if direct:

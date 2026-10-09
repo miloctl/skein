@@ -180,27 +180,30 @@ export function SharedChat({
   // The draft belongs to the room it was typed in. Switching rooms remounts
   // or re-props this component, and the text went with it; sessionStorage
   // keyed by person and room keeps it for this tab and is cleared with the
-  // sign-out (lib/auth.ts). Restored DURING RENDER when the room changes
+  // sign-out (lib/auth.ts). Restored DURING RENDER when the KEY changes
   // (React's prop-change adjustment, never an effect): an effect restored it
   // one commit late, and the write effect below had already stored the OLD
-  // room's text under the NEW room's key in between.
-  const [draftRoom, setDraftRoom] = useState<string | null>(null);
-  if (draftRoom !== threadId) {
-    setDraftRoom(threadId);
+  // room's text under the NEW room's key in between. The key, not the room:
+  // on a reload this mounts before the session bootstrap answers, when
+  // getUser() is still "anonymous", and keyed on the room alone the restore
+  // ran once under that name and left the person's draft orphaned.
+  const [draftFor, setDraftFor] = useState<string | null>(null);
+  const key = draftKey(threadId);
+  if (draftFor !== key) {
+    setDraftFor(key);
     let saved = "";
     try {
-      saved = window.sessionStorage.getItem(draftKey(threadId)) ?? "";
+      saved = window.sessionStorage.getItem(key) ?? "";
     } catch {}
     setDraft(saved);
   }
   useEffect(() => {
-    if (draftRoom === null) return;
+    if (draftFor === null) return;
     try {
-      const key = draftKey(draftRoom);
-      if (draft) window.sessionStorage.setItem(key, draft);
-      else window.sessionStorage.removeItem(key);
+      if (draft) window.sessionStorage.setItem(draftFor, draft);
+      else window.sessionStorage.removeItem(draftFor);
     } catch {}
-  }, [draft, draftRoom]);
+  }, [draft, draftFor]);
   const [sel, setSel] = useState(0);
   const [busy, setBusy] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);

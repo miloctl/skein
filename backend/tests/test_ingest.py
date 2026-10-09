@@ -214,3 +214,10 @@ def test_the_same_notes_pasted_twice_name_the_pending_proposals(client, fresh_db
     assert len(fresh_db.query("SELECT 1 FROM pending_changes WHERE status = 'pending'")) == len(
         first["proposals"]
     )
+    # the re-paste filed nothing: the ledger says so and the team is not told twice
+    ledger = fresh_db.query("SELECT detail FROM activity WHERE action = 'ingest_notes' ORDER BY id")
+    assert [row["detail"][:1] for row in ledger] == ["5", "0"]
+    notices = fresh_db.query(
+        "SELECT 1 FROM notifications WHERE message LIKE '%ingested meeting notes%'"
+    )
+    assert len(notices) == 1

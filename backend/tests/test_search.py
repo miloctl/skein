@@ -219,3 +219,25 @@ def test_kind_limits_the_hits_to_one_entity(client, fresh_db):
     refused = client.get("/api/search", params={"q": "vendor contract", "kind": "widget"})
     assert refused.status_code == 400 and "widget" not in refused.json()["detail"]
     assert "note" in refused.json()["detail"]
+    # comments are never indexed, so the kind is not offered
+    assert client.get("/api/search", params={"q": "x", "kind": "comment"}).status_code == 400
+    # the short-id jump survives a kind that matches it, and not one that does not
+    tid = work.create_task("short id target")["id"]
+    assert (
+        client.get("/api/search", params={"q": f"task {tid}", "kind": "task"}).json()[0][
+            "entity_id"
+        ]
+        == tid
+    )
+    assert client.get("/api/search", params={"q": f"task {tid}", "kind": "note"}).json() == []
+
+
+def test_the_any_word_fallback_is_bounded(fresh_db):
+    """One tsquery per word, OR-ed: a 20k-character chat message cost a
+    second of search before every turn."""
+    from app.services import search
+
+    assert (
+        len(search.fallback_terms(" ".join(f"word{i}" for i in range(500))))
+        == search.FALLBACK_WORDS
+    )

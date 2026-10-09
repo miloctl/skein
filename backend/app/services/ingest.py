@@ -191,18 +191,21 @@ def ingest_notes(text: str, *, actor: str, private: bool = False, event_id: int 
             continue
         proposals.append({"id": p["id"], "kind": kind, "line": line[:80]})
 
+    # the rows this paste filed; a line already pending counts nowhere, or
+    # a re-paste told the team twice about the same five
+    new = [p for p in proposals if not p.get("already_pending")]
     db.log_activity(
         actor,
         "ingest_notes",
-        f"{len(proposals)} proposal{'' if len(proposals) == 1 else 's'} from pasted notes",
+        f"{len(new)} proposal{'' if len(new) == 1 else 's'} from pasted notes",
     )
-    if proposals and not private:
+    if new and not private:
         from .notifications import notify
 
         notify(
             "team",
-            f"{actor} ingested meeting notes: {len(proposals)}"
-            f" proposal{'' if len(proposals) == 1 else 's'} awaiting review",
+            f"{actor} ingested meeting notes: {len(new)}"
+            f" proposal{'' if len(new) == 1 else 's'} awaiting review",
             tier="digest",
             link="/review",
         )

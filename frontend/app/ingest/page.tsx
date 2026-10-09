@@ -166,11 +166,7 @@ export default function IngestPage() {
                   </>
                 )}
                 {created.length > 0 && pending.length > 0 && " · "}
-                {pending.length > 0 && (
-                  <>
-                    {pending.length} already pending from an earlier paste
-                  </>
-                )}
+                {pending.length > 0 && <>{pending.length} already pending</>}
                 {" - "}
                 <Link href="/review" className="font-medium underline">
                   review them

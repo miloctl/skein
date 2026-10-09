@@ -12,8 +12,8 @@
 # drift away from Page Help, the Field Guide, and Bosun on the next edit.
 #
 # Voice rules: dry, terse, no exclamation marks, no praise adjectives.
-# The dash-tail punchline (`- and the X does Y`) is already in fourteen
-# pitches; the next one does not reach for it.
+# The dash-tail punchline (`... - and the X does Y`) is already common in
+# the pitches; the next one does not reach for it.
 #
 # Write the SEARCH shortcut as the literal ⌘K. It is a TOKEN, not the text
 # the reader gets: the guide page renders pitch/how through
@@ -287,7 +287,7 @@ knots:
     knot: Eskimo Bowline
     set: loops
     ties: mark
-    pitch: Help opens on the cards for the page you are on - the right knot, already beside the loose end.
+    pitch: Help opens on the cards for the page you are on, the right knot already beside the loose end.
     how: Open Help in the top bar. Read the first page cards or ask the Bosun. If you need more, select Show more.
     link: /
     since: 2026-08-16

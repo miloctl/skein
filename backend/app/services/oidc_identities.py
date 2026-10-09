@@ -79,11 +79,16 @@ def resolve(issuer: str, subject: str, display_name: str) -> dict:
         # names people; an IdP admin group cannot be enumerated here.
         from .. import config
         from .notifications import notify
+        from .users import fold, list_users
 
+        # the roster's spelling, not SKEIN_ADMINS' (routes/deps.py matches
+        # the two case-insensitively): a notice addressed to "Casey" never
+        # reached the roster's casey
+        roster = {fold(u["name"]): u["name"] for u in list_users()}
         for admin in sorted(config.ADMINS):
-            if admin != human["name"]:
+            if fold(admin) != fold(human["name"]):
                 notify(
-                    admin,
+                    roster.get(fold(admin), admin),
                     f"{human['name']} signed in for the first time and joined the roster.",
                     link="/people",
                 )

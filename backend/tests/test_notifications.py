@@ -558,7 +558,8 @@ def test_opening_the_source_clears_the_notices_about_it(client, fresh_db):
         json={"source_entity": "task", "source_id": tid},
         headers=headers,
     )
-    assert r.status_code == 200 and r.json()["marked"] == 2
+    # the count names the reader's own rows; the team row's read is recorded, not counted
+    assert r.status_code == 200 and r.json()["marked"] == 1
     unread = [n["message"] for n in client.get("/api/notifications", headers=headers).json()]
     assert unread == ["Other task."]
     # the team row is read for ava alone

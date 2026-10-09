@@ -274,6 +274,7 @@ export function TaskPeek() {
   // direct setState from the child: the fetch effect stays the single place
   // that owns `loaded`.
   const [nonce, setNonce] = useState(0);
+  const noticesCleared = useRef<number | null>(null);
   const reload = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
@@ -291,13 +292,19 @@ export function TaskPeek() {
         );
         // the reader has now seen the thing the notice named, so it leaves
         // My Day (services/notifications.py::mark_source_read); the event
-        // makes My Day and the nav badge refetch
-        api("/api/notifications/read", {
-          method: "POST",
-          body: JSON.stringify({ source_entity: "task", source_id: taskId }),
-        })
-          .then(() => window.dispatchEvent(new CustomEvent("skein-attention-change")))
-          .catch(() => {});
+        // makes My Day and the nav badge refetch. ONCE per opened task: this
+        // effect also runs on every in-panel save and every 2 s while a
+        // delegated wake is pending, and each event empties the GET cache
+        // and refetches four surfaces.
+        if (noticesCleared.current !== taskId) {
+          noticesCleared.current = taskId;
+          api("/api/notifications/read", {
+            method: "POST",
+            body: JSON.stringify({ source_entity: "task", source_id: taskId }),
+          })
+            .then(() => window.dispatchEvent(new CustomEvent("skein-attention-change")))
+            .catch(() => {});
+        }
       })
       // 404 covers "no such task" AND "not yours to read", deliberately -
       // services/scope.py raises the same sentence for both, because any

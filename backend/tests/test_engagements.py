@@ -258,3 +258,18 @@ def test_update_milestone_refuses_a_blank_title(client):
     assert r.status_code == 400
     row = next(m for m in client.get("/api/milestones").json() if m["id"] == mid)
     assert row["title"] == "Named"
+
+
+def test_a_project_class_is_checked_where_it_enters_not_where_it_is_read(fresh_db):
+    """A guard on record_lesson alone refused closing an experiment whose
+    class was stored as "Web App": the refusal named a field the closer never
+    sent, and the engagement stayed active."""
+    import pytest
+
+    from app.services import engagements, users
+
+    users.ensure_user("ava")
+    with pytest.raises(ValueError, match="project_class"):
+        engagements.create_engagement("Trial", project_class="Web App", actor="ava")
+    eid = engagements.create_engagement("Trial", project_class="web-app", actor="ava")["id"]
+    assert engagements.record_lesson("x", engagement_id=eid, project_class="web-app", actor="ava")

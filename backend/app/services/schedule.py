@@ -365,9 +365,19 @@ def list_events(
             if len(from_date) > 10:
                 # the pattern accepts any tail; "2026-10-01T99" compared as a
                 # string and answered [] as if nothing was planned
-                datetime.fromisoformat(from_date)
+                parsed = datetime.fromisoformat(from_date)
+                if parsed.tzinfo is not None:
+                    # compared as text against the naive stored form, an
+                    # offset sorted every same-day event out
+                    raise ValueError(
+                        "from_date must not carry a time zone offset. Give the team's local time."
+                    )
         except ValueError as exc:
-            raise ValueError("from_date must be a real date (YYYY-MM-DD) or ISO timestamp") from exc
+            raise ValueError(
+                str(exc)
+                if "offset" in str(exc)
+                else "from_date must be a real date (YYYY-MM-DD) or ISO timestamp"
+            ) from exc
     frag, vp = scope.visible_filter(viewer, "events")
     if from_date:
         rows = db.query(

@@ -208,7 +208,7 @@ class MockSynthesizer:
         self.answered = answered
 
     async def stream_async(self, message: str):
-        # carries a number, so it stays plain: CLAUDE.md bars warmth in any
-        # string with a number in it
+        # a count the reader acts on, so it stays plain (CLAUDE.md, the
+        # number clause under "User-visible wording")
         word = "member" if self.answered == 1 else "members"
         yield {"data": f"{self.answered} {word} answered. No model is configured to merge them."}
