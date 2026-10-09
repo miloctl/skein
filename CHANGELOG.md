@@ -33,6 +33,7 @@ keeps its existing `minimum_core` and needs no change.
 - A merge request names a person's account. `POST /api/merge-requests` refuses an agent identity as the target; such a request sat pending for good, because no agent confirms, and it blocked every later request from the same account.
 - `POST /api/notifications/read` answers 404 for another person's notification and for an id that does not exist. It answered 200 with `marked: 0`, so a client with a wrong id read it as a dismiss.
 - `POST /api/users/{name}/active` answers 404 "no user has that name" for a name with no roster row, the same answer the rename route gives. It answered 400 with different words for the same condition.
+- `GET /api/private/brief/{person}` bounds `days` to 1 through 366. A negative value answered an empty brief with `since` in the future, and a very large one answered the clock's overflow text.
 
 ### Operations
 
