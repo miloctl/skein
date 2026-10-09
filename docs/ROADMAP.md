@@ -275,6 +275,22 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
   re-adding a pull_request trigger; consider rootless docker for the runner.
   Ops work on the runner host, not a repo change. (The proxy-aware client
   addresses item that lived beside this one shipped: `SKEIN_TRUST_PROXY_HOPS`.)
+- **The Postgres service image and Docker Hub's anonymous pull limit** [S,
+  owner decision] - every database job pulls `postgres:17-alpine` from Docker
+  Hub unauthenticated, three jobs per run, and GitHub's shared runner IPs
+  exhaust the 100-pulls-per-six-hours limit on a busy evening (2026-10-09:
+  the 0.6.16 release run failed twice in "Initialize containers" with
+  `toomanyrequests` while three Dependabot runs pulled beside it). A rerun
+  cannot rescue a release run: `validate_release_run.py` refuses a run with
+  more than one `packages` attempt, so every failure costs a new commit.
+  Three ways out: Docker Hub credentials on the service containers
+  (`credentials:` in both ci.yml copies, two repository secrets; smallest,
+  needs an account); the ECR Public mirror
+  (`public.ecr.aws/docker/library/postgres`) with a new digest, since its
+  image index differs from Docker Hub's and the pin sits in thirteen files
+  under the release contract; or PostgreSQL 17 from the PGDG apt repository
+  in a step, as the "PostgreSQL 17 client" step already does, which removes
+  Docker from CI (largest, and the Gitea runner image must allow apt).
 
 ## Work durability and multi-replica validation
 
