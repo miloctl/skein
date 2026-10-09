@@ -1537,7 +1537,8 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
         db.name_lock(db.LOCK_IDENTITY, fold(name))
         row = db.query_one("SELECT * FROM users WHERE name = ?", (name,))
         if not row:
-            raise ValueError("no user with that name")
+            # the rename route's words for the same miss (rename_user)
+            raise db.NotFound("no user has that name")
         if name == actor and not active:
             raise ValueError("you cannot deactivate yourself")
         if not active:
