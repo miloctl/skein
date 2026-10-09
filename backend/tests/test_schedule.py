@@ -211,3 +211,20 @@ def test_the_ics_feed_keeps_upcoming_events_behind_a_long_history(client, fresh_
 def test_an_end_before_the_start_or_of_another_kind_is_refused(client, fresh_db, starts, ends):
     r = client.post("/api/events", json={"title": "Bad", "starts_at": starts, "ends_at": ends})
     assert r.status_code == 400
+
+
+def test_an_event_year_outside_four_digits_is_refused_so_the_list_keeps_answering(
+    client, fresh_db, monkeypatch
+):
+    """strftime %Y does not zero-pad a year under 1000 on glibc, so a typo
+    like 0026 stored as '26-10-20T15:00' - a value fromisoformat refuses, and
+    every reader converts (db.local_wall). One such row made GET /api/events
+    answer 400 for every person. At the other edge, astimezone overflows past
+    year 9999 in any zone west of UTC, which was a 500."""
+    r = client.post("/api/events", json={"title": "typo", "starts_at": "0026-10-20T15:00"})
+    assert r.status_code == 400
+    assert client.get("/api/events").status_code == 200
+    _team_zone(monkeypatch, "America/New_York")
+    r = client.post("/api/events", json={"title": "far", "starts_at": "9999-12-31T23:59"})
+    assert r.status_code == 400
+    assert client.get("/api/events").status_code == 200

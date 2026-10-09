@@ -23,6 +23,14 @@ def _canon(label: str, value: str) -> str:
         raise ValueError(
             f"{label} must be an ISO timestamp (for example 2026-07-24T15:00)"
         ) from None
+    # Both bounds protect every READER, not only this write. strftime %Y does
+    # not zero-pad a year under 1000 on glibc, so a typo like 0026 stored as
+    # "26-10-20T15:00" - and db.local_wall refuses that in every list, so one
+    # row made GET /api/events answer 400 for everyone. astimezone overflows
+    # past year 9999, at this conversion in a zone west of UTC and at
+    # local_wall's in a zone east of it.
+    if not 1000 <= dt.year <= 9000:
+        raise ValueError(f"{label} must be in a year from 1000 to 9000")
     if len(value) == 10:
         return value  # date-only stays a date: an all-day VEVENT, not midnight
     # no offset means the TEAM's clock: the calendar's datetime-local field,
