@@ -18,6 +18,9 @@ dependencies = [
     "httpx>=0.28.1,<1",
     # Older urllib3 releases permit proxy TLS bypass and unbounded response decoding.
     "urllib3>=2.8.0",
+    # multidict 6.7.0 to 6.9.0 leak references in items-view union and subtraction
+    # (aiohttp headers), so a hostile sequence grows process memory without bound.
+    "multidict>=6.9.1",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",

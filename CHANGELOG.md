@@ -27,6 +27,7 @@ keeps its existing `minimum_core` and needs no change.
 ### Contracts
 
 - No extension API or data-format changes. Extension API 1.0 remains compatible.
+- The Python package requires multidict 6.9.1 or later to exclude versions that leak memory in items-view union and subtraction.
 
 ### Behavior
 
@@ -37,6 +38,7 @@ keeps its existing `minimum_core` and needs no change.
 ### Operations
 
 - No new deployment settings or database migrations. The deployment manifests and migration files changed in comments only.
+- Core and workplace Python locks pin multidict 6.9.1. The frontend host and workplace example override sharp to 0.35.5 and KaTeX to 0.18.11, and both npm locks use source-map-js 1.2.2. These versions address published dependency security advisories. Mermaid still declares KaTeX 0.16, and it renders math through the KaTeX call that 0.18 keeps. Copy the sharp and KaTeX overrides into the workplace root `package.json` and regenerate its npm lock.
 
 ## 0.6.13 - 2026-09-30
 
