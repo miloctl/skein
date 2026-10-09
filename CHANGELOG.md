@@ -22,10 +22,13 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- `SKEIN_AUX_MODEL` names a second model, on the same provider, for the side calls nobody reads as a reply: the summary a long chat makes to stay inside its context window, and the title of a new chat. Empty, the team-default model does both, as before. A summary by the aux model records its own usage row at that model's price. Settings → AI runtime shows the model in force under "Summaries and titles".
+
 ### Operations
 
+- One new optional deployment setting, `SKEIN_AUX_MODEL`. No database migrations.
 - The core and workplace Python locks select Strands Agents SDK 1.59.0. The session drill checked 1.57.1-written chats under 1.59.0 and a return to 1.57.1. The declared minimum stays 1.55.1.
-- The core and workplace Python locks take the current release of every dependency except the Strands SDK: FastAPI 0.143, Starlette 1.7, pydantic 2.14, uvicorn 0.54, psycopg 3.3.6, and the OpenTelemetry 1.45 line among them. No new deployment settings or database migrations.
+- The core and workplace Python locks take the current release of every dependency except the Strands SDK: FastAPI 0.143, Starlette 1.7, pydantic 2.14, uvicorn 0.54, psycopg 3.3.6, and the OpenTelemetry 1.45 line among them.
 
 ## 0.6.14 - 2026-10-08
 

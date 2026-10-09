@@ -518,9 +518,10 @@ class _PlainSummaries(SummarizingConversationManager):
     model, so a reasoning level would pay for reasoning nobody reads:
     `summary_model` builds the model without the level."""
 
-    def __init__(self, summary_model=None, **kwargs):
+    def __init__(self, summary_model=None, thread_id="", **kwargs):
         super().__init__(**kwargs)
         self._summary_model = summary_model
+        self._thread_id = thread_id
 
     def _generate_summary(self, messages, agent):
         # the SDK's dispatch point; test_context_strategy.py fails if an
@@ -537,10 +538,27 @@ class _PlainSummaries(SummarizingConversationManager):
         # The SDK calls model.stream() directly and drops the usage, so a
         # summary (the early chat, sent again) reached no budget or ceiling.
         # On the chat agent's own metrics it lands in the turn's usage_log row
-        # (services/usage.py::row_from_agent), priced at the same model.
-        for usage in spent:
-            with contextlib.suppress(Exception):
-                agent.event_loop_metrics.update_usage(usage)
+        # (services/usage.py::row_from_agent), priced at the same model. That
+        # is wrong for SKEIN_AUX_MODEL, a different model at a different
+        # price, so its summaries are their own rows. One INSERT per summary,
+        # on the loop thread: a chat summarizes once per window, not per turn.
+        own_id = _config_model_id(model)
+        if own_id and own_id != _config_model_id(agent.model) and self._thread_id:
+            from ..services import usage as usage_svc
+
+            for usage in spent:
+                with contextlib.suppress(Exception):
+                    usage_svc.record_chat_usage(
+                        self._thread_id,
+                        "summary",
+                        own_id,
+                        int(usage.get("inputTokens", 0)),
+                        int(usage.get("outputTokens", 0)),
+                    )
+        else:
+            for usage in spent:
+                with contextlib.suppress(Exception):
+                    agent.event_loop_metrics.update_usage(usage)
         content = [b for b in summary["content"] if "reasoningContent" not in b]
         if not content:
             raise RuntimeError("the summary carried reasoning only")
@@ -556,6 +574,12 @@ class _PlainSummaries(SummarizingConversationManager):
         # reasoning only: no summary beats a user message the provider refuses
         self._summary_message = {**restored[0], "content": content} if content else None
         return [self._summary_message] if self._summary_message else None
+
+
+def _config_model_id(model) -> str:
+    with contextlib.suppress(Exception):
+        return str(model.get_config().get("model_id") or "")
+    return ""
 
 
 class _Metered:
@@ -577,7 +601,7 @@ class _Metered:
 _PlainSummaries.__name__ = SummarizingConversationManager.__name__
 
 
-def _conversation_manager(summary_model=None):
+def _conversation_manager(summary_model=None, thread_id=""):
     """How a long chat is kept inside the context window.
 
     Branches on the STRATEGY, never on the provider name - the provider branch
@@ -600,6 +624,7 @@ def _conversation_manager(summary_model=None):
     if effective_context_strategy() == "summarize":
         return _PlainSummaries(
             summary_model,
+            thread_id=thread_id,
             summary_ratio=config.CONTEXT_SUMMARY_RATIO,
             preserve_recent_messages=config.CONTEXT_PRESERVE_RECENT,
             summarization_system_prompt=SUMMARIZER_PROMPT,
@@ -825,7 +850,7 @@ def build_titler():
     # tools=[] for the reason build_synthesizer gives: a titler that cannot
     # see a tool cannot file anything, so this needs no gate reasoning
     return Agent(
-        model=_model(),
+        model=_model(config.AUX_MODEL),
         system_prompt=TITLE_PROMPT,
         tools=[],
         callback_handler=None,
@@ -1627,9 +1652,16 @@ def build_agent(
     # admin pick again here can send an image block to a text-only model when a
     # pick changes between those two steps.
     model_kw = {"model_id": resolved_model or beh["model"], "temperature": beh["temperature"]}
-    manager = _conversation_manager(
-        summary_model=(lambda: _model(**model_kw)) if reasoning else None
+    # the aux model summarizes without the level too: a summary is a helper
+    # call either way (config.AUX_MODEL)
+    summary_model = (
+        (lambda: _model(config.AUX_MODEL))
+        if config.AUX_MODEL
+        else (lambda: _model(**model_kw))
+        if reasoning
+        else None
     )
+    manager = _conversation_manager(summary_model, thread_id=thread_id)
     if stateless:
         return Agent(
             model=_model(**model_kw, reasoning=reasoning),

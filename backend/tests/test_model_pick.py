@@ -338,6 +338,7 @@ def test_the_summary_reports_the_team_default_from_one_state(fresh_db, real_prov
         "output_cap",
         "attachments",
         "vision_sidecar",
+        "aux_model",
         "long_chat",
         "reasoning",
         "model_menu",
@@ -357,6 +358,8 @@ def test_the_summary_reports_the_team_default_from_one_state(fresh_db, real_prov
     assert _row(summary, "attachments")["value"] == "Direct: image, document. Images: direct."
     assert _row(summary, "vision_sidecar")["value"] == "Not set"
     assert _row(summary, "long_chat")["value"] == "sliding"
+    assert _row(summary, "aux_model")["value"] == "Team-default model"
+    assert _row(summary, "aux_model")["source"] == ""
     assert _row(summary, "reasoning") == {
         "id": "reasoning",
         "label": "Reasoning",
@@ -543,3 +546,18 @@ def test_the_pick_survives_in_activity(fresh_db, real_provider):
     )
     assert row is not None
     assert row["actor"] == "admin"
+
+
+def test_the_summary_names_the_aux_model_and_its_source(fresh_db, real_provider, monkeypatch):
+    monkeypatch.setattr(config, "AUX_MODEL", "small-aux")
+    summary = settings.model_configuration_summary()
+    assert _row(summary, "aux_model")["value"] == "small-aux"
+    assert _row(summary, "aux_model")["source"] == "SKEIN_AUX_MODEL"
+
+
+def test_an_aux_model_outside_the_menu_warns_like_the_main_one(monkeypatch):
+    monkeypatch.setattr(config, "EFFECTIVE_PROVIDER", "anthropic")
+    monkeypatch.setattr(config, "MODELS", {"opus": {}})
+    monkeypatch.setattr(config, "MODEL_ID", "opus")
+    monkeypatch.setattr(config, "AUX_MODEL", "haiku")
+    assert config.menu_warnings() == ["SKEIN_AUX_MODEL is not in the SKEIN_MODELS menu."]

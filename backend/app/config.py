@@ -960,6 +960,12 @@ def attachment_support(model_id: str = "") -> tuple[str, ...]:
 # timeout of its own: agents/team_agent.py::READ_TIMEOUT_S already bounds
 # every model that _model() builds, this one included.
 VISION_MODEL = os.getenv("SKEIN_VISION_MODEL", "").strip()
+# A SECOND model for the side calls a chat makes that nobody reads as a
+# reply: the conversation summary (agents/team_agent.py::_PlainSummaries)
+# and the thread title (build_titler). Same provider, a model id only:
+# _model() keeps a persona or a pick from moving the endpoint, and this
+# inherits that wall. Empty = the main model, by the chat turn's precedence.
+AUX_MODEL = os.getenv("SKEIN_AUX_MODEL", "").strip()
 
 
 def menu_warnings() -> list[str]:
@@ -969,9 +975,13 @@ def menu_warnings() -> list[str]:
     ADMIN pick, never the operator's env - so this warns, it does not fault.
     A function, not a constant, so the suite's config monkeypatching reads
     through."""
-    if MODELS and EFFECTIVE_PROVIDER != "mock" and MODEL_ID and MODEL_ID not in MODELS:
-        return ["SKEIN_MODEL_ID is not in the SKEIN_MODELS menu."]
-    return []
+    if not MODELS or EFFECTIVE_PROVIDER == "mock":
+        return []
+    return [
+        f"{name} is not in the SKEIN_MODELS menu."
+        for name, value in (("SKEIN_MODEL_ID", MODEL_ID), ("SKEIN_AUX_MODEL", AUX_MODEL))
+        if value and value not in MODELS
+    ]
 
 
 # Ollama: the default host is the local daemon, which proxies *-cloud models
