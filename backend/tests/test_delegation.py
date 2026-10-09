@@ -663,3 +663,19 @@ def test_an_agent_proposed_reassignment_auto_rejects_instead_of_boomeranging(cli
         review.approve_change(p["id"], actor="mira", strong=True)
     settled = fresh_db.query_one("SELECT status FROM pending_changes WHERE id = ?", (p["id"],))
     assert settled["status"] == "rejected"
+
+
+def test_closed_work_cannot_be_delegated(fresh_db):
+    """A done task took a delegate: it reached agent_inbox as work to do, and
+    submit_completion then refused it as already done. Void is the same wall."""
+    from app.services import delegation, users, work
+
+    users.ensure_user("mira")
+    users.ensure_user("scout", kind="agent")
+    for status in ("done", "void"):
+        tid = work.create_task(title=f"closed {status}", actor="mira")["id"]
+        work.update_task(tid, status=status, actor="mira")
+        with pytest.raises(ValueError, match=status):
+            delegation.delegate_task(tid, "scout", "mira", actor="mira")
+        task = fresh_db.query_one("SELECT delegated_agent FROM tasks WHERE id = ?", (tid,))
+        assert task["delegated_agent"] == ""

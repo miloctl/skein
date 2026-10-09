@@ -122,6 +122,12 @@ def delegate_task(
         if not task:
             raise scope.missing("tasks", task_id)
         scope.assert_editable("tasks", task, actor, verb="delegate")
+        # a closed task with a delegate sits in agent_inbox as work to do, and
+        # submit_completion refuses it as "already done" - nobody can end it
+        if task["status"] in ("done", "void"):
+            raise ValueError(
+                f"task #{task_id} is {task['status']} - set it back to todo before you delegate it"
+            )
         # A private task has ONE reader, and an agent is not it. THIS RAISE IS THE
         # ONLY BARRIER: claim_task, report_progress, accept_completion and
         # submit_completion below each gate on `delegated_agent` alone and never
