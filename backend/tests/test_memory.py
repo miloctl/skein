@@ -726,3 +726,34 @@ def test_an_unattended_turn_files_a_memory_only_for_a_roster_teammate(fresh_db, 
     assert "error" not in filed
     rows = fresh_db.query('SELECT content, "user" FROM memories ORDER BY id')
     assert [(r["content"], r["user"]) for r in rows] == [("ZZBOBZZ", "bob")]
+
+
+def test_recall_matches_a_reworded_question_by_its_words(fresh_db):
+    """Only the exact phrase matched, so a memory filed as one sentence was
+    unreachable from any other wording of the same question."""
+    from app.services import memory, search
+
+    m = memory.remember("the vendor contract renews in March")
+    question = "renewal date for the vendor contract"
+    assert search.search(question, entity="memory") == []  # the phrase alone misses
+    assert [r["id"] for r in memory.recall(question)] == [m["id"]]
+    assert memory.recall("budget") == []
+
+
+def test_the_prompt_leads_with_what_the_message_recalls_and_dates_each_line(fresh_db):
+    """Eight newer memories pushed a months-old fact out of every prompt,
+    however exactly the question named it."""
+    from app import db
+    from app.services import memory
+
+    memory.remember("the vendor contract renews in March", actor="ava")
+    for i in range(8):
+        fresh_db.execute(
+            "INSERT INTO memories (content, created_at) VALUES (?, ?)",
+            (f"newer fact {i}", db.now()),
+        )
+    assert "vendor contract" not in memory.memory_prompt("ava")
+    prompt = memory.memory_prompt("ava", message="renewal date for the vendor contract")
+    lines = prompt.split("\n")[3:]
+    assert lines[0] == f"- the vendor contract renews in March ({db.now()[:10]})"
+    assert len(lines) == 9 and all(line.endswith(")") for line in lines)

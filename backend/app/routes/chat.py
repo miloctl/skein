@@ -1619,6 +1619,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 resolved_model=resolved_model,
                 personal_tools_for=user,
                 reasoning=reasoning,
+                message=message,
             )
     except Exception as exc:
         with contextlib.suppress(Exception):

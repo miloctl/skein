@@ -818,11 +818,6 @@ codes can now show.
 
 **Memory, not built.**
 
-- **Recall that matches reworded queries** [XS] - `memory.recall` passes no
-  word list to `search`, so only the exact phrase matches, and memories
-  addressed to one person have no embedding. Reuse the any-word fallback
-  `/ask` already has. With it, inject memories relevant to the turn's
-  message beside the newest ones, and give each injected line its date.
 - **A recalled-memory receipt** [S] - name the memories that steered a
   turn, linked to Agents → Memory. Trigger: a person asks which memory
   steered an answer. Model: honcho `utils/evidence.py`.

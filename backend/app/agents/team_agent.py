@@ -961,6 +961,7 @@ def build_agent(
     review_forced: bool = False,
     personal_tools_for: str = "",
     reasoning: str = "",
+    message: str = "",
 ):
     """One agent per chat thread. Mock provider needs no keys and no Strands
     session; real providers persist conversations in the session tables
@@ -1515,6 +1516,7 @@ def build_agent(
     ) + memory_prompt(
         user,
         engagement_id=_thread_engagement(thread_id),
+        message=message,
         # Passed as an ARGUMENT, never read off identity.requester_viewer:
         # routes/chat.py builds the agent BEFORE it sets that contextvar (the
         # set wraps the streaming turn, and the system prompt is assembled to

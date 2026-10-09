@@ -178,13 +178,27 @@ def recall(
     else:
         eng, ep2 = " AND engagement_id IS NULL", []
     if query:
-        from .search import search
+        from .search import fallback_terms, search
 
         # memory rows only, filtered in the search itself: taken from the top
         # hits across every entity, 25 matching tasks left no memory at all.
         # RECALL_CANDIDATES bounds the rows the owner and engagement filter
         # below can still drop.
         hits = search(query, limit=RECALL_CANDIDATES, viewer=viewer, entity="memory", reader=user)
+        if not hits:
+            # a reworded question ("renewal date for the vendor contract")
+            # never matches a memory as a phrase; the same any-word fallback
+            # /ask uses finds it by its words
+            words = fallback_terms(query)
+            if words:
+                hits = search(
+                    query,
+                    limit=RECALL_CANDIDATES,
+                    terms=words,
+                    viewer=viewer,
+                    entity="memory",
+                    reader=user,
+                )
         ids = [h["entity_id"] for h in hits]
         if not ids:
             return []
@@ -206,8 +220,14 @@ def memory_prompt(
     engagement_id: int = 0,
     viewer: scope.Viewer = scope.NOBODY,
     row_filter: Callable[[list[dict], scope.Viewer], list[dict]] | None = None,
+    message: str = "",
 ) -> str:
     """Recent memories rendered for system-prompt injection; empty string when none.
+
+    `message` is the turn's own text. The memories it recalls come first,
+    then the newest: a fact filed months ago steered nothing once eight newer
+    ones existed, however exactly the question named it. Each line carries
+    its date, so the model can tell a standing fact from a stale one.
 
     `engagement_id` comes from the chat thread's own link
     (services/chat_threads.py). A thread about one engagement recalls that
@@ -224,12 +244,20 @@ def memory_prompt(
     """
     with db.read_transaction():
         rows = recall(user=user, limit=limit, viewer=viewer, engagement_id=engagement_id)
+        if message.strip():
+            relevant = recall(
+                message, user=user, limit=limit, viewer=viewer, engagement_id=engagement_id
+            )
+            seen = {m["id"] for m in relevant}
+            rows = relevant + [m for m in rows if m["id"] not in seen]
         if row_filter is not None:
             rows = row_filter(rows, viewer)
     if not rows:
         return ""
     lines = [
-        f"- [{m['topic']}] {m['content']}" if m["topic"] else f"- {m['content']}" for m in rows
+        (f"- [{m['topic']}] {m['content']}" if m["topic"] else f"- {m['content']}")
+        + f" ({str(m['created_at'])[:10]})"
+        for m in rows
     ]
     return "\n\nTeam memory (from prior conversations):\n" + "\n".join(lines)
 

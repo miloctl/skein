@@ -243,6 +243,21 @@ _STOPWORDS = frozenset({
 # fmt: on
 
 
+def fallback_terms(q: str) -> list[str]:
+    """The words worth an any-word search once the phrase found nothing:
+    3+ characters and not a function word. Empty when the question was
+    already one such word - search() just ran it and missed, so re-running
+    it costs a second scan for the same nothing. One meaningful word out of
+    several is worth it ("what is skein" -> skein). Shared by ask() and
+    memory.recall so the two cannot disagree on what a reworded question
+    means."""
+    tokens = q.split()
+    words = [w for w in tokens if len(w) > 2 and w.strip(".,;:!?").lower() not in _STOPWORDS]
+    if words and (len(words) > 1 or len(words) != len(tokens)):
+        return words
+    return []
+
+
 def ask(
     q: str,
     limit: int = 5,
@@ -263,13 +278,8 @@ def ask(
     if not hits:
         # natural phrasing rarely matches as a phrase - fall back to OR of
         # the meaningful words, rank-ordered, and say so
-        tokens = q.split()
-        words = [w for w in tokens if len(w) > 2 and w.strip(".,;:!?").lower() not in _STOPWORDS]
-        # One meaningful word is worth trying when the question carried more
-        # than that ("what is skein" -> skein). It is NOT worth trying when the
-        # question was already that one word: search() just ran it and missed,
-        # so re-running it costs a second scan for the same nothing.
-        if words and (len(words) > 1 or len(words) != len(tokens)):
+        words = fallback_terms(q)
+        if words:
             hits = search(
                 q,
                 limit,
