@@ -215,7 +215,8 @@ def main():
         self_test()
         return
     tracked = subprocess.run(  # noqa: S603 - fixed argv, no caller input
-        ["git", "-C", str(REPO), "ls-files"],  # noqa: S607 - git on PATH, as lint.sh runs it
+        # untracked files too: lint.sh runs before the commit that adds them
+        ["git", "-C", str(REPO), "ls-files", "--cached", "--others", "--exclude-standard"],  # noqa: S607 - git on PATH
         capture_output=True,
         text=True,
         check=True,

@@ -734,16 +734,6 @@ larger than its finding.
   the loopback names, the hosts in `SKEIN_CORS_ORIGINS`, and an env-only
   `SKEIN_TRUSTED_HOSTS` (question 2 of the settings rule). The refusal names
   the variable to set. Model: agentgateway `mcp/dns_rebinding.rs`.
-- **A byte bound on outbound MCP response bodies** - the MCP SDK reads each
-  response whole after the client decompresses it, and Skein's 256 KiB cap
-  runs after parsing, on tool-call events only. A personal server can
-  answer `tools/list` with a compressed body many times its wire size.
-  Trigger: a measured memory limit on the API pod that a single turn can
-  reach. Shape: an httpx transport wrapper ahead of the SDK's read that
-  refuses any `Content-Encoding` other than identity and counts the bytes it
-  actually reads. A declared-length check alone passes a chunked response,
-  which has no length. Model: agentgateway
-  `http/compression/mod.rs::to_bytes_with_decompression`.
 - **The trusted-proxy hop must be forced** - `SKEIN_TRUSTED_PROXIES` names
   the hop whose `X-Forwarded-For` the rate buckets read, but nothing makes
   traffic arrive through it; a direct peer picks any address's bucket.

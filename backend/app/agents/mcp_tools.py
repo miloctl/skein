@@ -84,6 +84,12 @@ _busy: set[str] = set()
 # str() characters, not encoded bytes - multibyte content can carry up to 4x
 # this in bytes, an accepted looseness for a volume bound.
 _RESULT_MAX_BYTES = 256 * 1024
+# The bound on what the HTTP layer reads from an MCP server, below the result
+# bound above: the SDK reads a JSON response whole and buffers one SSE event
+# at a time, and discovery runs at registration, before any turn. Without
+# it, one registered server that answers `initialize` with a gzip bomb
+# exhausts the pod's memory (tests/test_mcp_bounds.py).
+_RESPONSE_MAX_BYTES = 4 * 1024 * 1024
 _TIMEOUT_TRIP = 2
 _timeout_strikes: dict[str, int] = {}
 # The entry object identifies one attempt. Deleting and re-adding the same
@@ -1633,23 +1639,9 @@ def _list_tools(client) -> list:
 
 @contextlib.asynccontextmanager
 async def _http_transport(url, *, headers=None, auth=None, personal=False):
-    import httpx
-    import httpx2
     from mcp.client.streamable_http import streamable_http_client
-    from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT
 
-    # HTTPX2 defaults to OS trust. Keep the existing certifi / SSL_CERT_FILE /
-    # SSL_CERT_DIR trust contract for configured and personal credential destinations.
-    factory = (
-        _no_redirect_client
-        if personal
-        else partial(
-            httpx2.AsyncClient,
-            follow_redirects=True,
-            timeout=httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
-            verify=httpx.create_ssl_context(),
-        )
-    )
+    factory = _no_redirect_client if personal else _system_client
     # Strands enters this on its own event-loop thread. An HTTP client made
     # outside this context can retain sockets bound to the caller's loop.
     async with (
@@ -1657,6 +1649,71 @@ async def _http_transport(url, *, headers=None, auth=None, personal=False):
         streamable_http_client(url, http_client=client) as streams,
     ):
         yield streams
+
+
+def _bounded_hooks() -> dict[str, list]:
+    """Event hooks that hold every MCP response to _RESPONSE_MAX_BYTES.
+
+    The cap counts raw bytes, so a compressed body is refused outright: its
+    size on the wire says nothing about its size once inflated. An event
+    stream is counted per event, because one connection carries many events
+    over its life and the SDK buffers only the current one.
+    """
+    import httpx2
+
+    class Capped(httpx2.AsyncByteStream):
+        def __init__(self, inner: httpx2.AsyncByteStream, per_event: bool) -> None:
+            self.inner, self.per_event = inner, per_event
+
+        async def __aiter__(self):
+            pending = 0
+            async for chunk in self.inner:
+                lf, crlf = chunk.rfind(b"\n\n"), chunk.rfind(b"\r\n\r\n")
+                end = max(lf + 2 if lf >= 0 else 0, crlf + 4 if crlf >= 0 else 0)
+                pending = len(chunk) - end if self.per_event and end else pending + len(chunk)
+                if pending > _RESPONSE_MAX_BYTES:
+                    raise ValueError(
+                        "The MCP server sent a response larger than"
+                        f" {_RESPONSE_MAX_BYTES // (1024 * 1024)} MB. Skein stopped reading it."
+                    )
+                yield chunk
+
+        async def aclose(self) -> None:
+            await self.inner.aclose()
+
+    async def ask_identity(request: httpx2.Request) -> None:
+        request.headers["Accept-Encoding"] = "identity"
+
+    async def cap(response: httpx2.Response) -> None:
+        if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+            raise ValueError(
+                "The MCP server sent a compressed response. Configure it to send"
+                " uncompressed responses."
+            )
+        if not isinstance(response.stream, httpx2.AsyncByteStream):
+            raise TypeError("An async MCP client received a sync response stream.")
+        sse = response.headers.get("content-type", "").lower().startswith("text/event-stream")
+        response.stream = Capped(response.stream, per_event=sse)
+
+    return {"request": [ask_identity], "response": [cap]}
+
+
+def _system_client(headers=None, timeout=None, auth=None):
+    """SKEIN_MCP_SERVERS requests follow redirects: the operator chose the URL."""
+    import httpx
+    import httpx2
+    from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT
+
+    # HTTPX2 defaults to OS trust. Keep the existing certifi / SSL_CERT_FILE /
+    # SSL_CERT_DIR trust contract for configured and personal credential destinations.
+    return httpx2.AsyncClient(
+        follow_redirects=True,
+        timeout=timeout or httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
+        verify=httpx.create_ssl_context(),
+        headers=headers,
+        auth=auth,
+        event_hooks=_bounded_hooks(),
+    )
 
 
 def _no_redirect_client(headers=None, timeout=None, auth=None):
@@ -1676,13 +1733,17 @@ def _no_redirect_client(headers=None, timeout=None, auth=None):
         if 300 <= response.status_code < 400:
             raise ValueError("The MCP server returned a redirect. Use its final URL.")
 
+    bounded = _bounded_hooks()
     return httpx2.AsyncClient(
         follow_redirects=False,
         verify=httpx.create_ssl_context(),
         timeout=timeout or httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
         headers=headers,
         auth=auth,
-        event_hooks={"request": [validate_destination], "response": [refuse_redirect]},
+        event_hooks={
+            "request": [validate_destination, *bounded["request"]],
+            "response": [refuse_redirect, *bounded["response"]],
+        },
     )
 
 
