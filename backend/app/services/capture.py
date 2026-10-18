@@ -296,7 +296,7 @@ def capture(
             rest or body, due_date=due, actor=actor, origin=origin, **tier
         )
     elif kind == "awaiting":
-        # `to_whom` is who OWES it here (migration 007), and it is free text:
+        # `to_whom` is who OWES it here (direction="received"), and it is free text:
         # the party we wait on is usually a vendor, a customer or another
         # team, which is why split_party does not check the roster.
         who, rest = split_party(body)

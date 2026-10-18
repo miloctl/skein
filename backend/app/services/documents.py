@@ -97,9 +97,9 @@ def create_document(
     one (POST /api/documents), and a private document stays out of every
     shared sink (docs/intent/document-revisions.md, D10).
 
-    `origin` is accepted because services/review.py::_apply passes
-    origin="agent_verified" to EVERY registry applier when a human approves a
-    proposal. Without the parameter that call is a TypeError, the generic
+    `origin` is accepted because services/review.py::_approve_change_locked
+    passes origin="agent_verified" to EVERY registry applier when a human
+    approves a proposal. Without the parameter that call is a TypeError, the generic
     handler resets the row to pending, and the proposal boomerangs in the
     queue forever with no path to approval.
     """
@@ -115,9 +115,7 @@ def create_document(
         raise ValueError(scope.missing_text("engagements", engagement_id))
     clean_title = title.strip()[:TITLE_LIMIT] or "Untitled document"
     with db.transaction():
-        # inside the transaction: the crew row lock resolve_write takes must
-        # last until the insert, or a removal in between writes into a crew
-        # the author has left
+        # inside the transaction: services/scope.py::resolve_write says why
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
         # The row is inserted before the file, because the file is named after
         # the row id - see services/uploads.py::save_upload for the same
@@ -427,7 +425,7 @@ def history(artifact_id: int, viewer: scope.Viewer) -> dict:
     documents or by author (docs/intent/document-revisions.md, D7).
     """
     _readable_document(artifact_id, viewer)
-    # ponytail: the newest 100, an older one still opens by number. Add a
+    # shortcut: the newest 100 (an older one still opens by number), add a
     # before= cursor when a document passes 100 revisions.
     rows = db.query(
         "SELECT revision, author, origin, change_id, restored_from, created_at,"
@@ -504,8 +502,8 @@ def proposal_diff(artifact_id: int, payload: dict) -> dict:
 
 def unified(before: str, after: str, before_label: str, after_label: str) -> str:
     """A unified diff, computed per request and never stored."""
-    # ponytail: difflib is quadratic in the worst case and the 512 KB cap
-    # bounds it. Cap the compared lines if a slow diff shows in traces.
+    # shortcut: difflib is quadratic in the worst case and the 512 KB cap
+    # bounds it, cap the compared lines if a slow diff shows in traces.
     return "\n".join(
         difflib.unified_diff(
             before.splitlines(), after.splitlines(), before_label, after_label, n=3, lineterm=""

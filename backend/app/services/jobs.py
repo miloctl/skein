@@ -335,13 +335,14 @@ def record_outcome(
 def _outcome_detail(result: object) -> str:
     """What a job's return value may put in job_outcomes.detail.
 
-    Counts, never rows. `job_outcomes` carries no tier of its own. Two jobs
-    break the workspace-only assumption: blockers.sweep_escalations and
-    collab.sweep_stale_decisions act on every tier. Storing str(result) would
-    copy private titles, detail, and owners into an unscoped operational table.
+    Counts, never rows. `job_outcomes` carries no tier of its own, and jobs
+    act on every tier: blockers.sweep_escalations,
+    collab.sweep_stale_decisions, routines.tick, erasure.erase_due, and the
+    agent runs. Storing str(result) copies private titles, detail, and owners
+    into an unscoped operational table.
 
-    Both sweeps already route their ledger line through scope.detail and gate
-    their notification. This is the third door out of the same function.
+    The two sweeps route their ledger line through scope.detail and gate their
+    notification. This is the third door out of the same function.
 
     A scalar stays, and it must be OUR text. Skip reasons and runner faults can
     name agents and causes. A job keeps this field to literals and safe names.

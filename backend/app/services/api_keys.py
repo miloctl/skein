@@ -104,8 +104,9 @@ def request_key(user: str, *, strong: bool = False) -> dict:
         # "Unread by ANYONE", not notifications.UNREAD_FOR. This nudge asks a
         # question about the world - has whoever runs the server minted the key
         # - so one operator dismissing it means the ask was seen and the
-        # requester may ask again. The per-person read (009) governs whose FEED
-        # shows it; this governs whether a second request is a duplicate.
+        # requester may ask again. The per-person read (notification_reads)
+        # governs whose FEED shows it; this governs whether a second request is
+        # a duplicate.
         # starts_with, not LIKE: "_" is a wildcard there, so "a_b" would
         # match an earlier request from "axb" and its own request would never
         # be sent

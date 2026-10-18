@@ -53,17 +53,18 @@ def _row(crew_id: int, *, hold: bool = False) -> dict:
 def _clean_name(name: str, crew_id: int = 0) -> str:
     """Normalize and refuse a name that collides with an existing crew.
 
-    The baseline's lower(name) index is Unicode-aware, so the engine's own
-    reads `Café` and `CAFÉ` as two names, and a fullwidth capital as different
-    from its plain form. users.py::refuse_fold_collision exists for exactly
+    The baseline's lower(name) index folds case but applies no NFKC, so it
+    reads `Café` in NFC and in NFD as two names, and a fullwidth capital as
+    different from its plain form. users.py::refuse_fold_collision exists for exactly
     that on the roster. A crew picker is how a writer chooses who reads a row,
     so two entries that render identically are the same class of mistake here.
     """
     name = " ".join(name.split())[:NAME_LEN]
     if not name:
         raise ValueError("a crew needs a name")
-    # the four system-actor names are refused for roster rows because holding
-    # one walks your writes past the anti-surveillance rule. A crew named
+    # the reserved system names (identity_names.HUMAN_RESERVED_SUBJECTS) are
+    # refused for roster rows because holding one walks your writes past the
+    # anti-surveillance rule. A crew named
     # `team` is the same hazard from the other side: notifications address
     # `user = 'team'` as a broadcast, so a crew by that name reads as one.
     users.refuse_reserved_name(name)
@@ -91,8 +92,8 @@ def create_crew(name: str, *, summary: str = "", actor: str, origin: str = "huma
     """
     with db.transaction():
         # inside the transaction, not before it: _clean_name takes the name
-        # lock that makes its check-then-insert atomic, and a lock outside the
-        # transaction would release before the INSERT it protects.
+        # lock that makes its check-then-insert atomic, the lock must last
+        # until the INSERT it protects, and db.name_lock raises outside one.
         name = _clean_name(name)
         now = db.now()
         crew_id = db.execute(
@@ -123,8 +124,7 @@ def update_crew(
     with db.transaction():
         # hold=True, like add_member and remove_member: assert_steward is a
         # check-then-write, and a plain read lets a concurrent add_member
-        # demote this actor between the check and the UPDATE below. This was
-        # the one caller of assert_steward that did not hold the row.
+        # demote this actor between the check and the UPDATE below.
         _row(crew_id, hold=True)
         assert_steward(crew_id, actor, admin_override=admin_override)
         if name:
@@ -209,20 +209,19 @@ def assert_steward(crew_id: int, actor: str, *, admin_override: bool = False) ->
     """Refuse a change to this crew by anyone who does not steward it.
 
     In the SERVICE, not only in the route, and inside the caller's
-    transaction. Three routes were the only callers and each checked before
-    entering it, which left two gaps. The small one is a race: a steward
-    demoted between the check and the write still lands it. The large one is
-    layering - crew membership decides what every person reads, so a guard
-    that lives in a route is a guard the next caller does not have. There is
-    no crew tool today; the moment there is, it writes with no check at all.
+    transaction. A check made in the route before the service runs leaves two
+    gaps. The small one is a race: a steward demoted between the check and the
+    write still lands it. The large one is layering - crew membership decides
+    what every person reads, so a guard that lives in a route is a guard the
+    next caller (a crew tool, for one) does not have.
 
     `admin_override` comes from the route because only the route can know it:
     is_named_admin reads the OIDC groups stashed on the request, and the
     strong-identity bar is a property of the door. That half stays there -
     this is the half that belongs to the data.
 
-    remove_member already runs its sole-steward floor inside the transaction,
-    with a comment naming this exact hazard. This applies the same rule to the
+    remove_member runs its sole-steward floor inside the transaction, with a
+    comment naming this exact hazard. This applies the same rule to the
     authorization itself.
     """
     if admin_override or is_steward(crew_id, actor):
@@ -233,11 +232,11 @@ def assert_steward(crew_id: int, actor: str, *, admin_override: bool = False) ->
 def assert_writable(crew_id: int, person: str) -> int:
     """May this person scope a row to this crew?
 
-    Every phase-3 write path that accepts a crew_id calls this INSIDE the same
-    db.transaction() as the insert, not merely before it - the hold below only
-    lasts as long as the transaction that took it, so called bare it releases
-    before the INSERT and a person removed from the crew in between still
-    scopes a row into it.
+    Every write path that accepts a crew_id calls this, most of them through
+    scope.resolve_write, INSIDE the same db.transaction() as the insert, not
+    merely before it - the hold below only lasts as long as the transaction
+    that took it, so called bare it releases before the INSERT and a person
+    removed from the crew in between still scopes a row into it.
 
     Without it a writer can scope a row into a crew they are not in - either
     injecting it into that crew's reading list, or hiding it from everyone
@@ -249,10 +248,8 @@ def assert_writable(crew_id: int, person: str) -> int:
     # caller's transaction is not enough on its own: READ COMMITTED takes a
     # fresh snapshot per statement, so a plain read here blocks nobody and
     # remove_member commits between this check and the caller's INSERT.
-    # Measured without it: 6 of 6 removals committed inside that window, and
-    # each note landed scoped to a crew its author had just left. add_member
-    # and remove_member hold this same crew row, which is where the two
-    # contend - the members table has no single row for them to meet at.
+    # add_member and remove_member hold this same crew row, which is where the
+    # two contend - the members table has no single row for them to meet at.
     crew = _row(crew_id, hold=True)
     # membership FIRST: the not-active refusal names the crew, and checking
     # it first told a non-member that a crew by that id exists and what it is

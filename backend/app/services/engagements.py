@@ -81,8 +81,7 @@ def create_engagement(
     check_kind(kind, timebox_end)
     lead = _resolve_lead(lead, actor)
     ts = db.now()
-    # one transaction: scope.resolve_write's membership check must not be able
-    # to pass and then have the author leave the crew before the INSERT lands
+    # inside the transaction: services/scope.py::resolve_write says why
     _check_project_class(project_class)
     with db.transaction():
         _hold_name(name)
@@ -227,7 +226,7 @@ def _update_engagement_locked(
     renaming = bool(name and name != current["name"])
     if renaming:
         _hold_name(name)
-    # NOCASE and id-excluded, matching create: the case-variant fork the
+    # lower()-compared and id-excluded, matching create: the case-variant fork the
     # create check closes must not reopen through rename. The id exclusion
     # keeps re-casing an engagement's OWN name ("alpha" -> "Alpha") legal.
     if renaming and db.query_one(
@@ -582,8 +581,9 @@ def list_engagements(status: str = "", viewer: scope.Viewer = scope.NOBODY) -> l
             tuple(vp),
         )
     # One query for every engagement's allocations, not one per engagement:
-    # this ran up to 201 queries per GET /api/engagements. Placeholders are
-    # generated from the row count, never interpolated from caller input.
+    # per engagement, a 200-row page costs 201 queries per GET /api/engagements.
+    # Placeholders are generated from the row count, never interpolated from
+    # caller input.
     if not rows:
         return rows
     marks = ",".join("?" * len(rows))
@@ -654,8 +654,9 @@ def allocate(
 
 
 def deallocate(allocation_id: int, *, actor: str = "system") -> dict:
-    """Allocations were append-only - one fat-fingered percent permanently
-    skewed capacity, conflicts, and what-if staffing."""
+    """Delete one allocation. Without it allocations are append-only, and one
+    fat-fingered percent permanently skews capacity, conflicts, and what-if
+    staffing."""
     # gated on the ENGAGEMENT, like allocate: `allocations` carries no tier of
     # its own (scope.UNSCOPED), so without this any caller could walk
     # allocation ids and delete staffing off an engagement they cannot read -

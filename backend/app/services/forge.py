@@ -14,8 +14,9 @@ TRANSITIONS = {
     "pr_merged": "done",
 }
 
-# `task/42-fix-login` is what `skein task start 42` writes (ROADMAP D3), plus
-# the prefixed forms people type by hand: `feature/task-42`, `fix/task-42-x`.
+# `task/42-fix-login` is what `skein task start 42` writes (docs/FEATURES.md,
+# "Branch-aware git flow"), plus the prefixed forms people type by hand:
+# `feature/task-42`, `fix/task-42-x`.
 _BRANCH = re.compile(r"(?:^|/)task[/-](\d{1,9})(?:[-/]|$)", re.ASCII | re.IGNORECASE)
 # The text fallback needs a CLOSING VERB, not just the word "task". "Blocked
 # by task 2 until Friday" names a task it must never close, and `\b…\s+task`

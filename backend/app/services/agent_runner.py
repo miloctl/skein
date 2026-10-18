@@ -1,18 +1,17 @@
-"""The motor the delegation loop never had.
+"""The waker for the delegation loop.
 
-Everything needed to carry a delegated task end to end was already built -
-claim, report_progress, submit_for_acceptance, the sponsor binding, the
-authority matrix, the inbox docs/FEATURES.md calls an "ambient wake-up view".
-There was no waker. Every job in the JOBS registry was deterministic and none
-of them ran an agent turn, so "agents as teammates" meant "agents as very
-well-audited chat responses": every action started with a human typing.
+The pieces that carry a delegated task end to end - claim, report_progress,
+submit_for_acceptance, the sponsor binding, the authority matrix, the inbox
+docs/FEATURES.md calls an "ambient wake-up view" - each act only when called.
+Without a waker, "agents as teammates" means "agents as very well-audited chat
+responses": every action starts with a human typing.
 
 Two layers, and the split is the keyless rule:
 
   sweep() - deterministic. Notifies the SPONSOR about delegated work with no
              worklog note for QUIET_DAYS, at most once per task per ISO week.
              No model, no tokens, works on SKEIN_MODEL_PROVIDER=mock. This is
-             A3's morning sweep and it is the whole feature on a keyless
+             the morning sweep and it is the whole feature on a keyless
              deployment.
 
   run() - the LLM upgrade on top. One bounded turn per agent per day

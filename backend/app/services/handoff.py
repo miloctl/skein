@@ -21,7 +21,7 @@ def generate_handoff(
 ) -> dict:
     refuse_when_consultative("generate handoffs")
     # Filtered by the CALLER, not locked to the workspace tier. Locked, a crew
-    # member saw their engagement in GET /api/engagements and got "not found"
+    # member sees their engagement in GET /api/engagements and gets "not found"
     # asking for its handoff - a correct refusal with a misleading sentence.
     # The pack contents below take the same viewer, and the artifact row takes
     # the engagement's tier so list_artifacts does not hand the path to
@@ -200,7 +200,7 @@ class ArtifactUnreadable(RuntimeError):
     """The row is there and the caller may read it, and the FILE is not.
 
     Its own class rather than a bare RuntimeError so app/main.py can answer
-    JSON for exactly these four raises. A handler on RuntimeError itself
+    JSON for these raises and only these. A handler on RuntimeError itself
     would catch every one in the process - Starlette's, anyio's, the SDK's -
     and put its raw message in a response body, which is how an error stops
     being ours and starts echoing something a caller never should see.
@@ -235,10 +235,9 @@ def read_artifact(
     """One artifact's body, for a reader who may see the row.
 
     Every generator here (handoff, the week rituals, the digest, the exec
-    readout) has written a markdown file and a row pointing at it, and nothing
-    could read one back: `list_artifacts` hands out a server-side PATH, which
-    a browser cannot open. The files were reachable only by shelling into the
-    container.
+    readout) writes a markdown file and a row pointing at it, and this is the
+    one way to read one back: `list_artifacts` hands out a server-side PATH,
+    which a browser cannot open.
     """
     frag, vp = scope.visible_filter(viewer, "artifacts")
     marks = ", ".join("?" for _ in _NOT_A_REPORT)
@@ -255,8 +254,8 @@ def read_artifact(
     # writer today is our own generator under DATA_DIR, so the containment check
     # is not about them - it is about the next writer, and about a restored or
     # hand-edited row. Without it, one crafted `path` reads any file the server
-    # user can (SKEIN_MODEL_API_KEY in the environment file, the private notes
-    # DB that services/private_notes.py keeps out of every other surface).
+    # user can (SKEIN_MODEL_API_KEY in the environment file, or every injected
+    # Secret in /proc/self/environ).
     root = (Path(config.DATA_DIR) / "artifacts").resolve()
     try:
         path = Path(row["path"]).resolve()
@@ -313,8 +312,9 @@ def _read_markdown(artifact_id: int, path: Path, row: dict) -> str:
     # absent path, and that is the half that matters: read_text() on a FIFO
     # under data/artifacts blocks this worker thread for good.
     if not path.is_file():
-        # a restored database beside an empty data volume: retention never
-        # prunes artifacts, so the row outliving its file means the volume did
+        # a restored database beside an empty data volume: retention deletes
+        # an artifact row before its file, so a row that outlives its file
+        # means the volume did
         raise ArtifactUnreadable(
             f"artifact #{artifact_id} has no file on disk."
             " Check that the volume holding data/artifacts is mounted."

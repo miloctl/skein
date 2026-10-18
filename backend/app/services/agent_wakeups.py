@@ -329,10 +329,12 @@ def _wake_cap_reached() -> bool:
 
     Counted from usage_log wake threads: the per-agent token ceiling defaults
     to 0 and a strong caller can mint fresh agent names, so only an aggregate
-    cap bounds the bill. A turn that spends but fails to record its usage row
-    slips the count.
+    cap bounds the bill.
+
+    shortcut: a turn that spends but fails to record its usage row slips the
+    count, move to a dedicated wake counter when failed usage writes let wakes
+    run past the cap.
     """
-    # ponytail: undercounts unrecorded spend, move to a dedicated counter if it matters
     if not config.AGENT_WAKES_PER_DAY:
         return False
     row = db.query_one(

@@ -135,11 +135,12 @@ def claim_thread(thread_id: str, owner: str) -> str:
         )
         if claimed:
             # A session stored under an id with no thread row belongs to
-            # nobody who can claim it: a pre-045 persona import, or a bridge
-            # that closed after its chat was deleted. build_agent restores
-            # whatever sits here into the claimant's turn, so the new claim
-            # starts empty. Not a 404: under the owner's own default- id that
-            # locked them out of their unnamed thread for good.
+            # nobody who can claim it: a persona import from the file-era
+            # session store (backend/data/sessions/), or a bridge that closed
+            # after its chat was deleted. build_agent restores whatever sits
+            # here into the claimant's turn, so the new claim starts empty. Not
+            # a 404: under the owner's own default- id, a 404 locks them out of
+            # their unnamed thread for good.
             from ..agents.session_store import delete_thread_sessions
 
             delete_thread_sessions(thread_id)
@@ -446,10 +447,10 @@ def search_chats(owner: str, member: str, q: str) -> dict:
     # Per thread, newest message first on idx_chat_messages_thread: the scan
     # reads only the messages in the caller's own chats. A plain join lets
     # the planner filter the whole table, every person's chats.
-    # ponytail: no text index, so a search costs one pass over those
-    # messages. If that gets slow, the database owner installs pg_trgm (the
-    # app role cannot: deploy/postgres-init/10-app-role.sh) and a migration
-    # adds a gin_trgm_ops index on content.
+    # shortcut: no text index, so a search costs one pass over those
+    # messages, and when that gets slow the database owner installs pg_trgm
+    # (the app role cannot: deploy/postgres-init/10-app-role.sh) and a
+    # migration adds a gin_trgm_ops index on content.
     # The solo branch keeps the sidebar's THREAD_LIMIT: runtime-provider.tsx
     # loads a solo transcript only for a thread in GET /api/chats, so a hit
     # past that cap would open an empty chat. A shared hit opens through its
@@ -543,9 +544,9 @@ def _snap_folder(owner: str, wanted: str) -> str:
     """Case-insensitively reuse an existing folder spelling.
 
     Asks the database rather than scanning `list_folders`, which is capped:
-    past FOLDER_LIMIT the scan stopped finding `zebra` for `Zebra`, and the
-    unique index is BINARY-collated, so a second folder differing only in case
-    was filed. A decision computed over a truncated list is the bug
+    past FOLDER_LIMIT the scan misses `zebra` for `Zebra`, and the primary key
+    (owner, name) compares names case-sensitively, so a second folder
+    differing only in case is filed. A decision computed over a truncated list is the bug
     api_keys.active_key_count exists to avoid, one file over.
     """
     # Folded in Python, not in SQL. PostgreSQL's lower() is Unicode-aware, so
@@ -739,8 +740,9 @@ def remove_thread(thread_id: str) -> None:
     # docstring above is false for every chat that ever called a flock.
     db.execute("DELETE FROM flock_traces WHERE thread_id = ?", (thread_id,))
     delete_thread_sessions(thread_id)
-    # the pre-045 file store, until a cleanup release drops the directory:
-    # leftover files must go too, or they linger for a thread that is gone.
+    # the file-era session store (backend/data/sessions/), until a cleanup
+    # release drops the directory: leftover files must go too, or they linger
+    # for a thread that is gone.
     # Only the legacy separator here - the file store predates PERSONA_SEP,
     # so no file on disk carries the new one.
     for pattern in (f"session_{thread_id}", f"session_{thread_id}{_LEGACY_PERSONA_SEP}*"):

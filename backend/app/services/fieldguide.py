@@ -1,9 +1,10 @@
 """Field guide: first-use feature discovery ("knots"). Predicates DETECT use
-from data the platform already has; feature_unlocks HOLDS the state (activity
-gets pruned, unlocks survive). A person's unlock rows are self-visible only -
-the anti-surveillance rule outranks the provenance convention here, so like
-tool_usage these writes never touch the team-visible activity feed. Spec and
-the non-negotiables: docs/FIELD-GUIDE.md."""
+from data the platform already has; feature_unlocks HOLDS the state (the rows
+a predicate detected can be pruned or deleted, and the unlock survives them).
+A person's unlock rows are self-visible only - the anti-surveillance rule
+outranks the provenance convention here, so like tool_usage these writes never
+touch the team-visible activity feed. Spec and the non-negotiables:
+docs/FIELD-GUIDE.md."""
 
 import contextlib
 import logging
@@ -581,9 +582,8 @@ def guide(person: str) -> dict:
             "role": k.get("role", ""),
             "tied": t is not None,
             # local_day: first_at is a UTC timestamp, and this date is read
-            # by the person who earned it. The last [:10] in the backend -
-            # leaving one behind makes the slice look sometimes-acceptable,
-            # and the next reader cannot tell which sites were considered.
+            # by the person who earned it. A [:10] slice is the UTC day, and
+            # buckets evening work under tomorrow for a team behind UTC.
             "tied_on": db.local_day(t["first_at"]) if t else "",
         }
         cards.append(card)

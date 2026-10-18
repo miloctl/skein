@@ -10,13 +10,14 @@ Two verifications, on purpose:
   daily findings rule therefore pays for the full walk - that is the run that
   answers "is the ledger intact", and it is the one an operator acts on.
 
-Rows can sit OUTSIDE the chain: pre-036 rows never carried a seq, and
-db.log_activity records a row unchained when a standalone chained append fails
-(a business write must not 500 over bookkeeping). The nightly job ADOPTS them -
-assigns each the tail seq and hash, appends one chained receipt naming the
-rows, and lowers the unchained baseline to what remains. Adoption attests
-content from that moment on, never provenance: an adopted row cannot be edited
-or deleted silently afterwards, which an unchained row always could.
+Rows can sit OUTSIDE the chain: rows written before the chain existed never
+carried a seq, and db.log_activity records a row unchained when a standalone
+chained append fails (a business write must not 500 over bookkeeping). The
+nightly job ADOPTS them - assigns each the tail seq and hash, appends one
+chained receipt naming the rows, and lowers the unchained baseline to what
+remains. Adoption attests content from that moment on, never provenance: an
+adopted row cannot be edited or deleted silently afterwards, which an unchained
+row always could.
 
 The receipt is the audit trail, and it names TWO counts: rows adopted, and rows
 EXPECTED - the pre-chain baseline plus the fallback appends this process
@@ -573,9 +574,9 @@ def record_anchor() -> dict:
     # inserted outside the chain. Anchor the LOWEST value ever recorded, or one
     # later anchor would turn the rewritten value into the new external truth.
     baseline = _int_setting(_settings(LEGACY_UNCHAINED), LEGACY_UNCHAINED)
-    # `or baseline` was wrong the moment adoption started anchoring 0: zero is
-    # falsy, so the lowest-ever clamp this line exists for silently stopped
-    # running on every night after the first adoption
+    # Test `is None`, never truthiness: adoption anchors 0, zero is falsy, and
+    # `lowest or baseline` skips the lowest-ever clamp this line exists for on
+    # every night after an adoption reaches zero
     lowest = _lowest_anchored_baseline()
     baseline = baseline if lowest is None else min(baseline, lowest)
     line = f"{db.now()} seq={seq} hash={digest} unchained={baseline}\n"
@@ -985,7 +986,7 @@ def chain_health() -> dict:
         }
 
 
-# ---- the feed (docs: verb-object-outcome, one sentence per row) --------------
+# The feed: one sentence per row, in verb-object-outcome order.
 
 # action -> (past-tense verb phrase, salience). Salience tracks consequence:
 # destructive and security-relevant actions are loud, ordinary writes are
@@ -1219,10 +1220,10 @@ def feed(viewer: str, limit: int = 50, before: int = 0) -> dict:
 
     A row the nightly job ADOPTED takes a seq at the tail, so it enters this
     feed at its adoption time and not at its own created_at. On the first run
-    after an upgrade that puts every pre-036 row at the top of the page, dated
-    years ago. That is a consequence of paginating on seq, and the receipt
-    beside them says what happened - but it surprises a reader, so it is
-    written down here rather than left to be discovered.
+    after an upgrade that puts every row written before the chain existed at
+    the top of the page, dated years ago. That is a consequence of paginating
+    on seq, and the receipt beside them says what happened - but it surprises
+    a reader, so it is written down here rather than left to be discovered.
     """
     limit = max(1, min(int(limit), 200))
     agents = {r["name"] for r in db.query("SELECT name FROM users WHERE kind = 'agent'")}

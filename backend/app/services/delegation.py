@@ -384,11 +384,12 @@ def list_worklog(
 def clear_acceptance_ping(task_id: int, agent: str) -> None:
     """Dismiss the sponsor's "submitted for your acceptance" notification.
 
-    `review._clear_review_ping` cannot do it: it matches the prefix
-    "Review needed: #<proposal>", and `submit_completion` files with
-    notify_team=False, so no row with that prefix is ever written for a
-    task_completion. The row that IS written starts with the agent's name,
-    which is why this takes the agent rather than the proposal.
+    `review._clear_review_ping` cannot do it: it clears the rows linked by
+    pending_change_id, or for older rows the prefix "Review needed:
+    #<proposal>", and `submit_completion` files with notify_team=False, so
+    neither kind is ever written for a task_completion. The sponsor's ping
+    links the task instead and starts with the agent's name, which is why this
+    takes the agent rather than the proposal.
 
     Without it the ping outlives its proposal, and following it lands the
     sponsor on a queue that no longer holds the row.
@@ -418,10 +419,10 @@ def accept_completion(
     # acceptance must be for work the proposer still owns
     if actor and task["delegated_agent"] != actor:
         raise db.TerminalReject(f"task #{task_id} is no longer delegated to '{actor}'")
-    # completed_at, not just status: flow metrics filter on it, so a delegated
-    # task accepted here would otherwise count zero in cycle time AND in
-    # throughput. The forge routes every delegated close to this function, so
-    # the more work a team delegates, the more of its throughput disappears.
+    # completed_at, not just status: flow metrics filter on it. Every accepted
+    # delegation closes here (the review registry's task_completion; forge.py
+    # ignores a delegated close), so without it delegated work counts zero in
+    # cycle time AND in throughput.
     event_actor = actor or "agent"
     event_origin = origin or "agent_verified"
     with db.transaction():
@@ -480,10 +481,10 @@ def submit_completion(task_id: int, summary: str, *, actor: str, requested_by: s
     from .review import propose_change
 
     # ONE transaction for the proposal and its sponsor snapshot (db.transaction
-    # nests). Written after the commit, a lock timeout on the UPDATE left the
-    # proposal filed, the sponsor un-notified and the column unset - and the
-    # agent's retry then hit the duplicate guard above, telling it to wait for
-    # a verdict nobody had been asked for.
+    # nests). Split, a lock timeout on the UPDATE leaves the proposal filed,
+    # the sponsor un-notified and the column unset - and the agent's retry hits
+    # the duplicate guard below, telling it to wait for a verdict nobody was
+    # asked for.
     with db.transaction():
         # Hold the task: this files a proposal and pings the sponsor with a
         # policy snapshot derived from the task's engagement, but writes no
@@ -614,9 +615,9 @@ def _set_authority_locked(
     # the authority card naming a power that does not exist.
     if entity in NO_AUTHORITY:
         raise ValueError(f"'{entity}' carries no authority level - no agent tool writes it")
-    # _gate.py takes the review path for these BEFORE it reads the level, so
-    # storing autonomous or notify renders "acts alone" on a destructive row
-    # while every such write still waits for a human. Refuse the level rather
+    # extensions/policy.py::CorePolicy sends these to review at every level
+    # short of forbidden, so storing autonomous or notify renders "acts alone"
+    # on a destructive row while every such write still waits for a human. Refuse the level rather
     # than display a correction: an unrepresentable state cannot be displayed
     # wrongly.
     if entity in ALWAYS_REVIEW and level in ("autonomous", "notify"):
@@ -788,8 +789,7 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         rows = [r for r in rows if (r["agent"], r["entity"]) in pairs]
     # ONE scan for the whole loop. The suggestion below asks
     # promotion_blocked per row, and unprefetched that is a full scan of the
-    # authority proposals per pair - the Approvals page went from 122 queries
-    # to 202 the moment agents started earning streaks.
+    # authority proposals per pair.
     judged = _judged_pairs(_authority_cutoff())
     from .lexicon import REVIEW_ONLY
 
@@ -837,17 +837,15 @@ def trust_scores(pairs: set[tuple[str, str]] | None = None) -> list[dict]:
         r["effective_level"] = authority["effective_level"]
         r["review_by"] = authority["review_by"]
         r["review_expired"] = authority["review_expired"]
-        # The rung review_authority ACTUALLY files, and the same predicate it
-        # asks. This said "autonomous" where a promotion climbs one rung to
-        # `notify`, and it skipped promotion_blocked entirely - so it offered
+        # The rung review_authority ACTUALLY files (one rung, to `notify`),
+        # and the same predicate it asks. Without promotion_blocked this offers
         # a promotion on task_completion, which is in NO_AUTHORITY and can
         # never be filed, and that is the entity a delegated agent proposes on
         # most.
         # promotion_blocked is LAST in the chain on purpose: it costs queries,
         # and the two cheap tests before it are false for nearly every row, so
-        # `and` short-circuits it away. Measured over 36 pairs: 73 queries with
-        # it and 73 without. Reorder these and the agents page pays a query per
-        # pair for an answer it discards.
+        # `and` short-circuits it away. Reorder these and the agents page pays
+        # a query per pair for an answer it discards.
         r["suggestion"] = (
             f"{streak} straight approvals - consider promoting to notify"
             if streak >= TRUST_STREAK
@@ -913,7 +911,8 @@ def promotion_blocked(
         # wedge in the queue rather than apply
         return f"'{entity}' never carries an authority level"
     if entity in ALWAYS_REVIEW:
-        # the gate takes the review path for these BEFORE it reads the level
+        # extensions/policy.py::CorePolicy sends these to review at every
+        # level short of forbidden
         return f"'{entity}' always waits for a human"
     if level != "review":
         return "a promotion climbs one rung, from 'needs approval'"
@@ -944,7 +943,7 @@ def _authority_recently_judged(agent: str, entity: str) -> bool:
 
 
 def review_authority(*, actor: str = "scheduler", auth_mode: str = "") -> dict:
-    """A2: turn earned trust into FILED PROPOSALS instead of a buried hint.
+    """Turn earned trust into FILED PROPOSALS instead of a buried hint.
     Promotions climb one rung (review -> notify) on a strong-verdict approval
     streak; demotions to review fire on a strong-verdict rejection streak.
     The system only proposes - a human approves, and agents can never

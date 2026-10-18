@@ -63,9 +63,7 @@ def _ask_question_locked(
     # `"user" = ?` exactly, so a typo'd or differently-cased name is a
     # question that looks assigned and reaches nobody
     assigned_to = _resolve_assignee(assigned_to, actor or asked_by)
-    # one transaction, because scope.resolve_write checks crew membership and
-    # the check has to hold until the row lands - bare, it opens its own
-    # connection and a person removed in between still scopes the row
+    # inside the transaction: services/scope.py::resolve_write says why
     with db.transaction():
         tier, cid = scope.resolve_write(visibility, crew_id, actor=actor or asked_by)
         if event_id:
@@ -643,8 +641,8 @@ def _save_note_locked(
     crew_id: int = 0,
     event_id: int = 0,
 ) -> dict:
-    # every sibling create refuses an empty record; this one used to accept
-    # topic="" content="", indexing a blank row for search and burning a
+    # every sibling create refuses an empty record. Without this check,
+    # topic="" content="" indexes a blank row for search and burns a
     # hash-chained activity seq on a note with nothing in it
     if not topic.strip() and not content.strip():
         raise ValueError("a note needs a topic or content")
@@ -698,11 +696,12 @@ def update_note(
     note_id: int, topic: str = "", content: str = "", *, actor: str = "", origin: str = "human"
 ) -> dict:
     # What stops a deleted note's body from being re-indexed here is the
-    # RE-READ before index_record below (`new = ...; if new:`), not this
-    # transaction and not a lock - the existence check is a plain SELECT and
-    # takes nothing. Delete that re-read and this reads a live note,
-    # delete_note removes it and clears its index, and index_record puts the
-    # deleted body back, searchable forever.
+    # UPDATE's row lock plus the RE-READ after it (`new = ...; if new:`). The
+    # existence check is a plain SELECT and takes nothing. The UPDATE waits
+    # for an in-flight delete_note to commit, and the re-read then sees the
+    # row gone. Move the re-read ahead of the UPDATE, or delete it, and this
+    # reads a live note, delete_note removes it and clears its index, and
+    # index_record puts the deleted body back, searchable forever.
     with db.transaction():
         row = db.query_one("SELECT * FROM notes WHERE id = ?", (note_id,))
         if not row:
@@ -739,10 +738,10 @@ def delete_note(note_id: int, *, actor: str = "", origin: str = "human") -> dict
     from .search import deindex_record
 
     # The row delete and the index delete are one transaction, so neither
-    # lands without the other. What keeps a concurrent update_note from
-    # re-indexing the body after this deindex is that function's re-read
-    # before it indexes, not a lock either side takes. Without it the FULL
-    # body of a deleted note stays queryable through search forever.
+    # lands without the other. A concurrent update_note's UPDATE waits on this
+    # DELETE's row lock, and its re-read then finds no row, so it cannot
+    # re-index the body after this deindex (update_note). Without that, the
+    # FULL body of a deleted note stays queryable through search forever.
     with db.transaction():
         row = db.query_one("SELECT * FROM notes WHERE id = ?", (note_id,))
         if not row:
@@ -760,12 +759,12 @@ def recent_activity(viewer: str, limit: int = 50) -> list[dict]:
     """Raw ledger rows, SCOPED like the feed: the viewer's own strand plus
     agents and system processes - another human's rows do not appear here
     either, or the raw endpoint would be the one-curl bypass of the rule the
-    feed enforces. Includes pre-036 unchained rows (the feed cannot; its
-    cursor is seq).
+    feed enforces. Includes unchained rows (seq IS NULL), which the feed
+    cannot show: its cursor is seq.
 
-    Ordered by seq, not id. `id` is outside the chain digest
-    digest, so ordering the provenance feed by it would let the visible
-    timeline be resequenced while verification still reports intact."""
+    Ordered by seq, not id. `id` is outside the chain digest, so ordering the
+    provenance feed by it lets the visible timeline be resequenced while
+    verification still reports intact."""
     from .activity import visible_actor_filter
 
     actor_sql, params = visible_actor_filter(viewer)

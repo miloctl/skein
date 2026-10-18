@@ -159,8 +159,9 @@ TABLES = (
 _BACKUP_LOCK = Lock()
 _BACKUP_LOCK_WAIT_SECONDS = 5
 _BACKUP_RUN_TIMEOUT_SECONDS = 300
-# ponytail: export needs only a process lock in the supported one-worker shape.
-# Backup also takes a filesystem lock because its files are recovery state.
+# Export takes the thread lock and the database session lock that reaches every
+# worker (_held_export_lock). Backup also takes a file lock (_held_backup_lock)
+# because its files are recovery state.
 _EXPORT_LOCK = Lock()
 _EXPORT_LOCK_WAIT_SECONDS = 5
 _EXPORT_ID_BATCH = 10_000

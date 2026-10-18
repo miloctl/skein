@@ -164,8 +164,9 @@ def _tell_the_thread(
     read the new comment, and anyone who still holds an unread notice into
     this thread, which already points them here. The parent row is held FOR
     UPDATE by the caller, so two replies cannot both see "no notice yet".
-    ponytail: a dismissal that races the unread check can hide one notice;
-    a per-(person, parent) watch row is the upgrade."""
+    shortcut: a dismissal that races the unread check can hide one notice,
+    add a per-(person, parent) watch row when threads are busy enough for
+    that race to land."""
     from . import users
     from .notifications import notify
 

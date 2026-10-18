@@ -385,10 +385,10 @@ def my_day(
             " ORDER BY score DESC LIMIT 10"
         ),
         # notifications.UNREAD_FOR, never a second copy of the rule: a 'team'
-        # row is one shared record and "read" is per person (009), so a query
-        # that only tested read_at showed an announcement one teammate had
-        # already dismissed for themselves to nobody, or to everybody, purely
-        # by which copy of the predicate it happened to use.
+        # row is one shared record and "read" is per person (notification_reads),
+        # so a query that tests only read_at shows an announcement one teammate
+        # dismissed for themselves to nobody, or to everybody, purely by which
+        # copy of the predicate it uses.
         # The blocker exclusion, HERE and not in _attention: a blocker the
         # reader owns is already an attention row with the resolve control on
         # it, and its escalation notice restated that row one section down -
@@ -482,29 +482,27 @@ def my_day(
                     " CASE status WHEN 'in_progress' THEN 0 ELSE 1 END,"
                     " CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1"
                     " WHEN 'medium' THEN 2 ELSE 3 END, due_date IS NULL, due_date LIMIT 200",
-                    # `this_week` binds LAST: its placeholder is in ORDER BY, which
-                    # follows the scope filter's marks in the SQL text. Marks bind
-                    # by position, not by clause.
-                    # both ORDER BY marks bind after the filter's, in text order:
-                    # the overdue test first, then the commitment test
+                    # Marks bind by position, not by clause: both ORDER BY marks
+                    # bind after the scope filter's, in text order - the overdue
+                    # test (`today`), then the commitment test (`this_week`)
                     (user, *t_p, today, this_week),
                 ),
                 viewer,
             ),
-            # The tier filter wraps BOTH arms. The unowned arm was already
-            # workspace-locked; the named-assignee arm was not, and it is a
-            # read that outlives the membership check made at the write - a
-            # crew task assigned to somebody stayed on their My Day after they
-            # left the crew, with SELECT * carrying title and description.
+            # The tier filter wraps BOTH arms. The named-assignee arm is a read
+            # that outlives the membership check made at the write: without the
+            # filter, a crew task assigned to somebody stays on their My Day
+            # after they leave the crew, with SELECT * carrying title and
+            # description.
             #
-            # assignee IN (?, '') is deliberate: an unowned task that is due is
-            # everyone's business. The '' arm reaches every reader, and
-            # assert_readable_by only ever checked a NAMED assignee - so this
-            # arm takes the workspace lock, or an unowned crew task lands on
-            # the whole roster's My Day. LIMIT is not deliberate: unbounded,
-            # a team with thousands of stale overdue rows served every one of
-            # them as SELECT * on every dashboard load, for every user.
-            # ORDER BY due_date NULLS FIRST puts the most overdue first, so the cap drops
+            # The unowned arm is deliberate: an unowned task that is due is
+            # everyone's business. It reaches every reader, and
+            # assert_readable_by checks only a NAMED assignee - so this arm
+            # takes WORKSPACE_ONLY, or an unowned crew task lands on the whole
+            # roster's My Day. LIMIT 50 bounds the read: unbounded, a team with
+            # thousands of stale overdue rows serves every one of them as
+            # SELECT * on every dashboard load, for every user. ORDER BY
+            # due_date NULLS FIRST puts the most overdue first, so the cap drops
             # the least urgent. Reads idx_tasks_assignee_due (001_baseline.sql).
             "due_soon": redact_task_relationships(
                 db.query(

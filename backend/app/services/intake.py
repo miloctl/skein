@@ -26,9 +26,10 @@ def _can_read(row: dict, person: str) -> bool:
 
 # The same bound routes/api.py::IntakeIn declares, enforced HERE because this
 # is the only write path. Capture's `req:` prefix accepts 10,000 characters and
-# handed the whole body through as `detail`, so a captured request stored a row
-# the REST door refuses to accept - the create/edit asymmetry the bounded-input
-# census exists to close (tests/test_bounded_routes.py).
+# hands the whole body through as `detail`, past IntakeIn, so without this check
+# a captured request stores a row the REST door refuses to accept - the
+# create/edit asymmetry the bounded-input census exists to close
+# (tests/test_bounded_routes.py).
 DETAIL_LEN = 4000
 
 
@@ -54,10 +55,7 @@ def submit_request(
     if not title.strip():
         raise ValueError("request title is required")
     ts = db.now()
-    # inside the transaction, like the other 13 resolve_write call sites: bare,
-    # the membership check opens its own connection, so somebody removed from
-    # the crew between the check and the INSERT still scopes a row into it
-    # (services/scope.py::resolve_write says this at the point of temptation)
+    # inside the transaction: services/scope.py::resolve_write says why
     with db.transaction():
         tier, crew = scope.resolve_write(visibility, crew_id, actor=actor or requester)
         if event_id:
@@ -271,16 +269,17 @@ def _disposition(
                 )
         except (ValueError, db.IntegrityError) as exc:
             # a name collision must not read as "work has started" - say so.
-            # IntegrityError is the RACE: create_engagement pre-checks the
-            # name NOCASE and raises ValueError, but two accepts landing
-            # together both pass that read and the loser hits
-            # ux_engagements_name_nocase. Uncaught it is a 500 for a
-            # caller-supplied name, which the 4xx rule forbids.
-            # scope.detail, not the raw exception: `exc` is
-            # "engagement '<name>' already exists", and that name is the
-            # request's own title. The ledger is hash-chained, so a scoped
-            # title written here has no delete and no redaction - the caller
-            # still gets the full reason in `note` below.
+            # ValueError is the collision: create_engagement takes the name
+            # lock (engagements._hold_name) before its lower(name) pre-check,
+            # so two accepts landing together serialize and the second gets
+            # ValueError. It also covers a bad kind or crew. IntegrityError is
+            # the backstop for ux_engagements_name_nocase: uncaught it is a
+            # 500 for a caller-supplied name, which the 4xx rule forbids.
+            # scope.detail, not the raw exception: a unique-violation message
+            # quotes the key, and that key is the request's own title. The
+            # ledger is hash-chained, so a scoped title written here has no
+            # delete and no redaction - the caller still gets the full reason
+            # in `note` below.
             db.log_activity(
                 actor,
                 "accept_without_engagement",

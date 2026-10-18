@@ -43,7 +43,7 @@ def _payload(kind: str, body: str, actor: str) -> dict:
     if kind == "promise":
         return {"promise": body}
     if kind == "awaiting":
-        # the other direction of the same table (migration 007). Built here
+        # the other direction of the same table (direction="received"). Built here
         # rather than reusing capture.py's branch because ingest proposes and
         # capture writes - the payload has to survive review.unappliable and
         # then reach promises.add_promise unchanged at apply time.
@@ -66,8 +66,7 @@ def _payload(kind: str, body: str, actor: str) -> dict:
 # Every kind services/capture.py::PATTERNS can classify MUST resolve here or
 # fall through to a real entity name: an unmapped kind reaches
 # review.propose_change, which raises, which abandons the rest of the paste
-# after some of its lines are already stored. `awaiting` shipped in capture
-# without this line and did exactly that.
+# after some of its lines are already stored.
 _ENTITY = {"request": "intake", "awaiting": "promise"}
 
 

@@ -61,10 +61,8 @@ def record_use(user: str, surface: str, *, counts: bool = True) -> None:
     action tally: the row is created or touched at +0, so
     weekly_active_users still sees them and by_surface does not. The web UI
     fans one page out into eight or more reads while a CLI invocation is one
-    request, so counting reads made non_web_share - the >50% success bar in
-    adoption() below - a measure of how many cards a page renders. Every
-    read resolves a caller now (tests/test_route_identity.py), which took
-    that from a lean to a landslide.
+    request, so counting reads turns non_web_share - the >50% success bar in
+    adoption() below - into a measure of how many cards a page renders.
     """
     global _last_flush
     if not user or user == "anonymous":

@@ -213,8 +213,8 @@ def _edit_blocker_locked(
 ) -> dict:
     """The row change, its receipt, its index, and its event are one unit.
 
-    Each of these was its own autocommit, so a failure between them left a
-    written row that no subscriber ever heard about.
+    Split, a failure between them leaves a written row that no subscriber
+    hears about.
     """
     row = db.query_one("SELECT * FROM blockers WHERE id = ?", (blocker_id,))
     if not row:
@@ -232,8 +232,8 @@ def _edit_blocker_locked(
     if not fields:
         raise ValueError("nothing to update")
     # the escalation clock follows the impact UNLESS the creator set a custom
-    # deadline - impact was frozen at creation before this, so the only
-    # escalation speed a web-filed blocker ever had was medium's
+    # deadline. Frozen at creation, a web-filed blocker escalates at medium's
+    # speed whatever impact it is edited to
     if (
         impact
         and impact != row["impact"]
@@ -483,13 +483,15 @@ def _sweep_escalations_locked() -> list[dict]:
         if created.tzinfo is None:
             created = created.replace(tzinfo=UTC)
         if now_dt - created >= timedelta(hours=b["escalate_after_hours"]):
-            # Hold the linked TASK before writing anything. The notice this
+            # Hold the linked TASK before writing this blocker. The notice this
             # sweep files carries a policy snapshot derived from the task's
-            # engagement, so a relink landing mid-sweep would file a notice
-            # whose body and whose snapshot describe different projects. Taken
-            # FIRST, ahead of the blocker write and the ledger append, so the
-            # lock order matches every enforcement path - see
-            # services/policy_context.py::hold_resource.
+            # engagement, so a relink landing mid-sweep files a notice whose
+            # body and whose snapshot describe different projects. Per blocker
+            # the task comes ahead of the blocker write, and the ledger rows
+            # queue until commit (services/policy_context.py::hold_resource).
+            # The whole sweep is one transaction, so from the second due
+            # blocker on, a task hold follows the earlier blockers' row locks:
+            # only the first blocker matches the enforcement paths' order.
             from . import policy_context
 
             if b["task_id"]:

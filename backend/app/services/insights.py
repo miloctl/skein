@@ -80,9 +80,6 @@ _median = stats.median
 _p85 = stats.p85
 
 
-# ---- trends (team-rolled only) ----------------------------------------------
-
-
 def _resolve_hours(since: str, until: str) -> tuple[list[float], int]:
     """(durations, impossible) - a row resolved BEFORE it was raised is
     excluded and counted, never averaged in. One imported backup or hand-edited
@@ -250,9 +247,9 @@ def forecast_calibration(window_days: int = 180) -> dict:
         " m.completed_at"
         " FROM forecast_snapshots f JOIN milestones m ON m.id = f.milestone_id"
         # bounded on the MILESTONE's completion, never the snapshot's creation:
-        # as a WHERE on f.created_at it prunes rows BEFORE MIN() runs, so a
-        # milestone older than the window gets scored on its earliest
-        # IN-WINDOW forecast - the converged one - which flatters the forecast
+        # as a WHERE on f.created_at it prunes rows BEFORE DISTINCT ON picks
+        # the earliest, so a milestone older than the window gets scored on its
+        # earliest IN-WINDOW forecast - the converged one - which flatters the forecast
         # in exactly the way choosing the earliest snapshot exists to prevent
         " WHERE m.status = 'done' AND m.completed_at IS NOT NULL AND m.completed_at >= ?"
         " ORDER BY f.milestone_id, f.day",
@@ -335,9 +332,6 @@ def insights() -> dict:
         "findings": list_findings(weeks=4),
         "rule_stats": rule_stats(),
     }
-
-
-# ---- findings engine ---------------------------------------------------------
 
 
 def _finding(
@@ -880,10 +874,10 @@ def _r_turn_runaway() -> list[dict]:
 
 
 def _r_flock_failures() -> list[dict]:
-    """Members that failed inside a flock turn. flock_traces has recorded a
-    per-member status since flocks shipped and nothing has ever read it, so a
-    persona that fails every time it is called looks, from every surface, like
-    a persona nobody uses."""
+    """Members that failed inside a flock turn. flock_traces records a
+    per-member status, and without this rule nothing counts it, so a persona
+    that fails every time it is called looks, from every surface, like a
+    persona nobody uses."""
     rows = db.query(
         "SELECT members FROM flock_traces WHERE created_at >= ?",
         (db.local_midnight_utc(_today() - timedelta(days=7)),),
@@ -949,7 +943,7 @@ def _r_plan_drift() -> list[dict]:
     still runs.
 
     The snapshot is written at KICKOFF (playbooks.instantiate), so this diff
-    exists from day one - but nothing read it until close, when the only thing
+    exists from day one. Read only at close, it arrives when the only thing
     left to do about it is write a lesson. A milestone that has already moved
     twice and four tasks nobody planned are facts the team can still act on in
     week three, and the whole reason the snapshot is taken.
@@ -1297,8 +1291,8 @@ def _r_meeting_no_outcome() -> list[dict]:
     roster = {fold(u["name"]) for u in list_users(active_only=False)}
     since = _iso(_today() - timedelta(weeks=OUTCOME_SILENT_WEEKS))
     # Grouped in Python rather than by SQL aggregate, because every shortcut
-    # the aggregate offered inflated the number. `SUM(julianday diff)` counts
-    # an all-day row as 24 hours (schedule.py::_canon keeps a date-only
+    # the aggregate offered inflated the number. A SQL duration sum counts an
+    # all-day row as 24 hours (schedule.py::_canon keeps a date-only
     # starts_at date-only on purpose), a COALESCE default invents a duration
     # for a row that has none, and MAX(attendees) multiplies EVERY instance by
     # the largest list ever seen. A manager checks a number like "144
@@ -1371,10 +1365,10 @@ def _r_meeting_no_outcome() -> list[dict]:
 def _r_interrupt_load() -> list[dict]:
     """How much of the week's finished work was never planned.
 
-    The interrupt ledger shipped with the cockpit and nothing read it, so the
-    number was visible to whoever opened the page on Monday and to nobody
-    else. Team ratio only - this judges the PAST, and the anti-surveillance
-    rule allows person-level data only for planning the future.
+    Without this rule, the interrupt ledger's number reaches whoever opens
+    the cockpit page on Monday and nobody else. Team ratio only - this judges
+    the PAST, and the anti-surveillance rule allows person-level data only for
+    planning the future.
     """
     from .portfolio import flow_metrics
 
@@ -1473,8 +1467,7 @@ def run_findings(*, actor: str = "scheduler") -> dict:
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 # RETURNING with ON CONFLICT DO NOTHING yields no row when the
                 # finding was already recorded, so `if fid` below still means
-                # "a new row was created". The old driver answered that with
-                # a stale lastrowid from an earlier insert on the connection.
+                # "a new row was created".
                 " ON CONFLICT DO NOTHING RETURNING id",
                 (
                     f["rule_id"],
@@ -1575,9 +1568,6 @@ def digest_findings(limit: int = 3) -> list[dict]:
         )
         rows = [merged if r is stale[0] else r for r in rows if r is stale[0] or r not in stale]
     return rows[:limit]
-
-
-# ---- dispositions: what happened AFTER the finding fired --------------------
 
 
 def _latest_disposition(rule_id: str, subject: str) -> dict | None:

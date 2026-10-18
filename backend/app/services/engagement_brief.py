@@ -202,10 +202,10 @@ def brief(
         (*tp, *bp2, engagement_id, engagement_id, since),
     )
 
-    # A CLOSED engagement's page is an archive, and it showed none of the
-    # work: eighteen finished tasks rendered as "No work is open. Capture one
-    # with 'todo:'" - an invitation to add work to a closed engagement, over
-    # the history a reader came for. Recent done tasks, newest first, capped
+    # A CLOSED engagement's page is an archive. Without its done work, the
+    # page renders "No work is open. Capture one with 'todo:'" - an invitation
+    # to add work to a closed engagement, over the history a reader came for.
+    # Recent done tasks, newest first, capped
     # like the open list; absent for active engagements, whose done work has
     # its own surfaces (Recently shipped, flow metrics).
     done_work: list[dict] = []
