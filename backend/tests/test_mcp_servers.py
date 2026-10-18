@@ -754,6 +754,28 @@ def test_offboarding_and_rename_carry_the_rows(client, sealed):
     assert "personal:avery:jira" not in mcp_tools._connections
 
 
+def test_a_merge_keeps_the_targets_server_of_a_shared_name(fresh_db):
+    """mcp_servers is unique on (scope, owner, name), and both halves of one
+    person can register the same server under one name. The merge folds it
+    as it folds chat folders: the target's row wins."""
+    from app import db
+    from app.services import users
+
+    now = db.now()
+    for person, url in (("ava", "https://a.example/mcp"), ("avery", "https://b.example/mcp")):
+        users.ensure_user(person)
+        db.execute(
+            "INSERT INTO mcp_servers (scope, owner, name, url, created_by, created_at,"
+            " updated_at) VALUES ('personal', ?, 'gitlab', ?, ?, ?, ?)",
+            (person, url, person, now, now),
+        )
+    # consented: the services/merges.py path, which a merge of an account
+    # holding owner-only rows like these takes
+    users.rename_user("ava", "avery", actor="system", expected_merge=True, consented=True)
+    rows = db.query("SELECT owner, url FROM mcp_servers")
+    assert [(r["owner"], r["url"]) for r in rows] == [("avery", "https://b.example/mcp")]
+
+
 def test_a_personal_tool_version_covers_its_whole_contract():
     """The first-use approval is keyed on this version. A CRC32 over name and
     schema was forgeable, and the description (what steers the model to fill

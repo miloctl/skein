@@ -1214,6 +1214,16 @@ def rename_user(
             " AND n.owner = ?)",
             (old, new),
         )
+        # mcp_servers (scope, owner, name): the target's server wins, as a
+        # folder does - both halves of one person register the same server
+        # under one name. The source's live connection goes with forget_owner
+        # below.
+        db.execute(
+            "DELETE FROM mcp_servers WHERE owner = ? AND EXISTS"
+            " (SELECT 1 FROM mcp_servers n WHERE n.scope = mcp_servers.scope"
+            " AND n.name = mcp_servers.name AND n.owner = ?)",
+            (old, new),
+        )
         # chat_members (thread_id, person): active beats left, and an ACTIVE
         # steward on either half keeps the merged identity a steward. Losing
         # either property can leave a private chat with nobody allowed to read

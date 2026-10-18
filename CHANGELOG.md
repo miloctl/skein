@@ -37,6 +37,7 @@ keeps its existing `minimum_core` and needs no change.
 - Two week plans that name the same tasks in different orders no longer deadlock, and neither do a week plan and an approved weekly plan proposal. Before, each could hold one task and wait on the other, and one answered 503.
 - A task create and a new engagement that adopts the task's milestone no longer interleave. Before, a task that named another engagement could land between the adoption's check and its update, which left a task whose milestone and engagement disagree, decided for a milestone with no project type. That create now waits and is refused.
 - The personal MCP server URL check unwraps the IPv4 address inside a 6to4 or Teredo IPv6 address. Before, `2002:a9fe:a9fe::1` counted as a private address and reached the cloud metadata service.
+- When both accounts in a merge have a personal MCP server with the same name, the merged account keeps the target's server. Before, the merge answered 500.
 - A personal MCP server signs in with a token only, and the Settings card has no OAuth sign-in. Adding a server with any other sign-in method answers 400: "OAuth sign-in for MCP servers was removed. Add the server with a token." The removed routes and fields are under Contracts.
 
 ### Operations
