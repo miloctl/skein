@@ -242,7 +242,11 @@ that hasn't passed it will fail on push-to-main.
 - Current user resolution is `SKEIN_AUTH_MODE` (`api-key` default -
   fail closed; `trusted-header` is the `X-User` name-picker mode that
   `scripts/skein.sh`, docker-compose and the e2e runner opt into for dev;
-  `oidc`), branched ONLY in `routes/deps.py`. Routes take it via
+  `oidc`), branched in two layers only. `main.py::_perimeter_auth` refuses
+  a request that carries no valid credential for the mode, before any route
+  runs, and saves what it checked on `request.state`. `routes/deps.py`
+  decides who the caller is and reuses those saved results. No other module
+  branches on the mode to decide identity. Routes take it via
   `CurrentUser`; strong-identity surfaces use `StrongUser`,
   team-wide/roster surfaces use `AdminUser`.
 - Times are UTC ISO-8601 strings (`db.now()`); dates are `YYYY-MM-DD`.
