@@ -31,8 +31,12 @@ def server_id(owner: str, name: str) -> str:
 
 
 # Metadata services outside link-local, which the range checks below pass:
-# Alibaba Cloud's, and AWS's IPv6 one. The others answer on 169.254.169.254.
-_METADATA = frozenset(ipaddress.ip_address(a) for a in ("100.100.100.200", "fd00:ec2::254"))
+# Alibaba Cloud's, and the IPv6 ones of AWS and Compute Engine. Their IPv4
+# ones answer on 169.254.169.254, which is link-local.
+_METADATA = frozenset(
+    ipaddress.ip_address(a) for a in ("100.100.100.200", "fd00:ec2::254", "fd20:ce::254")
+)
+_INVALID_URL = "The URL is not valid. Check the host name and the port."
 
 
 def check_url(url: str) -> None:
@@ -43,7 +47,7 @@ def check_url(url: str) -> None:
         port = parts.port
     except ValueError:
         # urllib's message quotes the part it could not read
-        raise ValueError("The URL is not valid. Check the host name and the port.") from None
+        raise ValueError(_INVALID_URL) from None
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ValueError("The URL must start with http:// or https:// and name a host.")
     if parts.username or parts.password:
@@ -63,6 +67,9 @@ def check_url(url: str) -> None:
         infos = socket.getaddrinfo(parts.hostname, port or 443, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
         return
+    except UnicodeError:
+        # the IDNA codec's message quotes the character it could not encode
+        raise ValueError(_INVALID_URL) from None
     for info in infos:
         address = ipaddress.ip_address(info[4][0])
         # ::ffff:127.0.0.1 is not loopback to the ipaddress module, and an

@@ -430,6 +430,7 @@ def test_a_failed_connect_is_a_field_not_an_error(client, sealed):
         # metadata services outside link-local: Alibaba Cloud, AWS over IPv6
         "http://100.100.100.200/latest/meta-data/",
         "http://[fd00:ec2::254]/latest/meta-data/",
+        "http://[fd20:ce::254]/computeMetadata/v1/",
         "https://user:pw@host.example/mcp",
         "ftp://host.example/mcp",
         # a URL is stored in plain text, travels in every backup and reaches
@@ -443,6 +444,18 @@ def test_the_url_check_refuses_this_host_and_odd_schemes(client, sealed, url):
     refused = client.post("/api/mcp/servers", json={"name": "x", "url": url}, headers=ava)
     assert refused.status_code == 400, refused.text
     assert url not in refused.text
+
+
+# .invalid, not .example: the sealed fixture resolves .example without the
+# real getaddrinfo, whose IDNA encoding raises before any DNS query
+@pytest.mark.parametrize("host", ["a" * 64 + ".invalid", "a\ufffdb.invalid"])
+def test_a_host_name_that_cannot_be_encoded_is_refused_without_echoing_it(client, sealed, host):
+    """getaddrinfo's IDNA error quotes the character it could not encode."""
+    ava = _bootstrap("ava")
+    url = f"https://{host}/mcp"
+    refused = client.post("/api/mcp/servers", json={"name": "x", "url": url}, headers=ava)
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["detail"].startswith("The URL is not valid.")
 
 
 @pytest.mark.parametrize("port", ["99999", "8o8o"])
