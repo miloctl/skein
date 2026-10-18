@@ -114,10 +114,11 @@ def apply_plan(
     # plan: update_task raises a ValueError for it, so apply what exists and
     # report the ids that were skipped
     committed, skipped = [], []
+    task_ids = list(dict.fromkeys(task_ids))  # a repeated id commits and counts once
     # in id order, as the direct plan (routes/api.py::post_week_plan) holds
     # them. An approved proposal arrives here holding nothing, and in draft
     # order it holds one task the direct plan waits on, then waits on another.
-    for tid in sorted({int(t) for t in task_ids}):
+    for tid in sorted(t for t in task_ids if isinstance(t, int)):
         policy_context.hold_resource("task", tid)
     for tid in task_ids:
         try:

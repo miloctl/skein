@@ -36,6 +36,7 @@ keeps its existing `minimum_core` and needs no change.
 - In OIDC mode, a userinfo request that fails in transit answers with the same 503 detail as an identity provider that is down ("the identity provider cannot be reached. Try again in a minute."). The exception class goes to the server log, not to the response.
 - The authority card lists "run a write on a remote MCP server" for each agent. An administrator can forbid an agent's writes through the system MCP servers, let them run without review, or let them run and tell the team. If a workplace rule applies, the inbox hides that team notice: it has no source row that the rule can classify. Forbidden also refuses on a personal server. Before, the level existed in policy, but no one could set it.
 - Two week plans that name the same tasks in different orders no longer deadlock, and neither do a week plan and an approved weekly plan proposal. Before, each could hold one task and wait on the other, and one answered 503.
+- A week plan that names one task twice commits it once and counts it once. Before, the plan reported it twice.
 - The nightly prune now deletes from the tables it shares with a rename in the order a rename writes them. Before, a prune and a rename that crossed could each wait on the other, and one of them failed. A merge during the prune can still cross it: the merge then answers 503, or the prune rolls back and the next run prunes.
 - A task create and a new engagement that adopts the task's milestone no longer interleave. Before, a task that named another engagement could land between the adoption's check and its update, which left a task whose milestone and engagement disagree, decided for a milestone with no project type. That create now waits and is refused.
 - The personal MCP server URL check unwraps the IPv4 address inside a 6to4 or Teredo IPv6 address. Before, `2002:a9fe:a9fe::1` counted as a private address and reached the cloud metadata service.
@@ -51,7 +52,7 @@ keeps its existing `minimum_core` and needs no change.
 
 - A `SKEIN_MCP_SERVERS` entry ignores `derive` and `tier`, two keys that belong to personal servers. With `"derive": true`, an entry replaced its declared `tools` block with the server's own annotations and skipped the first-use review. Such an entry now exposes only the tools it declares. The example in `backend/.env.example` now points at a complete entry.
 
-- A stored `thread_pool` or `tool_threads` override now also raises the database connection pool, to `thread_pool + tool_threads + 4` connections per process. PostgreSQL's `max_connections` must cover that across every process: past it, a request waits for a connection and then answers 503.
+- A stored `thread_pool` or `tool_threads` override now also sizes the database connection pool, to `thread_pool + tool_threads + 4` connections per process. PostgreSQL's `max_connections` must cover that across every process: past it, a request waits for a connection and then answers 503.
 
 - A negative `SKEIN_OIDC_LEEWAY` takes the 30-second default. Before, it became 0, which refused a token on any clock skew. An explicit 0 still sets zero tolerance.
 

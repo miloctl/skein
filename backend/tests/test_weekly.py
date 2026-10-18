@@ -47,6 +47,13 @@ def test_apply_plan_skips_missing_tasks(client, fresh_db):
         weekly.apply_plan("2026-W31", [999999])
 
 
+def test_a_repeated_task_in_a_plan_commits_and_counts_once(client):
+    t = client.post("/api/tasks", json={"title": "twice"}).json()
+    r = client.post("/api/week/plan", json={"task_ids": [t["id"], t["id"]]})
+    assert r.status_code == 200, r.text
+    assert (r.json()["committed"], r.json()["task_ids"]) == (1, [t["id"]])
+
+
 def test_week_validation_everywhere(client):
     assert client.get("/api/week/draft?week=banana").status_code == 400
     assert client.get("/api/week?week=2026-W99").status_code == 400  # no such ISO week
