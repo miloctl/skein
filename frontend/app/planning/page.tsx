@@ -14,6 +14,7 @@ import { PeekLink } from "@/components/task-peek";
 import { actionError, api, loadError } from "@/lib/api";
 import { ManageToggle, useManageMode } from "@/components/manage-toggle";
 import { PersonInput } from "@/components/person-input";
+import { isDatalistPick } from "@/lib/datalist-pick";
 import { ReceiptLine } from "@/components/receipt";
 import { RoutinesCard } from "@/components/routines-card";
 import type { Receipt } from "@/lib/entity-ref";
@@ -169,11 +170,7 @@ function QueueActions({ q, onDone }: { q: Intervention; onDone: () => void }) {
               );
           }}
           onChange={(ev) => {
-            // a mouse-picked datalist suggestion must commit too - picks
-            // arrive as insertReplacementText (or undefined inputType in
-            // Firefox), typing as insertText (app/dashboard/page.tsx)
-            const t = (ev.nativeEvent as InputEvent).inputType;
-            if (t && t !== "insertReplacementText") return;
+            if (!isDatalistPick(ev)) return;
             const who = ev.target.value.trim();
             if (who)
               run(

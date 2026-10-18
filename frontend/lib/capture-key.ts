@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { isGated } from "@/lib/gated";
+import { modalOwnsFocus } from "@/lib/gated";
 
 /** The C key opens quick capture, and a person can turn that off in
  *  Settings → You. The switch is required, not a nicety: WCAG 2.1.4 (level A)
@@ -51,8 +51,8 @@ export function useCaptureKeyEnabled(): boolean {
  *  included: Ctrl+C and ⌘C copy, and Alt+C types a character on some
  *  layouts. Never
  *  while a text field has focus, where C is a letter someone is typing, and
- *  never while a modal owns focus (the capture palette, the task panel): the
- *  same test the ⌘K search shortcut makes (components/nav-search.tsx). */
+ *  never while the auth gate or a modal owns focus (the capture palette, the
+ *  task panel). */
 export function opensCapture(e: KeyboardEvent): boolean {
   if (e.key !== "c" && e.key !== "C") return false;
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
@@ -60,7 +60,6 @@ export function opensCapture(e: KeyboardEvent): boolean {
   const target = e.target instanceof HTMLElement ? e.target : null;
   if (target?.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"))
     return false;
-  if (isGated() || document.querySelector('[aria-modal="true"]:not(#chat-list):not(#navigation-drawer)'))
-    return false;
+  if (modalOwnsFocus()) return false;
   return captureKeyEnabled();
 }

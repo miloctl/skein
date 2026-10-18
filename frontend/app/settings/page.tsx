@@ -87,6 +87,78 @@ function isWriteTimeout(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
+type SettingWrite = {
+  identity: { current: number };
+  // the identity whose write is open, or null when none is
+  owner: { current: number | null };
+  what: string;
+  path: string;
+  body: Record<string, string>;
+  value: string;
+  success: string;
+  setStatus: (status: string) => void;
+  setBusy: (busy: boolean) => void;
+  setBusyValue: (value: string | null) => void;
+  refresh: () => Promise<unknown>;
+};
+
+async function writeSetting(w: SettingWrite): Promise<void> {
+  const identity = w.identity.current;
+  if (w.owner.current !== null) {
+    if (w.owner.current !== identity) {
+      w.setStatus(`${w.what} is still saving. When it finishes, try again.`);
+    }
+    return;
+  }
+
+  w.owner.current = identity;
+  w.setBusy(true);
+  w.setBusyValue(w.value);
+  w.setStatus("Saving…");
+  try {
+    await boundedWrite(w.path, {
+      method: "POST",
+      body: JSON.stringify(w.body),
+    });
+    // The identity can change while the POST is open. Do not refresh or
+    // announce the old identity's write under the new identity.
+    if (identity !== w.identity.current) return;
+    await w.refresh();
+    // The identity can also change during the refresh. A late response
+    // must not announce success in the next identity's Settings page.
+    if (identity === w.identity.current) w.setStatus(w.success);
+  } catch (e) {
+    // A rejected old-identity request can arrive after a new identity is
+    // active. Its refusal does not belong on the new identity's page.
+    if (identity !== w.identity.current) return;
+    if (isWriteTimeout(e)) {
+      w.setStatus(
+        "The save timed out. The result is unknown. Check the current setting before you try again.",
+      );
+      void w.refresh();
+      return;
+    }
+    w.setStatus(
+      isUnreachable(e)
+        ? backendUnreachable()
+        : `${w.value ? "Not saved" : "Not cleared"}. ${actionError(e)}`,
+    );
+  } finally {
+    if (w.owner.current === identity) {
+      w.owner.current = null;
+      w.setBusy(false);
+      w.setBusyValue(null);
+      // The write can settle after an identity change. The "still saving"
+      // block message must not outlive the write it reports, and the
+      // settled write can have changed the team value.
+      if (identity !== w.identity.current) {
+        w.setStatus("");
+        void w.refresh();
+      }
+    }
+  }
+}
+
 // services/users.py::public_users: erase_on and erased come with an
 // inactive person's row, which only an administrator lists
 type RosterRow = {
@@ -783,128 +855,38 @@ export default function SettingsPage() {
   }, []);
 
   const writePick = useCallback(
-    async (model: string, success: string) => {
-      const identity = identityGeneration.current;
-      if (pickWriteRef.current !== null) {
-        if (pickWriteRef.current !== identity) {
-          setPickStatus(
-            "A model change is still saving. When it finishes, try again.",
-          );
-        }
-        return;
-      }
-
-      pickWriteRef.current = identity;
-      setPickBusy(true);
-      setPickBusyModel(model);
-      setPickStatus("Saving…");
-      try {
-        await boundedWrite("/api/settings/model", {
-          method: "POST",
-          body: JSON.stringify({ model }),
-        });
-        // The identity can change while the POST is open. Do not refresh or
-        // announce the old identity's write under the new identity.
-        if (identity !== identityGeneration.current) return;
-        await loadPick();
-        // The identity can also change during the refresh. A late response
-        // must not announce success in the next identity's Settings page.
-        if (identity === identityGeneration.current) setPickStatus(success);
-      } catch (e) {
-        // A rejected old-identity request can arrive after a new identity is
-        // active. Its refusal does not belong on the new identity's page.
-        if (identity !== identityGeneration.current) return;
-        if (isWriteTimeout(e)) {
-          setPickStatus(
-            "The save timed out. The result is unknown. Check the current setting before you try again.",
-          );
-          void loadPick();
-          return;
-        }
-        setPickStatus(
-          isUnreachable(e)
-            ? backendUnreachable()
-            : `${model ? "Not saved" : "Not cleared"}. ${actionError(e)}`,
-        );
-      } finally {
-        if (pickWriteRef.current === identity) {
-          pickWriteRef.current = null;
-          setPickBusy(false);
-          setPickBusyModel(null);
-          // The write can settle after an identity change. The block message
-          // "A model change is still saving." must not outlive the write it
-          // reports, and the settled write can have changed the team value.
-          if (identity !== identityGeneration.current) {
-            setPickStatus("");
-            void loadPick();
-          }
-        }
-      }
-    },
+    (model: string, success: string) =>
+      writeSetting({
+        identity: identityGeneration,
+        owner: pickWriteRef,
+        what: "A model change",
+        path: "/api/settings/model",
+        body: { model },
+        value: model,
+        success,
+        setStatus: setPickStatus,
+        setBusy: setPickBusy,
+        setBusyValue: setPickBusyModel,
+        refresh: loadPick,
+      }),
     [loadPick],
   );
 
   const writeCtx = useCallback(
-    async (strategy: string, success: string) => {
-      const identity = identityGeneration.current;
-      if (ctxWriteRef.current !== null) {
-        if (ctxWriteRef.current !== identity) {
-          setCtxStatus(
-            "A long-chat change is still saving. When it finishes, try again.",
-          );
-        }
-        return;
-      }
-
-      ctxWriteRef.current = identity;
-      setCtxBusy(true);
-      setCtxBusyStrategy(strategy);
-      setCtxStatus("Saving…");
-      try {
-        await boundedWrite("/api/settings/context-strategy", {
-          method: "POST",
-          body: JSON.stringify({ strategy }),
-        });
-        // The identity can change while the POST is open. Do not refresh or
-        // announce the old identity's write under the new identity.
-        if (identity !== identityGeneration.current) return;
-        await Promise.all([loadCtx(), loadPick()]);
-        // The identity can also change during either refresh. A late response
-        // must not announce success in the next identity's Settings page.
-        if (identity === identityGeneration.current) setCtxStatus(success);
-      } catch (e) {
-        // A rejected old-identity request can arrive after a new identity is
-        // active. Its refusal does not belong on the new identity's page.
-        if (identity !== identityGeneration.current) return;
-        if (isWriteTimeout(e)) {
-          setCtxStatus(
-            "The save timed out. The result is unknown. Check the current setting before you try again.",
-          );
-          void loadCtx();
-          void loadPick();
-          return;
-        }
-        setCtxStatus(
-          isUnreachable(e)
-            ? backendUnreachable()
-            : `${strategy ? "Not saved" : "Not cleared"}. ${actionError(e)}`,
-        );
-      } finally {
-        if (ctxWriteRef.current === identity) {
-          ctxWriteRef.current = null;
-          setCtxBusy(false);
-          setCtxBusyStrategy(null);
-          // The write can settle after an identity change. The block message
-          // "A long-chat change is still saving." must not outlive the write
-          // it reports, and the settled write can have changed the team value.
-          if (identity !== identityGeneration.current) {
-            setCtxStatus("");
-            void loadCtx();
-            void loadPick();
-          }
-        }
-      }
-    },
+    (strategy: string, success: string) =>
+      writeSetting({
+        identity: identityGeneration,
+        owner: ctxWriteRef,
+        what: "A long-chat change",
+        path: "/api/settings/context-strategy",
+        body: { strategy },
+        value: strategy,
+        success,
+        setStatus: setCtxStatus,
+        setBusy: setCtxBusy,
+        setBusyValue: setCtxBusyStrategy,
+        refresh: () => Promise.all([loadCtx(), loadPick()]),
+      }),
     [loadCtx, loadPick],
   );
 
@@ -1588,8 +1570,8 @@ export default function SettingsPage() {
                     Sign in with key
                   </button>
                 </div>
-                {/* always mounted: a live region added together with its
-                    text is often not announced by a screen reader */}
+                {/* always mounted, for the reason components/status-region.tsx
+                    gives */}
                 <p
                   role={keyError ? "alert" : "status"}
                   aria-live="polite"
@@ -2510,10 +2492,10 @@ export default function SettingsPage() {
                   administrator with strong identity can read or change them. If
                   you reset a limit, Skein uses the deployment default.
                 </p>
-                {/* role=status on an always-mounted node: the refusal arrives after
-            first paint, and a live region inserted with its own text is not
-            announced. The final branch is not dead - a load that returns
-            nothing with no error must still say why the section is empty. */}
+                {/* role=status on an always-mounted node, for the reason
+            components/status-region.tsx gives. The final branch is not dead - a
+            load that returns nothing with no error must still say why the
+            section is empty. */}
                 <p role="status" className="text-sm text-ink-3 empty:hidden">
                   {!canAdminister
                     ? adminAccessMessage
@@ -2694,9 +2676,8 @@ export default function SettingsPage() {
                   </div>
                 )}
                 {/* Outside the {tunables} branch and never conditional on its own
-            text: a live region inserted in the same paint as its content is
-            not announced, and this is the ONLY feedback for a save - the
-            long-chat panel above holds the same shape. */}
+            text, for the reason components/status-region.tsx gives: this is the
+            ONLY feedback for a save. */}
                 <p
                   role="status"
                   aria-live="polite"

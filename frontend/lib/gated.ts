@@ -30,3 +30,18 @@ export function subscribeGated(cb: () => void): () => void {
     subscribers.delete(cb);
   };
 }
+
+/** Whether the gate or a modal owns focus, so a global shortcut (the C
+ *  capture key in lib/capture-key.ts, the ⌘K search in
+ *  components/nav-search.tsx) stands down. Capture and TaskPeek own their
+ *  drafts and focus: a shortcut over either opens a second dialog or moves
+ *  focus to the inert shell behind it. The chat drawer (#chat-list) and the
+ *  navigation drawer hold no draft and are excluded. */
+export function modalOwnsFocus(): boolean {
+  return (
+    gated ||
+    document.querySelector(
+      '[aria-modal="true"]:not(#chat-list):not(#navigation-drawer)',
+    ) !== null
+  );
+}

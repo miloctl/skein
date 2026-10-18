@@ -18,6 +18,7 @@ import { useRememberedAudience, useStrongIdentity } from "@/lib/audience";
 import { HASH_TARGET, useHashTarget } from "@/lib/hash-target";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
+import { isDatalistPick } from "@/lib/datalist-pick";
 import { ExtensionDashboardCards } from "@/components/extension-dashboard";
 import { timeAgo } from "@/lib/time";
 import { emptyState, loadingLine } from "@/lib/whimsy";
@@ -1255,11 +1256,7 @@ export default function Dashboard() {
                             blockerPatch(Number(b.id), { owner: who });
                         }}
                         onChange={(ev) => {
-                          // a mouse-picked datalist suggestion must commit too -
-                          // picks arrive as insertReplacementText (or undefined
-                          // inputType in Firefox), typing as insertText
-                          const t = (ev.nativeEvent as InputEvent).inputType;
-                          if (t && t !== "insertReplacementText") return;
+                          if (!isDatalistPick(ev)) return;
                           const who = ev.target.value.trim();
                           if (who) blockerPatch(Number(b.id), { owner: who });
                         }}
@@ -1902,11 +1899,7 @@ export default function Dashboard() {
                             assignTo(Number(q.id), who);
                         }}
                         onChange={(ev) => {
-                          // a mouse-picked datalist suggestion must commit too -
-                          // picks arrive as insertReplacementText (or undefined
-                          // inputType in Firefox), typing as insertText
-                          const t = (ev.nativeEvent as InputEvent).inputType;
-                          if (t && t !== "insertReplacementText") return;
+                          if (!isDatalistPick(ev)) return;
                           const who = ev.target.value.trim();
                           if (who) assignTo(Number(q.id), who);
                         }}

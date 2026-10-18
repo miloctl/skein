@@ -22,6 +22,7 @@ import { Card } from "@/components/card";
 import { RecentChanges } from "@/components/recent-changes";
 import { PeekLink } from "@/components/task-peek";
 import { PersonInput } from "@/components/person-input";
+import { isDatalistPick } from "@/lib/datalist-pick";
 import { taskRef } from "@/lib/task-ref";
 import { ShortcutText } from "@/components/shortcut";
 
@@ -34,7 +35,7 @@ type AttentionItem = {
   // "you" for a row addressed to this reader by name, "team" for a shared
   // queue anyone may work (services/briefing.py). The two render in separate
   // cards: a "Needs you" heading over the team's intake queue and every
-  // pending proposal taught readers to discount the card, and this card is
+  // pending proposal teaches readers to discount the card, and this card is
   // the product's daily habit.
   audience?: "you" | "team";
   label: string;
@@ -333,9 +334,9 @@ export default function MyDay() {
   // wrong two ways: it mixes a midnight date with a current-time one, which
   // lands every week of a year whose Jan 1 is a Friday one ahead, and it reads
   // the browser's zone rather than the team day. This key only has to be
-  // stable per week, so the falsehood was survivable here and fatal on the
-  // commitment chip - which is the reason a second copy must not exist for
-  // the next reader to take.
+  // stable per week, so a wrong week is harmless here but fatal on the
+  // commitment chip, and a browser-side copy here is the one the next reader
+  // copies there.
   const pulseWeek = b?.this_week ?? "";
   const pulseVoted = useSyncExternalStore(
     (cb) => {
@@ -1030,16 +1031,7 @@ export default function MyDay() {
                                               reassignQuestion(a.ref_id, who);
                                           }}
                                           onChange={(ev) => {
-                                            // a mouse-picked datalist suggestion must
-                                            // commit too - picks arrive as
-                                            // insertReplacementText (or undefined
-                                            // inputType in Firefox), typing as
-                                            // insertText (app/dashboard/page.tsx)
-                                            const t = (
-                                              ev.nativeEvent as InputEvent
-                                            ).inputType;
-                                            if (t && t !== "insertReplacementText")
-                                              return;
+                                            if (!isDatalistPick(ev)) return;
                                             const who = ev.target.value.trim();
                                             if (who)
                                               reassignQuestion(a.ref_id, who);

@@ -9,13 +9,7 @@ import { PeekLink } from "@/components/task-peek";
 import { Snippet } from "@/components/snippet";
 import { Shortcut } from "@/components/shortcut";
 import { reportStatus } from "@/lib/status";
-import { isGated } from "@/lib/gated";
-
-function searchBlocked() {
-  // Capture and TaskPeek own their drafts and focus. A search shortcut must
-  // not move focus to the inert utility bar behind either modal.
-  return isGated() || Boolean(document.querySelector('[aria-modal="true"]:not(#chat-list):not(#navigation-drawer)'));
-}
+import { modalOwnsFocus } from "@/lib/gated";
 
 /** Search and /ask, in the nav.
  *
@@ -263,7 +257,7 @@ export function NavSearch() {
     const onShortcut = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        if (searchBlocked()) return;
+        if (modalOwnsFocus()) return;
         window.dispatchEvent(new Event("skein-search-focus"));
         inputRef.current?.focus();
         inputRef.current?.select();
@@ -279,7 +273,7 @@ export function NavSearch() {
   useEffect(() => {
     const onPrefill = (event: Event) => {
       const query = (event as CustomEvent<string>).detail;
-      if (typeof query !== "string" || !query.trim() || searchBlocked()) return;
+      if (typeof query !== "string" || !query.trim() || modalOwnsFocus()) return;
       window.dispatchEvent(new Event("skein-search-focus"));
       requestGeneration.current += 1;
       setQ(query);
