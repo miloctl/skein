@@ -32,3 +32,16 @@ def test_an_outbound_request_url_is_not_logged_at_info(monkeypatch, caplog):
 
     asyncio.run(go())
     assert "secret-value" not in caplog.text
+
+
+def test_a_plain_httpx_request_url_is_not_logged_at_info(caplog):
+    """Provider calls (agents/team_agent.py) and embedding calls
+    (services/search.py) go through httpx, not httpx2."""
+    import httpx
+
+    import app.main  # noqa: F401 - the log levels are set at import
+
+    caplog.set_level(logging.INFO)
+    with httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200))) as client:
+        client.get("https://provider.example/v1/embed?key=secret-value")
+    assert "secret-value" not in caplog.text
