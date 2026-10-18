@@ -34,13 +34,13 @@ if git grep -n -e $'\xe2\x80\x93' -e $'\xe2\x80\x94' -e $'\xe2\x80\x98' -e $'\xe
     exit 1
 fi
 
-echo "== comment references =="
-# Every mode: comments in both trees name files, symbols and migrations
-# across the boundary. Standard library only, like the typography gate.
-python3 scripts/check_comment_refs.py --self-test
-python3 scripts/check_comment_refs.py
-
 if [ "$mode" != "frontend" ]; then
+    echo "== comment references =="
+    # Here, not in every mode: the frontend CI jobs set up no Python. It scans
+    # both trees, and the backend job runs on every push.
+    python3 scripts/check_comment_refs.py --self-test
+    python3 scripts/check_comment_refs.py
+
     echo "== ruff =="
     ruff check backend/app backend/tests backend/seed.py cli/skein_cli.py scripts
     ruff format --check backend/app backend/tests backend/seed.py cli/skein_cli.py scripts

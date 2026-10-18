@@ -578,7 +578,14 @@ def test_the_hook_reads_only_a_real_task_number(tmp_path):
     # services/forge.py reads every one of them too
     from app.services import forge
 
-    for branch in ("task/42-slug", "task/42", "task/42/sub", "task/12abc", "task/nodigits"):
+    for branch in (
+        "task/42-slug",
+        "task/42",
+        "task/42/sub",
+        "task/12abc",
+        "task/nodigits",
+        "task/\u0664\u0662/task-7",
+    ):
         hook_id = "Refs-Task: #" in trailer_for(branch)
         cli_id = cli.BRANCH_RE.match(branch) is not None
         assert hook_id == cli_id, branch

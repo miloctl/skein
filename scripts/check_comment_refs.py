@@ -16,6 +16,8 @@ regex can check:
 
 Known ceiling: it checks that a name exists, never that the sentence about it
 is true. Lock and race claims still need a reader who traces the call chain.
+Its JavaScript lexer does not know regex literals, so a `/` inside one can hide
+the comment after it or read part of the pattern as a comment.
 
 Usage:
   python3 scripts/check_comment_refs.py

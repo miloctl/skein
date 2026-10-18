@@ -85,13 +85,14 @@ def _db_reaches(path: Path) -> list[str]:
                 if a.name.startswith("psycopg")
             ]
     for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id in db_names
-            and node.attr not in DB_ALLOWED
-        ):
+        if not isinstance(node, ast.Attribute) or node.attr in DB_ALLOWED:
+            continue
+        # `db.query` and also `work.db.query`: the module reached through
+        # another one is the same module
+        if isinstance(node.value, ast.Name) and node.value.id in db_names:
             hits.append(f"{node.lineno}: {node.value.id}.{node.attr}")
+        elif isinstance(node.value, ast.Attribute) and node.value.attr == "db":
+            hits.append(f"{node.lineno}: ....db.{node.attr}")
     return [f"{path.relative_to(APP.parent)}:{hit}" for hit in hits]
 
 

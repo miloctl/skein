@@ -1265,8 +1265,11 @@ def cmd_install_hooks(args):
 TRAILER = re.compile(r"^(Closes|Refs)-Task:\s*#?(\d+)", re.I | re.M)
 # The branches COMMIT_MSG_HOOK reads: `task/<id>`, then the end, `-` or `/`.
 # services/forge.py reads every one of these and more (`feature/task-42`).
-# tests/test_cli.py holds the hook, this and the forge pattern together.
-BRANCH_RE = re.compile(r"^task/(\d+)(?:[-/]|$)")
+# ASCII digits, at most nine, as the forge reads them: `\d` alone matches
+# Arabic-Indic digits and longer runs, and on `task/<that>/task-7` pr-body
+# would name one task while the forge closes another. tests/test_cli.py holds
+# the hook, this and the forge pattern together.
+BRANCH_RE = re.compile(r"^task/(\d{1,9})(?:[-/]|$)", re.ASCII)
 
 
 def _slug(title: str, words: int = 6) -> str:

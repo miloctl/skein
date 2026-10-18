@@ -16,7 +16,9 @@ def test_no_tool_module_names_a_settings_or_tuning_setter():
     }
     assert {"set_model_pick", "set_tunable"} <= setters  # the scan found the setters
     reached = []
-    for path in sorted((APP / "tools").glob("*.py")):
+    # agents/ too: plan_project, consult_specialist and extra_tools() are agent
+    # tools defined outside app/tools/
+    for path in sorted([*(APP / "tools").glob("*.py"), *(APP / "agents").glob("*.py")]):
         for node in ast.walk(ast.parse(path.read_text())):
             name = (
                 getattr(node, "attr", None)  # settings.set_model_pick(...)
