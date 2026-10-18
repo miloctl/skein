@@ -29,9 +29,9 @@ def week_monday(week: str) -> date:
 
 # Bounds for the two free-text fields, enforced HERE because this is the only
 # write path. routes/api.py imports these for its own Field(max_length=...) so
-# the two doors cannot drift: the REST models capped these and the service did
-# not, so an agent or MCP caller wrote a title the PATCH route then refused -
-# a row the system wrote that its own UI could not edit.
+# the two doors cannot drift: a cap on the REST models alone lets an agent or
+# MCP caller write a title the PATCH route then refuses - a row the system
+# wrote that its own UI cannot edit.
 TITLE_LEN = 200
 DESCRIPTION_LEN = 4000
 TASK_LIST_LIMIT = 500
@@ -889,9 +889,8 @@ def _update_task_locked(
                 f"task #{task_id} is delegated - submit_for_acceptance gets the"
                 " sponsor's verdict; only that closes it"
             )
-        # ...and no OTHER human either. The agent half of this guard was
-        # complete and the human half did not exist, so any teammate who could
-        # reach PATCH /api/tasks/{id} closed delegated work with one field -
+        # ...and no OTHER human either. Without this half, any teammate who
+        # can reach PATCH /api/tasks/{id} closes delegated work with one field -
         # no sponsor verdict, no reason on record, no override marking, and no
         # trust signal for the agent that did the work. review._sponsor_override
         # is the path for acting when the sponsor cannot: it takes a reason and
@@ -960,10 +959,10 @@ def _update_task_locked(
     elif status and status != "done" and current["status"] == "done":
         fields["completed_at"] = None
     # the sentinel is resolved BEFORE the two tests below, not only into
-    # `fields`. Testing the raw parameter sent the literal "-" to
-    # assert_readable_by, which asked whether a person named "-" is in the
-    # crew - so un-assigning a crew or private task was refused outright, and
-    # the only write path could not undo an assignment it had made.
+    # `fields`. Passed raw, the literal "-" reaches assert_readable_by, which
+    # asks whether a person named "-" is in the crew - so un-assigning a crew
+    # or private task is refused outright, and the only write path cannot
+    # undo an assignment it made.
     if assignee == "-":
         assignee = ""
     if assignee:
@@ -1096,9 +1095,6 @@ def _settle_acceptance(task_id: int, actor: str, strong: bool, agent: str) -> No
     a rejected proposal was approved can never be corrected, because `activity`
     rows carrying a `seq` are hash-chained (CLAUDE.md).
     """
-    # one transaction with the caller's task UPDATE is not possible from here
-    # (update_task writes before this runs), so each row is claimed on its own
-    # `status = 'pending'` test and only a winning claim is logged
     waiting = db.query(
         "SELECT id FROM pending_changes WHERE entity = 'task_completion'"
         " AND entity_id = ? AND status = 'pending'",
@@ -1132,7 +1128,7 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
     exist" for every id a caller cares to walk (services/scope.py::Viewer).
 
     The two joined titles take their OWN filters on the nullable side of the
-    join, the way list_tasks_joined records: in WHERE they would drop every
+    join, the way _task_rows records: in WHERE they would drop every
     task with no milestone and turn the join INNER, and unfiltered they serve
     a private milestone's title beside a workspace task."""
     frag, vp = scope.visible_filter(viewer, "tasks", alias="t")
@@ -1185,10 +1181,9 @@ def get_task(task_id: int, viewer: scope.Viewer = scope.NOBODY) -> dict:
         **downstream(task_id, viewer),
         "blockers": blocking(task_id, viewer),
         # the finding that ASKED for this work, if one did. `source_finding_id`
-        # was stamped at conversion (services/insights.py) and nothing read it
-        # back, so a task existed because a rule fired and the task could not
-        # say so - which is the half of the loop that tells a reader whether
-        # the rule was worth keeping.
+        # is stamped at conversion (services/insights.py), and reading it back
+        # lets a task that exists because a rule fired say so - the half of
+        # the loop that tells a reader whether the rule was worth keeping.
         "source_finding": _source_finding(task),
     }
 
@@ -1403,11 +1398,10 @@ def blocking_by_task(task_ids: list[int], viewer: scope.Viewer) -> dict[int, lis
     """The open blockers filed AGAINST each task, one query for many tasks.
 
     `blockers.task_id` names the task a blocker BLOCKS, and raise_blocker sets
-    that task to 'blocked' (services/blockers.py). Nothing read the edge back,
-    so a task could sit in status 'blocked' while every surface that showed it
-    - the peek, My Day, Browse - had no way to name what stopped it, who owns
-    it, or when it escalates. The reader saw a state with no receipt and had to
-    go find the blocker register by hand.
+    that task to 'blocked' (services/blockers.py). This reads the edge back
+    (get_task, board_cards): without it a task sits in status 'blocked' with
+    no way to name what stops it, who owns it, or when it escalates, and the
+    reader has to go find the blocker register by hand.
 
     Viewer-scoped: a blocker nobody may read must not name itself through a
     task they can. Resolved rows are excluded - a settled blocker is history,
@@ -1572,9 +1566,9 @@ def downstream(
     """What finishing this task releases: the tasks waiting on it directly,
     and how many wait behind those.
 
-    `waiting_on` recorded what a task is stuck BEHIND and nothing read the
-    other direction, so the edge cost the person who typed it and paid them
-    nothing back. This is the payment: "finish this and three people move".
+    `waiting_on` records what a task is stuck BEHIND, and this reads the
+    other direction, so the edge pays back the person who typed it: "finish
+    this and three people move".
 
     Viewer-scoped at every hop - a task nobody may read must not be countable
     through the chain either, and a bare count would leak its existence.

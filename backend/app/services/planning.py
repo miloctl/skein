@@ -1,14 +1,8 @@
 """The Monday planning cockpit: one read, in meeting order.
 
-Running the week meant touring three pages - /portfolio for the kept-% and the
-draft, /intake for the queue, /charter for stale decisions, each with its own
-load. The weekly operating rhythm is this product's spine and the person who
-runs it had no room built for it.
-
-Composition only. Every number here already had a home; this module owns the
-ORDER, which is the part that was missing. Nothing is computed twice and no
-new write path exists - a cockpit that could write would be a sixth place to
-change a task.
+Composition only. Every number here already has a home; this module owns the
+ORDER. Nothing is computed twice and no new write path exists - a cockpit
+that could write would be a sixth place to change a task.
 
 Order is the meeting's order, and it is load-bearing: how last week went
 (kept-%, carryover) comes before what this week already holds, which comes
@@ -79,9 +73,9 @@ def cockpit(viewer: scope.Viewer = scope.NOBODY, *, ahead_weeks: int = 6) -> dic
         # what is open with people outside the roster, so the manager reads it
         # BEFORE the week's meetings rather than after them
         "stakeholders": stakeholders.open_threads(viewer),
-        # what the team is WAITING ON, which is the half of the ledger the
-        # Monday meeting could not see: a promise made to the team goes quiet
-        # in exactly one way, and nobody was watching (migration 007)
+        # what the team is WAITING ON (direction='received'), the half of the
+        # ledger no other card here shows: a promise made TO the team goes
+        # quiet in exactly one way, and this card is where the meeting sees it
         "awaiting": promises.list_promises(status="open", viewer=viewer, direction="received"),
         "health": health,
         # Back SEVEN DAYS (not "to last Monday" - that is only the same

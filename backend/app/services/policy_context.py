@@ -11,8 +11,8 @@ _TABLES = {
     "task": ("tasks", "engagement_id"),
     "milestone": ("milestones", "engagement_id"),
     "question": ("questions", ""),
-    # Without these three the gate classified them as nothing, and a shared
-    # chat, which writes workspace rows only (tools/_gate.py), refused every
+    # Without these three the gate classifies them as nothing, and a shared
+    # chat, which writes workspace rows only (tools/_gate.py), refuses every
     # standup, time-away window and question assignment its tools offer.
     "question_assign": ("questions", ""),
     "standup": ("standups", ""),
@@ -84,7 +84,9 @@ def resource_row(entity: str, entity_id: int) -> dict | None:
     transaction, which has already written (and so already holds) the row it
     is describing. Locking here as well inverts the lock order against a
     concurrent update of the same task and deadlocks. The read that AUTHORIZES
-    a write is _task_context, and that one does hold its row.
+    a write is _task_context, which takes no lock either: its callers hold the
+    row first with hold_resource (for_route_scoped,
+    review._approve_change_locked).
     """
     if entity_id <= 0:
         return None

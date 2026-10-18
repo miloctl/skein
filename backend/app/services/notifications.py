@@ -117,8 +117,8 @@ def _insert_notification(
 
 # Unread, for ONE reader. A personal row is unread while its own `read_at` is
 # NULL. A 'team' row is a single shared record, so "read" is per person and
-# lives in `notification_reads` (009) - without that table the first teammate
-# to press dismiss cleared the announcement for everybody else.
+# lives in `notification_reads` - without that table the first teammate to
+# press dismiss clears the announcement for everybody else.
 UNREAD_FOR = (
     "\"user\" IN (?, 'team') AND read_at IS NULL"
     ' AND id NOT IN (SELECT notification_id FROM notification_reads WHERE "user" = ?)'
@@ -338,8 +338,8 @@ def mark_read(
 
     A row addressed to the reader by name clears its own `read_at`. A 'team'
     row is one shared record, so dismissing it records a per-person read in
-    `notification_reads` (009) and leaves the row unread for everybody else -
-    before that table the first reader silently dismissed the team's
+    `notification_reads` and leaves the row unread for everybody else -
+    without that table the first reader silently dismisses the team's
     announcement for the whole roster.
 
     A dismiss the reader already made is not an error and not a second row:

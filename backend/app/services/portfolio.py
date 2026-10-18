@@ -14,7 +14,7 @@ from .stats import median as _median
 
 
 def _today() -> date:
-    """The team's day (config.SKEIN_TZ), not the UTC day - see db.today()."""
+    """The team's day (config.TZ_NAME), not the UTC day - see db.today()."""
     return db.today()
 
 
@@ -291,8 +291,7 @@ def engagement_health(
             # forwardable artifact: "@ava let this sit for over a week", in
             # front of an audience outside the team, is the past-judging use
             # the anti-surveillance rule exists to prevent (readout.py passes
-            # name_assignees=False, and the aggregate WIP line there has the
-            # full reasoning).
+            # name_assignees=False).
             who = f" (@{t['assignee'] or 'unassigned'})" if name_assignees else ""
             receipts.append(
                 f"task #{t['id']} {wording.quoted(t['title'])} in progress >{STALE_WIP_DAYS}d{who}"
@@ -313,9 +312,8 @@ def engagement_health(
         if silent:
             # local_day, not [:10]: the comment above says that slice is a
             # UTC date, and this receipt is READ BY A HUMAN in the forwarded
-            # exec readout. Naming the hazard on one line and committing it on
-            # the next is the strongest possible invitation to fix the wrong
-            # one - so the render converts, like every other date a person sees.
+            # exec readout, so the render converts to the team's day, like
+            # every other date a person sees.
             receipts.append(f"no task activity since {db.local_day(last_ts)}")
 
         if escalated or len(overdue) >= 2:
@@ -579,10 +577,10 @@ def _nudge_stale_wip_locked() -> dict:
             person,
             f"{len(ts)} task{'' if len(ts) == 1 else 's'} in progress more than"
             f" {STALE_WIP_DAYS} days: {titles}."
-            # four options, not three: the question this replaced ("Still
-            # real?") carried "the task may no longer matter", which a bare
-            # list of actions drops. Stated, because the string carries a
-            # number and a count is never phrased as a question.
+            # four options, not three: the fourth carries "the task may no
+            # longer matter", which a bare list of actions drops. Stated, not
+            # asked, because the string carries a number and a count is never
+            # phrased as a question.
             " Split it, unblock it, put it back in the pool, or close it if"
             " it no longer matters.",
             tier="digest",
@@ -672,8 +670,8 @@ def slip_forecast() -> dict:
             }
         )
     return {
-        # median, and the key says so - an "avg_" key holding a median is
-        # the same kind of quiet lie the median fix was for
+        # median, and the key says so - an "avg_" key holding a median
+        # misnames the number to every reader of the forecast
         "basis": {"milestones_measured": len(slips), "median_slip_days": median_slip},
         "forecasts": forecasts,
     }

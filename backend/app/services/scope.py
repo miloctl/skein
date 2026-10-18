@@ -80,10 +80,8 @@ class Viewer:
         weak = not strong or name in _SYSTEM_ACTORS
         self.name = "" if weak else name
         # resolved ONCE per viewer, not once per query. One dashboard load
-        # fans out to roughly 27 scoped reads, and db.connect() (db.py) costs
-        # two orders of magnitude more than this SELECT - so per-call it grows
-        # the process's scarcest budget by half, for an answer that cannot
-        # change mid-request.
+        # fans out to roughly 27 scoped reads, and each would repeat this
+        # SELECT for an answer that cannot change mid-request.
         self.crew_ids: list[int] = crews.crews_of(self.name) if self.name else []
 
     @classmethod
@@ -278,12 +276,12 @@ def assert_readable_by(
     a sentence the writer can act on. Left to the read, it is a task that
     silently does not exist for the person meant to do it.
 
-    `author` is the third disjunct, and leaving it out refused the ordinary
-    case. capture.py hardcodes `owner=actor` on a blocker and post_standup
-    passes `owner=author`, so without it EVERY private capture that classified
-    as a blocker was refused, and every private standup with blockers text
-    rolled back whole - naming a remedy ("leave the owner empty") that neither
-    caller can take.
+    `author` is the third disjunct, and the ordinary case needs it.
+    capture.py hardcodes `owner=actor` on a blocker and post_standup passes
+    `owner=author`, so without it EVERY private capture that classifies as a
+    blocker is refused, and every private standup with blockers text rolls
+    back whole - naming a remedy ("leave the owner empty") that neither caller
+    can take.
     """
     if person and person == author:
         return
@@ -527,7 +525,6 @@ def visible_name(viewer: Viewer, table: str, column: str, alias: str = "") -> tu
     return f"CASE WHEN {frag} THEN {column} ELSE ? END", [*params, OTHER_WORK]
 
 
-# ---------------------------------------------------------------------------
 # The inventory. Every table is here or in UNSCOPED, and
 # tests/test_scope.py walks the catalog and fails on anything in neither.
 #
@@ -536,10 +533,9 @@ def visible_name(viewer: Viewer, table: str, column: str, alias: str = "") -> tu
 # services/users.py::_ATTRIBUTION) carry a test in each direction for that
 # reason: a table missing from the map, and a map entry naming a table that
 # is gone. tests/test_scope.py holds both for this one.
-# ---------------------------------------------------------------------------
 
 # table -> the column that decides authorship for the tier filter.
-# Every table here carries `visibility` and `crew_id` (migration 004).
+# Every table here carries `visibility` and `crew_id`.
 CLASSIFIED: dict[str, str] = {
     # `person`, not `created_by`: an absence is filed FOR someone, often by
     # someone else (absences.py resolves any teammate). The deliberate cost is

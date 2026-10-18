@@ -712,22 +712,18 @@ def close_out_diff(
         skipped_rituals.append(r["title"])
     diff = {
         "playbook": plan["playbook"],
-        # whether closing will actually file a draft - BOTH conditions, not
-        # just the tier. engagements.py::_playbook_lesson draws the line at
-        # the workspace tier, and _variance_lesson files nothing when the diff
-        # has no fixable variance. Reporting only the first told the reader a
-        # lesson was coming, then filed none and said nothing, and they went
-        # to Review to find an empty queue.
+        # `drafts_lesson` joins below the dict, beside its two conditions
         "slipped": slipped,
         "unfinished_tasks": unfinished,
         "dropped_tasks": dropped_tasks,
         "added_tasks": added,
         "skipped_rituals": skipped_rituals,
     }
-    # BOTH conditions, not just the tier: engagements.py::_playbook_lesson
-    # gates on workspace, and _variance_lesson files nothing when the diff has
-    # no fixable variance. Reporting only the first told the reader a lesson
-    # was coming, filed none, said nothing, and sent them to an empty queue.
+    # whether closing will actually file a draft - BOTH conditions, not just
+    # the tier: engagements.py::_playbook_lesson gates on workspace, and
+    # _variance_lesson files nothing when the diff has no fixable variance.
+    # Reported on the tier alone, the reader is told a lesson is coming, none
+    # is filed, and Review shows them an empty queue.
     # The engagement name is irrelevant to whether a lesson EXISTS, so a
     # placeholder is passed rather than threading one in for a boolean.
     diff["drafts_lesson"] = eng_tier == scope.WORKSPACE and bool(_variance_lesson(diff, "x")[0])

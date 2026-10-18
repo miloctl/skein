@@ -52,7 +52,7 @@ def _check_engagement(engagement_id: int, actor: str, *, tier: str, crew_id: int
     # the same guard add_promise puts on its own engagement link: unchecked,
     # a bad id raises IntegrityError (a 500 from a value the caller sent) and
     # a readable-looking id lets an event attach to another crew's private
-    # engagement - which migration 008 exists to attribute hours to
+    # engagement
     efrag, ep = scope.visible_filter(scope.Viewer.for_actor(actor), "engagements")
     engagement = db.query_one(
         f"SELECT visibility, crew_id FROM engagements WHERE id = ? AND {efrag}",  # noqa: S608 - scope.visible_filter emits only bound marks
@@ -459,9 +459,9 @@ def calendar_range(
     # and runs into it belongs on the grid. A timed row compares against the
     # team-day window in naive UTC; a date-only row compares as dates, and its
     # end is exclusive, as DTEND;VALUE=DATE is in the ICS feed (RFC 5545).
-    # ponytail: `starts_at < ?` has no lower bound, so this reads every event
-    # before the window end; a span cap or a range index fixes it if events
-    # reach six figures.
+    # shortcut: `starts_at < ?` has no lower bound, so this reads every event
+    # before the window end, if events reach six figures, add a span cap or a
+    # range index.
     frag, vp = scope.visible_filter(viewer, "events")
     events = db.query(
         f"SELECT * FROM events WHERE {frag} AND ("  # noqa: S608 - scope.visible_filter emits only bound marks
@@ -744,7 +744,7 @@ def ics_feed() -> str:
 # while the room is still in memory.
 OUTCOME_ASK_AFTER_HOURS = 4
 # how far back My Day looks for an unanswered meeting. Past this the ask is
-# archaeology, and on the morning migration 008 lands it would be a flood.
+# archaeology (meetings_awaiting_outcome states why it needs a lower bound).
 OUTCOME_ASK_LOOKBACK_DAYS = 7
 # How long a recurring meeting has to produce nothing before it is a finding.
 OUTCOME_SILENT_WEEKS = 3
@@ -782,19 +782,19 @@ def meetings_awaiting_outcome(viewer: scope.Viewer = scope.NOBODY) -> list[dict]
     cutoff = (now - timedelta(hours=OUTCOME_ASK_AFTER_HOURS)).strftime("%Y-%m-%dT%H:%M")
     # A date-only row sorts BEFORE every timestamp on its own day
     # ('2026-08-09' < '2026-08-09T04:00'), so the four-hour guard does nothing
-    # for an all-day block: it entered the window at 04:00 UTC, during the day
+    # for an all-day block: it enters the window at 04:00 UTC, during the day
     # it covers. _canon keeps an all-day VEVENT date-only on purpose, so there
     # is no start time to add four hours to.
     #
     # The predicate below asks TODAY OR LATER, not `!= today`. Equality alone
     # compares a team-local date against a naive-UTC window, so in any zone
     # west of about UTC-5 the UTC day rolls over while the local day has not -
-    # and tomorrow's all-day block entered the window for the last hours of
-    # every evening. Los Angeles, Denver, Anchorage and Honolulu all showed it.
+    # and tomorrow's all-day block enters the window for the last hours of
+    # every evening.
     today_local = db.today().isoformat()
-    # A lower bound, or migration 008 puts every meeting in the table's whole
-    # history on My Day the morning it is deployed - it defaults them all to
-    # 'pending' and backfills nothing. A meeting nobody wrote up inside a week
+    # A lower bound, or every meeting in the table's whole history lands on
+    # My Day - `outcome_status` defaults to 'pending' (001_baseline.sql) and
+    # nothing backfills it. A meeting nobody wrote up inside a week
     # is not going to be written up now.
     #
     # `created_at <= starts_at` below drops the rows that were never a meeting

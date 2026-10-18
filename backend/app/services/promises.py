@@ -13,7 +13,7 @@ STATUSES = ("open", "kept", "missed", "withdrawn")
 # 'external': promises to people outside the team (exec readout material).
 # 'team': the manager's own promises TO the team - visible so they get kept.
 AUDIENCES = ("external", "team")
-# who owes whom. `to_whom` is the OTHER PARTY either way (migration 007).
+# who owes whom. `to_whom` is the OTHER PARTY either way.
 DIRECTIONS = ("given", "received")
 
 
@@ -320,11 +320,10 @@ def _chase_received_locked(*, actor: str) -> dict:
         # send an email, so the nudge would land nowhere (the same reason
         # rituals.py::week_open routes an agent-recorded promise to the team).
         target = row["created_by"] or "team"
-        # users.is_agent, not a local SELECT on `name`: that column is BINARY
-        # collation, so an exact match let "Scout" past the check and the
-        # nudge was addressed to an identity that reads no notifications -
-        # landing nowhere, silently, forever. routes/deps.py documents the
-        # same defect.
+        # users.is_agent, not a local SELECT on `name`: that match is
+        # case-sensitive, so "Scout" passes it and the nudge is addressed to
+        # an identity that reads no notifications - landing nowhere,
+        # silently, forever.
         if is_agent(target):
             target = "team"
         # "team" is EVERY viewer (notifications.py, `user IN (?, 'team')`), so

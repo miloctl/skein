@@ -136,11 +136,12 @@ def unappliable(entity: str, payload: dict, action: str = "create", *, entity_id
     from .intake import DETAIL_LEN
     from .work import DESCRIPTION_LEN, TITLE_LEN
 
-    # _apply splats a REGISTRY entity's payload beside actor= and origin=, so
-    # a payload carrying either key is a TypeError at apply - the generic
-    # handler resets the row to pending and the proposal boomerangs in the
-    # queue forever. extension_* payloads are never splatted (their apply uses
-    # the stored invocation); their fixed public keys just never collide.
+    # _approve_change_locked splats a REGISTRY entity's payload beside actor=
+    # and origin=, so a payload carrying either key is a TypeError at apply -
+    # the generic handler resets the row to pending and the proposal
+    # boomerangs in the queue forever. extension_* payloads are never splatted
+    # (their apply uses the stored invocation); their fixed public keys just
+    # never collide.
     requester_bound = entity in ("memory_forget", "absence")
     # approval stamps change_id on a document write (approve_change), so a
     # payload that carries one names a proposal it is not
@@ -372,9 +373,9 @@ def _propose_change_locked(
     refusal = unappliable(entity, payload, action, entity_id=entity_id)
     if refusal:
         raise ValueError(refusal)
-    # The same paste or the same agent turn, filed twice, made two pending
-    # rows; the reviewer rejected the second, and that rejection counted
-    # against the proposer's demotion streak. The read below decides the
+    # Without this check the same paste or the same agent turn, filed twice,
+    # makes two pending rows, and rejecting the duplicate counts against the
+    # proposer's demotion streak. The read below decides the
     # insert, so it holds the lock (CLAUDE.md): two identical filings in
     # flight both read "absent" without it. Pending rows only - a settled
     # proposal can be re-filed, which is how a rejected one gets a second try.
@@ -1468,8 +1469,8 @@ def _current_extension_review(
         # The requester's own playbook.create right, decided HERE with the
         # step's own policy so both settle the same way: a DENY that arrived
         # after filing moots the proposal (403, stale on reject). Decided in
-        # the executor instead, the refusal fell into the apply-failure path,
-        # reset the claim, and answered 400 with the row left pending.
+        # the executor instead, the refusal falls into the apply-failure path,
+        # resets the claim, and answers 400 with the row left pending.
         # routes/api.py keeps its executor check as the last line.
         from ..extensions.policy import PolicyEffect, PolicyInput, PolicyResource
         from .policy_context import playbook_context
@@ -1754,9 +1755,9 @@ _DIFF_TABLES = {
 # answers a narrower question (what can be rendered as a before/after) and so
 # omits the two entities whose payload is not a column set: task_completion
 # carries a free-text work summary, question_assign carries an assignee.
-# _readable needs the TARGET, and reading it off _DIFF_TABLES let both of
-# those bypass the tier check entirely - every reader saw a crew task's
-# acceptance payload in the review queue, on the dashboard, and in the stats.
+# _readable needs the TARGET: read off _DIFF_TABLES, both of those bypass the
+# tier check entirely, and every reader sees a crew task's acceptance payload
+# in the review queue, on the dashboard, and in the stats.
 _TARGET_TABLE = {
     **_DIFF_TABLES,
     # updates _DIFF_TABLES cannot render (their payload is not a column set)
@@ -1764,7 +1765,7 @@ _TARGET_TABLE = {
     "question_assign": "questions",
     # every CREATE. These have no target row yet, so _DIFF_TABLES never needed
     # them - but the tier the row WOULD take is in the payload, and without an
-    # entry here _readable had nothing to look up and kept the proposal, body
+    # entry here _readable has nothing to look up and keeps the proposal, body
     # and all, for every reader.
     "task": "tasks",
     "milestone": "milestones",
@@ -1790,9 +1791,9 @@ _TARGET_TABLE = {
 # A CREATE whose subject is a row that ALREADY EXISTS names it in the payload.
 # `delegation` is the case: delegate_task(task_id=...) changes a task that has
 # its own tier, so there is nothing to declare in the payload and nothing in
-# `entity_id`, which propose_change only requires for updates. Reading neither,
-# such a proposal was shown to every reader AND judgeable by them - a
-# non-member approved a delegation of a crew task they cannot see.
+# `entity_id`, which propose_change only requires for updates. Without this
+# map such a proposal is shown to every reader AND judgeable by them - a
+# non-member can approve a delegation of a crew task they cannot see.
 #
 # Each value lists (table, payload key) pairs, and the first key the payload
 # carries wins: a comment names exactly one of three parents, and a pending
@@ -2057,8 +2058,7 @@ def review_stats(viewer: scope.Viewer = scope.NOBODY, *, admin: bool = False) ->
         )
         if r["m"] is not None
     )
-    # the shared primitive, not a third inline copy - services/stats.py exists
-    # because two of these had already drifted apart
+    # stats.median, never an inline copy: two copies of one median drift apart
     from . import stats
 
     n = len(minutes)
@@ -2078,9 +2078,7 @@ def season_readout(viewer: str = "", *, admin: bool = False) -> dict:
     The posture note's exit trigger (docs/ROADMAP.md) ends the dogfooding
     season with a decision it calls "a read, not a debate": if the trust
     rows, promotions, and delegations still read zero, the agent surface
-    narrows. Nothing rendered that read - pulse seasons count standups and
-    ships, and review stats are all-time - so the season verdict meant
-    assembling four surfaces by hand.
+    narrows.
 
     Counts only, never row text, so no visibility tier applies - the same
     line review_stats draws for its aggregates.
@@ -2242,16 +2240,16 @@ def _governing_tier(change: dict) -> tuple[str, int | None, str] | str | None:
     addresses has been deleted, or None when it addresses no scoped row at all
     (weekly_plan, authority, playbook).
 
-    ONE resolver, because `_readable` and `_assert_judgeable` each grew their
-    own and they disagreed: the list hid a create while the verdict endpoints
-    applied it. A proposal that is invisible must not be approvable, and the
-    only way to keep that true is for both to ask the same question.
+    ONE resolver for `_readable` and `_assert_judgeable`: with one each, the
+    two can disagree, and the list hides a create that the verdict endpoints
+    apply. A proposal that is invisible must not be approvable, and the only
+    way to keep that true is for both to ask the same question.
 
     Four sources, in order: the row `entity_id` names (updates), the row an
     approved create made (`result_id`), the row the payload names
     (_CREATE_PARENT), then the tier the payload declares. Resolved by the
-    payload alone, an approved create kept its body readable in the approved
-    list after the row it made was deleted.
+    payload alone, an approved create keeps its body readable in the approved
+    list after the row it made is deleted.
     """
     if str(change.get("review_visibility") or scope.WORKSPACE) != scope.WORKSPACE:
         return _private_review_tier(change)
@@ -2599,13 +2597,13 @@ def pending_changes_summary(
 ) -> tuple[list[dict], int]:
     """The first visible page and exact total from one queue scan.
 
-    ponytail: the total is exact, so the scan reads and policy-filters EVERY
-    pending row - cost grows with queue depth, on the two hottest polled
-    endpoints (`/api/attention`, `/api/briefing`). Exactness is the point:
-    services/briefing.py::attention_count must equal what My Day prints, and
-    an estimate makes the badge lie. If a deployment ever files pending rows
-    faster than they are judged, cache the count per (viewer, queue head)
-    rather than trading it for an approximation."""
+    shortcut: the total is exact, so the scan reads and policy-filters EVERY
+    pending row and its cost grows with queue depth, on the two hottest polled
+    endpoints (`/api/attention`, `/api/briefing`), if a deployment files
+    pending rows faster than they are judged, cache the count per (viewer,
+    queue head) rather than trading it for an approximation. Exactness is the
+    point: services/briefing.py::attention_count must equal what My Day
+    prints, and an estimate makes the badge lie."""
     first: list[dict] = []
     total = 0
     scan_after = 0
@@ -2836,8 +2834,7 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
     Without it the verdict controls sit two navigations from the evidence: the
     only other web surface that shows a worklog is the task peek, so the
     sponsor leaves the decision screen, finds the task, reads the log, comes
-    back and votes from memory. `fieldguide/knots.yaml` tells them to do
-    exactly that walk.
+    back and votes from memory.
 
     Read through `delegation.list_worklog`, which carries the delegation door -
     a sponsor may read the log of the task they sponsor whether or not a tier
@@ -2905,17 +2902,14 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
 def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
     """This proposer's record on THIS entity, keyed for the queue.
 
-    The reviewer judged every proposal blind: approval rate and streak were
-    computed already and lived two pages away on /agents, so the one screen
-    where the number decides something was the one screen without it. Read
-    from `delegation.trust_scores` rather than recomputed - a second
-    definition of "streak" that disagreed with the promotion job would be
-    worse than none.
+    The queue is the one screen where the record decides something, so it
+    rides each card here. Read from `delegation.trust_scores` rather than
+    recomputed - a second definition of "streak" that disagreed with the
+    promotion job would be worse than none.
 
     Scoped to the pairs the page actually shows. `trust_scores` runs a
-    per-pair lookup for every pair in the settled history, so an unfiltered
-    call cost 123 queries to render a queue that needed one - the cost grew
-    with the deployment's age rather than with the page.
+    per-pair lookup for every pair in the settled history, so an unscoped
+    call grows with the deployment's age rather than with the page.
     """
     from .delegation import (
         TRUST_STREAK,
@@ -2928,11 +2922,11 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
     from .users import is_agent
 
     # Why no streak CAN form, when none can - the same sentence Team → Agents
-    # renders above its trust card. In trusted-header mode (the default) a
-    # verdict is weak, so `recent_streak` is 0 for everyone: without this the
-    # row read "8 of 8 approved (100%) · no run of approvals", which states a
-    # perfect record and no run of approvals in one breath, and the promotion
-    # line could never appear. An operator's fix, not a wait.
+    # renders above its trust card. In trusted-header mode a verdict is
+    # weak, so `recent_streak` is 0 for everyone: without this the row reads
+    # "8 of 8 approved (100%) · no run of approvals", which states a perfect
+    # record and no run of approvals in one breath, and the promotion line
+    # never appears. An operator's fix, not a wait.
     # remedy=False: this sentence rides every proposal card, and the env-var
     # instruction inside the full version is the operator's, not the
     # reviewer's - Team → Agents keeps the version that says the fix.
@@ -2972,8 +2966,8 @@ def _trust_by_pair(wanted: set[tuple[str, str]]) -> dict[tuple[str, str], dict]:
             # refuses the ALWAYS_REVIEW and NO_AUTHORITY entities and stays
             # silent for 28 days after a human declines. task_completion is
             # in NO_AUTHORITY and is also the entity a delegated agent
-            # proposes on MOST, so a restatement here promised a promotion
-            # that could never be filed, on the common case.
+            # proposes on MOST, so a restatement here promises a promotion
+            # that can never be filed, on the common case.
             "promotes_at": (
                 TRUST_STREAK
                 if t["recent_streak"] == TRUST_STREAK - 1

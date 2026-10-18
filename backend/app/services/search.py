@@ -125,9 +125,9 @@ def visible_hits(hits: list[dict], viewer: "scope.Viewer", reader: str = "") -> 
         row = rows.get((table, h["entity_id"]))
         if row is None:
             # the source row is GONE and this is a stale index entry. Only
-            # note, event and memory deindex on delete, so the other ten
-            # entities reach here - and a hit whose row cannot be tier-checked
-            # must not be served.
+            # note, event and memory deindex on delete, and task on void, so
+            # the other entities reach here - and a hit whose row cannot be
+            # tier-checked must not be served.
             continue
         if table == "memories" and row[2] and row[2] != reader:
             continue  # scope.CLASSIFIED's author column for memories IS the addressee
@@ -176,9 +176,9 @@ def index_record(entity: str, entity_id: int, title: str, body: str) -> None:
         )
     # The embed is an HTTP round-trip of up to ~5s. Callers run index_record
     # inside db.transaction() (review.approve_change, playbooks.instantiate,
-    # intake.disposition) - inline, the round-trip would hold the caller's
-    # transaction open for its duration, and every row it has written stays
-    # locked against concurrent updates. Deferred to after commit it holds
+    # intake.disposition_request) - inline, the round-trip would hold the
+    # caller's transaction open for its duration, and every row it has written
+    # stays locked against concurrent updates. Deferred to after commit it holds
     # nothing, and a rollback drops the embed along with the row it would have
     # described. The index write above stays inside the transaction - it is
     # the authoritative index.
@@ -402,11 +402,11 @@ def search(
     return row_filter(hits) if row_filter is not None else hits
 
 
-# --- optional embedding layer (activates when configured) -------------------
-# Provider-aware via config.EMBED_*: openai, openai_compatible, or ollama -
-# all speak the OpenAI /v1/embeddings shape, so one client covers them.
-# Gates read config at CALL time, not import: an import-time value copy is the
-# stale-binding bug chat.py had, and it breaks config reloads in tests.
+# The optional embedding layer, active when configured. Provider-aware via
+# config.EMBED_*: openai, openai_compatible, or ollama - all speak the OpenAI
+# /v1/embeddings shape, so one client covers them. Gates read config at CALL
+# time, not import: an import-time value copy goes stale when tests reload
+# config.
 
 
 _embed_client = None

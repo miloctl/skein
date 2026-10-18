@@ -63,10 +63,10 @@ def lineage(entity: str, entity_id: int, viewer: scope.Viewer = scope.NOBODY) ->
     # the same row, which never became anything.
     #
     # The entity set is DERIVED from review's own target map, never guessed by
-    # appending `_edit`: only three `_edit` entities exist, and the real update
-    # entities are named differently - `task_completion` and `delegation` both
-    # target `tasks`, `question_assign` targets `questions`. Guessing missed a
-    # sponsor's own acceptance verdict on the one entity the UI ships.
+    # appending `_edit`: some update entities are named differently -
+    # `task_completion` and `delegation` both target `tasks`, `question_assign`
+    # targets `questions`. A guess misses a sponsor's own acceptance verdict
+    # on the one entity the UI ships.
     kinds = _proposal_kinds(table)
     marks = ",".join("?" * len(kinds))
     # No review_note and no requested_by: a note typed in a private review
@@ -94,7 +94,7 @@ def lineage(entity: str, entity_id: int, viewer: scope.Viewer = scope.NOBODY) ->
         "created_by": row["created_by"],
         "created_at": row["created_at"],
         "proposal": proposal,
-        # Whether the verdict was made with strong identity. In the default
+        # Whether the verdict was made with strong identity. In
         # trusted-header mode a name is whatever the caller typed, so a verdict
         # there is a record of a click and not of a person - the same
         # distinction the trust score refuses to count (services/delegation.py).

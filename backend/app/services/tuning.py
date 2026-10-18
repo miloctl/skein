@@ -63,9 +63,6 @@ class Tunable:
     detail: str
 
 
-# The registry. `default` is a callable so it reads the CURRENT config value:
-# config is re-imported by tests and reloaded in test_model_providers.py, and
-# a value captured at import time would go stale against it.
 TUNABLES: tuple[Tunable, ...] = (
     Tunable(
         "chat_limit",
@@ -322,7 +319,7 @@ def set_tunable(name: str, value: int | None, *, actor: str) -> dict:
         raise ValueError(f"unknown setting - expected one of: {', '.join(sorted(BY_NAME))}")
     if value is None:
         # CHECKED like any other write. Clearing moves the value just as a set
-        # does - to the default - so an unchecked clear was a way around the
+        # does - to the default - so an unchecked clear is a way around the
         # pair rule: raise the socket timeout, raise the deadline under it,
         # then clear the socket timeout and the pair lands inverted.
         _check_pairs(name, default_of(name), {t.name: effective(t.name) for t in TUNABLES})

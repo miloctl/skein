@@ -11,10 +11,11 @@ from .. import db
 # components/shortcut.tsx, which spells it for the reader's own keyboard
 # (Ctrl+K off Apple hardware). A link starting with "#" names an action
 # on the CURRENT page (app/page.tsx runStep) rather than a route: capture and
-# standup both happen on My Day, and pointing them at "/" made the checklist
-# item a dead self-link for the first-run reader it exists to help. Personal steps come first - a new
-# teammate must never be routed into team-level workflows before they have
-# captured a single todo; team facts render as a separate strip.
+# standup both happen on My Day, so a "/" link would be a dead self-link for
+# the first-run reader the checklist exists to help. Personal steps come
+# first - a new teammate must never be routed into team-level workflows
+# before they have captured a single todo; team facts render as a separate
+# strip.
 STEPS = (
     (
         "pick_name",

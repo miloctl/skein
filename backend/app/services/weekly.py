@@ -24,7 +24,7 @@ def week_view(week: str = "") -> dict:
     tasks = redact_task_relationships(
         db.query(
             "SELECT t.*, m.title AS milestone_title FROM tasks t"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
-            # the milestone lock rides the ON clause, not the WHERE: in the WHERE it
+            # the milestone filter rides the ON clause, not the WHERE: in the WHERE it
             # would drop every task with no milestone and turn the join INNER
             # (services/scope.py::visible_filter names this placement)
             f" LEFT JOIN milestones m ON m.id = t.milestone_id AND m.{WORKSPACE_ONLY}"
@@ -110,9 +110,9 @@ def apply_plan(
     week_monday(week)
     if not task_ids:
         raise ValueError("no tasks in the plan")
-    # a task deleted between draft and commit must not wedge the plan: apply
-    # what exists, report what didn't (no cross-op transactions in this app,
-    # so skip-and-report beats a validate/apply TOCTOU window)
+    # a task deleted or narrowed between draft and commit must not wedge the
+    # plan: update_task raises a ValueError for it, so apply what exists and
+    # report the ids that were skipped
     committed, skipped = [], []
     for tid in task_ids:
         try:

@@ -185,7 +185,7 @@ def prune(*, actor: str = "scheduler") -> dict:
             (_cutoff(FORECAST_SNAPSHOT_DAYS),),
         ),
         # "read" means read_at for a personal row and a `notification_reads`
-        # row for a 'team' one (009). A prune that tests read_at alone makes
+        # row for a 'team' one. A prune that tests read_at alone makes
         # every team announcement immortal - mark_read never stamps that
         # column on a shared record - and drags its dismissal rows along with
         # it, so the two tables grow together and forever. A team row is
@@ -265,8 +265,8 @@ def prune(*, actor: str = "scheduler") -> dict:
         "context_packs": _prune_pack_versions(),
         # orphans only, never by age: the (entity, entity_id, person) key is
         # the notify-once promise, and an age prune would let an edit of an
-        # old row ping the same person again. AUTOINCREMENT ids never come
-        # back, so an orphan can never suppress a mention on a future row.
+        # old row ping the same person again. Identity-column ids are never
+        # reused, so an orphan can never suppress a mention on a future row.
         "mention_log": db.execute_rowcount(
             "DELETE FROM mention_log WHERE"
             " (entity = 'task' AND entity_id NOT IN (SELECT id FROM tasks))"

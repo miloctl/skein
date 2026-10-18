@@ -1,4 +1,5 @@
-"""Team roster. Trust model: X-User header from the frontend name picker."""
+"""Team roster and identity walls. Who the caller is comes from routes/deps.py
+(SKEIN_AUTH_MODE)."""
 
 import re
 
@@ -95,15 +96,18 @@ def person_agent_visible(agent: str, viewer: str, *, admin: bool = False) -> boo
 
 
 def refuse_reserved_name(name: str) -> None:
-    """One predicate for every identity entry point - ensure_user, rename, and
-    the credential doors in routes/deps.py.
+    """The reserved-name wall for human and crew names: ensure_user's human
+    branch, _validate_rename_target, and crews._clean_name. Agent rows
+    (ensure_user's agent branch, ensure_agent_identity) and the credential
+    doors in routes/deps.py use refuse_authenticated_name, whose set also
+    holds the synthetic `anonymous`.
 
-    ANY kind, not just human: the activity feed shows a system actor's rows to
-    EVERY viewer, so whoever holds one of these names walks their own writes
-    past the scope rule. delegate_task and set_authority both mint agents from
-    a caller-supplied string, so a human-only check is a hole, not a wall.
-    It normalizes its own input, because two of its four callers hand it a
-    header value that nothing else has touched."""
+    The activity feed shows a system actor's rows to EVERY viewer, so whoever
+    holds one of these names walks their own writes past the scope rule.
+    delegate_task and set_authority both mint agents from a caller-supplied
+    string, which is why the agent paths carry the superset rather than no
+    check. It normalizes its own input (fold), so a caller passes the name as
+    it arrived."""
     if fold(name) in {fold(a) for a in HUMAN_RESERVED_SUBJECTS}:
         raise ValueError("that name is reserved for the system - pick another name")
 
@@ -131,7 +135,7 @@ def reserved_refusal(name: str) -> str:
 def reserved_name_rows() -> list[str]:
     """Roster rows whose name the wall now refuses. Named at boot so whoever
     runs the server can move them with rename_user, the one code path that
-    knows every attribution column and the private notes DB."""
+    knows every attribution column and the private notes schema."""
     reserved = {fold(a): a for a in HUMAN_RESERVED_SUBJECTS}
     stuck: list[str] = []
     for row in db.query("SELECT name, kind, identity_owner FROM users"):
@@ -157,12 +161,11 @@ def refuse_fold_collision(name: str, *, ignore: str = "") -> None:
     authority_level and trust key on the EXACT name, so a second agent row
     folding onto the first would answer to neither's kill switch.
 
-    Folds in Python, not in SQL. No collation reproduces users.fold - it is
-    NFKC plus zero-width stripping, not case folding - so SQL that compared
-    with lower() would read
-    `SCOÜT` and `scoüt` as one name here and resolve_teammate and
-    mentions.scan read them as the same one - the collision then arrives
-    through the very guard meant to stop it."""
+    Folds in Python, not in SQL. No collation reproduces users.fold (NFKC,
+    zero-width stripping, casefold), so an SQL comparison can disagree with
+    resolve_teammate and mentions.scan about which two names are the same
+    one - and the collision then arrives through the very guard meant to stop
+    it. is_agent states the same rule."""
     target = fold(name)
     for row in db.query("SELECT name, kind FROM users"):
         # the EXACT-name case belongs to the callers: ensure_user reads it as
@@ -218,9 +221,9 @@ def _accepted_content_machine_claims() -> set[str]:
 def reserve_content_identities(slugs: set[str]) -> tuple[set[str], list[dict]]:
     """Claim startup content names and return the safe subset plus conflicts.
 
-    Migration 018 classifies stock content and generic legacy agents. Private
-    overlay ownership is not inferable from an old row, so an operator must
-    claim it explicitly. All new reservations have an owner, so reverse-order
+    Private overlay ownership is not inferable from a legacy generic agent
+    row, so an operator must claim it explicitly (claim_content_identity).
+    All new reservations have an owner, so reverse-order
     content additions fail closed instead of inheriting generic authority.
     """
     accepted: set[str] = set()
@@ -814,7 +817,7 @@ _ATTRIBUTION: dict[str, tuple[str, ...]] = {
     "allocations": ("created_by", "person"),
     "intake_requests": ("created_by", "requester"),
     "lessons": ("created_by",),
-    # sponsor_at_submission is a NAME (010) and `tasks.sponsor` is renamed -
+    # sponsor_at_submission is a NAME and `tasks.sponsor` is renamed -
     # leaving it behind makes the two disagree, and review._acceptance_evidence
     # reads that disagreement as a handover, printing "X sponsored this when the
     # work was submitted" about a delegation that never moved, in front of the
@@ -1133,9 +1136,9 @@ def rename_user(
             (old, new),
         )
         # feature_unlocks (person, knot, kind): the target's existing unlock
-        # wins. Without this move, a rename orphaned the guide state under the
+        # wins. Without this move, a rename orphans the guide state under the
         # old name - and since the ledger is immutable across rename, the
-        # activity-based predicates could never re-tie under the new one.
+        # activity-based predicates can never re-tie under the new one.
         db.execute(
             "DELETE FROM feature_unlocks WHERE person = ? AND EXISTS"
             " (SELECT 1 FROM feature_unlocks n WHERE n.knot = feature_unlocks.knot"
@@ -1263,7 +1266,7 @@ def rename_user(
         )
         # notification_reads (notification_id, user): a dismissal the target
         # already made wins. A team announcement is one shared row that every
-        # reader dismisses separately (009), so two halves of one person having
+        # reader dismisses separately, so two halves of one person having
         # both dismissed the same announcement is the ORDINARY case - without
         # this fold the UPDATE below hits the primary key and the whole merge
         # raises IntegrityError, which has no handler and answers 500.
@@ -1353,19 +1356,18 @@ def rename_user(
                 (fold(old), holder, db.now()),
             )
         # The private journal follows the person ONLY when the person is doing
-        # the renaming. Every keyholder can rename any roster row (the
-        # trusted-network model makes them all admins over TEAM data) - but a
-        # rename that also moved the private half would let anyone merge
-        # someone else's row into their own name and inherit their 1:1 notes
-        # and fb: journal, the one dataset the product promises teammates
-        # cannot read.
+        # the renaming. A named administrator can rename any roster row
+        # (routes/api.py::post_user_rename) - but a rename that also moved the
+        # private half would let them merge someone else's row into their own
+        # name and inherit their 1:1 notes and fb: journal, the one dataset
+        # the product promises teammates cannot read.
         # ALWAYS move the subject reference: notes other people keep ABOUT
         # this person carry no ownership, so moving them leaks nothing - and
-        # NOT moving them stranded every teammate's 1:1 journal about the
+        # NOT moving them strands every teammate's 1:1 journal about the
         # renamed person under a name with no roster row (empty brief,
         # feedback-gap reset).
         # Both moves join THIS transaction. Committed after the roster, a
-        # failure between the two left the author's notes under a name no
+        # failure between the two leaves the author's notes under a name no
         # roster row holds, readable by the next person to claim that name.
         _pn.rename_subject(old, new)
         # Ownership (the person's OWN notes and audit) moves only when they
@@ -1463,9 +1465,10 @@ def repair_identity_ownership(old: str, new: str) -> dict:
 def claim_content_identity(slug: str) -> dict:
     """Explicitly adopt one legacy generic agent as configured content.
 
-    Core cannot infer whether a pre-018 agent row was an overlay persona or a
-    delegated helper with the same later filename. This shell-only operation
-    makes the operator's ownership decision durable and auditable.
+    Core cannot infer whether a legacy generic agent row was an overlay
+    persona or a delegated helper with the same later filename. This
+    shell-only operation makes the operator's ownership decision durable and
+    auditable.
     """
     slug = slug.strip()[:64]
     if not slug or fold(slug) not in _content_machine_claims():
@@ -1493,7 +1496,7 @@ def claim_content_identity(slug: str) -> dict:
 
 
 def claim_machine_identity(name: str, owner: str) -> dict:
-    """Assign one pre-018 generic row to an explicit composed concern.
+    """Assign one legacy generic agent row to an explicit composed concern.
 
     This operation is for an operator who upgrades a deployment. Core cannot
     infer whether an old generic row belonged to a private service or agent.

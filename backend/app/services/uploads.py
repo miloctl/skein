@@ -9,8 +9,8 @@ scopes a thread by an owner column against the resolved name, which works in
 every auth mode, and an attachment belongs to the conversation it was typed
 into. The row still carries the private tier so the sinks above skip it, but
 no read here goes through scope.visible_filter - that filter drops the author
-arm for a nameless viewer, so in trusted-header mode (the default) a private
-upload would be unreadable by the person who just made it.
+arm for a nameless viewer, so in trusted-header mode a private upload would
+be unreadable by the person who just made it.
 """
 
 import io

@@ -12,7 +12,7 @@ SEASON_DAYS = 42
 
 
 def _today() -> date:
-    """The team's day (config.SKEIN_TZ), not the UTC day - see db.today()."""
+    """The team's day (config.TZ_NAME), not the UTC day - see db.today()."""
     return db.today()
 
 

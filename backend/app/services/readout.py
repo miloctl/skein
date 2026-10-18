@@ -15,15 +15,15 @@ from .wording import count
 
 
 def _today() -> date:
-    """The team's day (config.SKEIN_TZ), not the UTC day - see db.today()."""
+    """The team's day (config.TZ_NAME), not the UTC day - see db.today()."""
     return db.today()
 
 
 def _wip_summary(tasks: int, people: int) -> str:
     """Team totals for a forwardable artifact - see the call site for why the
     names do not travel. Takes the COUNTS, not the per-person list: this
-    module asks flow_metrics for the aggregated shape, so the list it used to
-    sum is empty here by design. Sentence-form counts agree with their nouns
+    module asks flow_metrics for the aggregated shape, so wip_by_person is
+    empty here by design. Sentence-form counts agree with their nouns
     (CLAUDE.md wording): "1 task across 1 person", "4 tasks across 2 people"."""
     if not people:
         return "none in progress"
@@ -36,10 +36,10 @@ def _wip_summary(tasks: int, people: int) -> str:
 def exec_readout(*, actor: str = "system") -> dict:
     """Written as a markdown artifact so it can be forwarded as-is."""
     # name_assignees=False: this markdown is built to be forwarded
+    # (portfolio.engagement_health's stale-WIP receipt states the rule)
     health = engagement_health(name_assignees=False)
     conflicts = allocation_conflicts()
-    # name_people=False for the same reason engagement_health takes
-    # name_assignees=False below: this markdown is built to be forwarded
+    # name_people=False: the same reason as name_assignees=False above
     flow = flow_metrics(name_people=False)
     s = season()
     shipped = db.query(
@@ -85,10 +85,11 @@ def exec_readout(*, actor: str = "system") -> dict:
         (db.now(),),
     )
     # local_day, never [:10]: artifacts.created_at is a UTC timestamp and
-    # health_snapshots.day is the TEAM day (migrations/006). Sliced, a readout
-    # written after 20:00 Eastern yields tomorrow's key, health_changes then
-    # selects TODAY's snapshot, every engagement compares equal, and the whole
-    # delta section vanishes with no error.
+    # health_snapshots.day is the TEAM day (adoption.snapshot_health writes
+    # db.today()). Sliced, a readout written after 20:00 Eastern yields
+    # tomorrow's key, health_changes then selects TODAY's snapshot, every
+    # engagement compares equal, and the whole delta section vanishes with no
+    # error.
     since = date.fromisoformat(db.local_day(prior["created_at"])) if prior else None
     # filtered BEFORE the heading: a first-ever observation is not a change,
     # and on the first run after health snapshots shipped every engagement had
@@ -110,10 +111,10 @@ def exec_readout(*, actor: str = "system") -> dict:
             )
 
     lines += ["", "## Shipped this season"]
-    # local_day, not [:10] - the rule this file states 19 lines above and
-    # then broke here. closed_at is a UTC timestamp, and this artifact is
-    # forwarded outside the team, so the slice ships a date a reader in the
-    # team's zone did not experience.
+    # local_day, not [:10] (see the first local_day note in this function):
+    # closed_at is a UTC timestamp, and this artifact is forwarded outside the
+    # team, so the slice ships a date a reader in the team's zone did not
+    # experience.
     lines += [
         f"- {wording.quoted(r['name'])} ({db.local_day(r['closed_at'])})" for r in shipped
     ] or ["- none yet"]

@@ -144,8 +144,8 @@ def recall(
 ) -> list[dict]:
     """Memories for one person, or the ones addressed to everybody.
 
-    `user` and the tier are separate axes and BOTH apply to every branch. The
-    query branch used to apply neither, so recall_memories answered one
+    `user` and the tier are separate axes and BOTH apply to every branch,
+    the query branch included. Without either, recall_memories answers one
     person's search out of another person's memories - and memory_prompt
     injects whatever comes back into a system prompt, where nothing later
     distinguishes it from the asker's own.
@@ -362,11 +362,12 @@ def propose_engagement_memory(
         raise scope.missing("engagements", engagement_id)
     if eng["visibility"] == scope.PRIVATE:
         # `review._governing_tier` resolves a create's readability from the
-        # payload's tier plus its `author` key, and `memories` records the
-        # person a memory is ADDRESSED TO rather than its writer - so a private
-        # proposal resolves to "nobody may read this", including the person who
-        # filed it. The row would sit pending forever with no surface able to
-        # approve or reject it.
+        # payload's tier plus the table's author column (scope.CLASSIFIED).
+        # For `memories` that column is `user`, the person a memory is
+        # ADDRESSED TO rather than its writer, and this payload names no
+        # `user` - so a private proposal resolves to "nobody may read this",
+        # including the person who filed it. The row would sit pending forever
+        # with no surface able to approve or reject it.
         raise ValueError(
             # '"only you"', never the wire word `private`: docs/LEXICON.md
             # gives exactly one surface permission to print a tier's stored
@@ -397,8 +398,8 @@ def propose_engagement_memory(
             "engagement_id": engagement_id,
             "source_kind": "chat",
             "source_id": thread_id,
-            # the ENGAGEMENT's tier, threaded by hand - this is a parent-to-child
-            # crossing and `scope.inherit` names it. Without the pair the
+            # the ENGAGEMENT's tier, threaded by hand - a parent-to-child
+            # crossing like the ones `scope.inherit` lists. Without the pair the
             # proposal is workspace by default: `review._governing_tier` finds
             # no parent row for a create, so every reader sees the summary and
             # any of them may approve it, and `remember` then indexes the body
