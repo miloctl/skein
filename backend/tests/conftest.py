@@ -352,7 +352,7 @@ def fresh_db(tmp_path, monkeypatch, _worker_db):
     if tables:
         names = ", ".join(r["t"] for r in tables)
         db.execute(f"TRUNCATE {names} RESTART IDENTITY CASCADE")
-    # Migration 008 records the existing unchained count once. TRUNCATE removes
+    # 008_activity_chain_guards.sql records the existing unchained count once. TRUNCATE removes
     # that migration-owned mark, so restore the empty post-migration state. A
     # verifier must never recreate it from rows that arrived later.
     db.execute(

@@ -207,7 +207,7 @@ def update_event(
 
 # kind -> (table, title column): the kinds the capture grammar files
 # (services/capture.py::PATTERNS), which is what comes out of a meeting.
-# Migration 044 gives each table its event_id. A kind added here needs that
+# 044_event_links.sql gives each table its event_id. A kind added here needs that
 # column first, and sharing._PARENTS lists the tables again: without its
 # entry a row shares to the roster while its meeting stays narrower.
 LINKED = {

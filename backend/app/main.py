@@ -458,7 +458,7 @@ async def lifespan(app: FastAPI):
             " already demands a per-caller credential on every request",
             settings.auth_mode,
         )
-    # one-time import of pre-045 file sessions; flagged, so it never
+    # one-time import of legacy session files; flagged, so it never
     # resurrects a deleted chat. Per-session failures log and skip.
     from .agents.session_store import import_file_sessions
 

@@ -368,7 +368,7 @@ def refuse_released_name(name: str, *, holder: int = 0) -> None:
     `activity.actor` is never rewritten (the hash chain covers it), so the
     next person to claim a freed name would read the earlier owner's ledger
     rows as their own history. The freed names are recorded at the rename
-    (released_names, migration 035) rather than inferred from the ledger: a
+    (released_names, 035_released_names.sql) rather than inferred from the ledger: a
     ledger row can name someone who never had a roster row, and a refusal
     there would lock a real person out of their first sign-in.
 

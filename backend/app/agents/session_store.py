@@ -111,7 +111,7 @@ class DbOffloadStorage:
     session_id column: the retrieval tool built into one thread's agent
     reaches that thread's blobs and nothing else - the same visibility the
     session_messages row the bytes used to live in. Rows CASCADE off the
-    sessions row (migration 018), so thread deletion cleans them. The plugin
+    sessions row (018_session_offload.sql), so thread deletion cleans them. The plugin
     calls write/read/delete only (eviction is disabled at the wiring site,
     team_agent.build_agent); list completes the Storage protocol.
     """
@@ -567,7 +567,7 @@ def delete_thread_sessions(thread_id: str) -> None:
 
 
 def import_file_sessions() -> None:
-    """One-time boot import of the pre-045 file sessions.
+    """One-time boot import of legacy session files, from before sessions were rows.
 
     Flagged in app_settings, not inferred from table contents: without the
     flag, a chat deleted from the database would be resurrected from its

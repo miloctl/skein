@@ -336,7 +336,7 @@ def test_legacy_receipts_keep_uuid_protection_without_inventing_fingerprint_hist
     task = work.create_task("Pre-028 delivery")
     payload = _push(f"task/{task['id']}-legacy")
     delivery = str(uuid4())
-    # This is the pre-028 write path: generic job claim plus forge mutation.
+    # The write path from before 028_forge_receipts.sql: generic job claim plus forge mutation.
     with fresh_db.transaction():
         assert fresh_db.claim_job("forge-delivery", delivery)
         assert forge.forge_event(**forge.parse_gitea("push", payload))["status"] == "in_progress"

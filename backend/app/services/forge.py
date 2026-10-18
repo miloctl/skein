@@ -383,7 +383,7 @@ def apply_delivery(
                         "The delivery ID names a different payload. Send the original delivery."
                     )
                 return {"ignored": "this delivery was already applied"}
-            # Pre-028 Gitea receipts have no repository namespace. Keep their
+            # Gitea receipts from before 028_forge_receipts.sql have no repository namespace. Keep their
             # conservative suppression, but never mint another unscoped key.
             if db.query_one(
                 "SELECT 1 FROM job_runs WHERE job = 'forge-delivery' AND run_key = ?", (delivery,)

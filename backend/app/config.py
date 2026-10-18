@@ -225,7 +225,7 @@ DATABASE_ERROR = (
 # everything, so only services/private_notes.py names a `private.` table. The
 # local database backup includes it. The configured platform mirror does not.
 PRIVATE_SCHEMA = "private"
-# Pre-045 session FILES. Live sessions are database rows
+# Legacy session FILES, from before sessions were rows. Live sessions are database rows
 # (agents/session_store.py); this is only the one-time import path.
 SESSIONS_DIR = DATA_DIR / "sessions"
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)

@@ -1593,7 +1593,7 @@ def test_the_chain_walk_streams_the_ledger(fresh_db, monkeypatch):
 
 
 def test_a_legacy_row_with_no_detail_is_adopted(fresh_db):
-    """Rows from before migration 008 can hold a NULL detail. PostgreSQL checks
+    """Rows from before 008_activity_chain_guards.sql can hold a NULL detail. PostgreSQL checks
     the NOT VALID activity_detail_present constraint on UPDATE, so adoption
     raised CheckViolation before verify_tail ran, and the anchor never moved
     again."""

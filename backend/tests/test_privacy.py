@@ -170,7 +170,8 @@ def test_canary_absent_from_every_platform_table(client, fresh_db):
 
 def test_canary_absent_from_every_disk_file(client, fresh_db):
     """Exhaustive: after exercising every artifact-producing surface, no file
-    under DATA_DIR except private.db itself may contain the canary."""
+    under DATA_DIR may contain the canary, except the local database dump, which
+    carries the private schema on purpose."""
     from app import config
     from app.services import admin
     from app.services.digest import publish_digest

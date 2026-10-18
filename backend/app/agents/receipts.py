@@ -40,7 +40,7 @@ def record(kind: str, entity: str, detail: str = "", ref: int = 0, actor: str = 
 
 def isolate() -> tuple[list[dict], list[dict] | None]:
     """A fresh box for a nested agent whose receipts travel its own channel
-    (the consult queue, agents/team_agent.py::_run_consult), so each receipt
+    (the consult queue, in team_agent.py's consult_specialist), so each receipt
     renders inside the section that names its author instead of wherever the
     shared box's next drain happens to be. Without it, the consult's drain
     STEALS whatever the shared box holds - another agent's receipt would ride

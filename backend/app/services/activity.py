@@ -662,7 +662,7 @@ def adopt_unchained(actor: str = "scheduler") -> dict:
             digest = db.activity_hash(
                 seq, row["created_at"], row["actor"], row["action"], row["detail"] or "", prev
             )
-            # COALESCE: a row from before migration 008 can hold a NULL
+            # COALESCE: a row from before 008_activity_chain_guards.sql can hold a NULL
             # detail, and PostgreSQL checks the NOT VALID
             # activity_detail_present constraint on this UPDATE. The digest
             # above already hashes it as "", so the stored row matches it.

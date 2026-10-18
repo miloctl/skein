@@ -2866,7 +2866,7 @@ def _acceptance_evidence(change: dict, viewer: scope.Viewer) -> dict:
         return {}
     # Whether the person judging this is the person who was on the hook when
     # the work was submitted. Authority follows the CURRENT sponsor by design
-    # (010_sponsor_at_submission.sql), so this is a receipt and not a refusal:
+    # (pending_changes.sponsor_at_submission, 001_baseline.sql), so this is a receipt and not a refusal:
     # a reviewer must see the handover before they press Approve.
     was = str(change.get("sponsor_at_submission") or "")
     now = _sponsor_of(change)
