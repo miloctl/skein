@@ -611,10 +611,10 @@ def _conversation_manager(summary_model=None):
     since the mock returns before any Strands Agent is built.
 
     pin_first is passed through but is INERT here: Skein's chats are
-    file-backed sessions, and session restore replays from an offset that
-    skips exactly the pinned leading messages, so the pin does not outlive a
-    turn. It was once cited as the reason Skein does not re-inject context
-    after a compaction - that reasoning is void, and nothing currently keeps
+    persisted sessions (database rows, agents/session_store.py), and session
+    restore replays from an offset that skips exactly the pinned leading
+    messages, so the pin does not outlive a turn. It is therefore no reason
+    to skip re-injecting context after a compaction: nothing currently keeps
     the top of a long chat alive across turns.
     """
     from strands.agent.conversation_manager import SlidingWindowConversationManager
@@ -1233,10 +1233,11 @@ def build_agent(
         # already landed. tools/_gate.py and identity.refuse_when_consultative
         # are the readers.
         set_force_review(True)
-        # Receipts are handled in _run_consult, which ISOLATES its own box and
-        # forwards every receipt on the consult channel - never receipts.start(),
-        # whose fresh list has no reader and no restore, so the specialist's
-        # receipts would drain into nowhere while the turn's box sat empty.
+        # Receipts are handled below: the receipts.isolate() block ISOLATES
+        # the consult's own box and forwards every receipt on the consult
+        # channel - never receipts.start(), whose fresh list has no reader
+        # and no restore, so the specialist's receipts would drain into
+        # nowhere while the turn's box sat empty.
 
         # ONE generator from here down, never a nested `async for` delegation:
         # closing an outer generator mid-`async for` ABANDONS the inner one at
@@ -1313,9 +1314,9 @@ def build_agent(
                 try:
                     # build_agent, never a hand-rolled Agent: this is what carries
                     # the persona head, the "platform rules win" supersession
-                    # guard, the persona model/temperature override, and the MCP
-                    # exclusion that keeps a stateless agent's writes reachable by
-                    # the gate.
+                    # guard, the persona model/temperature override, and the
+                    # stateless MCP exclusion (build_agent gives its reasons at
+                    # `if not stateless:`).
                     #
                     # No caller-allowlist intersection, unlike _planner_tools:
                     # this tool exists only when persona == "" (the depth cap), so
@@ -1608,10 +1609,15 @@ def build_agent(
         # the call later, for the reason the allowlist comment below gives.
         tools.append(consult_specialist)
     if not stateless:
-        # MCP tools are remote calls: they never reach tools/_gate.py, so
-        # force_review cannot turn one into a proposal and receipts.record
-        # never sees it. A flock member holding them would write to a third
-        # party while its trace row reports it proposed nothing.
+        # No MCP tools for a stateless agent (a flock member or a consulted
+        # specialist). GovernedMCPTool (agents/mcp_tools.py) does decide
+        # through the policy engine and record receipts, but CorePolicy
+        # (extensions/policy.py) permits a read-effect tool even under
+        # force_review: one flock message would make one unreviewed
+        # third-party call per member, with model-chosen arguments. A
+        # write-effect tool would file one near-duplicate proposal per
+        # member. No flock workflow needs remote tools, and every member's
+        # prompt would carry every MCP tool spec.
         tools += mcp_tools({_tool_name(item) for item in tools})
     if personal_tools_for and not stateless and getattr(viewer, "name", "") == personal_tools_for:
         # Servers this person registered in Settings. Only the turn they

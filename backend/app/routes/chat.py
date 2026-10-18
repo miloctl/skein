@@ -89,10 +89,8 @@ router = APIRouter(route_class=PolicyAPIRoute)
 # calls. Err high.
 #
 # It is not the only bound: agents/team_agent.py::READ_TIMEOUT_S guards the
-# socket underneath and must stay larger, so that THIS deadline is the one
-# that fires on a live-but-slow provider. Both are admin-tunable, so the
-# ordering is enforced at write time by services/tuning.py::_check_pairs
-# rather than by these two literals agreeing.
+# socket underneath and must stay larger. Its comment holds the ordering rule
+# and what enforces it.
 MEMBER_TIMEOUT_S = 180.0
 
 
@@ -108,7 +106,7 @@ def _member_deadline() -> float:
 class ChatRequest(BaseModel):
     thread_id: str = Field("default", max_length=100)
     # the biggest sink gets the same bounds as its siblings: the message
-    # fans out to transcripts, session files, and (non-mock) model spend
+    # fans out to transcripts, session rows, and (non-mock) model spend
     message: str = Field(max_length=20_000)
     # Artifact ids from POST /api/files, resolved owner-scoped below. Bounded
     # because each one is up to 8 MB of body on the way to the provider, in
@@ -938,7 +936,7 @@ async def _run_member(
                 for r in receipts.drain():
                     # `queued` only: the diamond labels this number
                     # "proposal(s)", and drain() also yields `refused` and
-                    # `failed`. Counting those made a member whose write was
+                    # `failed`. Counting those makes a member whose write was
                     # REFUSED report a proposal, on the surface built to show
                     # the review guarantee. `wrote` is excluded on purpose and
                     # is NOT a gap: a member cannot reach the direct path
@@ -993,11 +991,10 @@ async def _run_member(
             elif row:
                 # A CANCELLED member reaches this line AFTER _close_turn has
                 # already run - the reader stopped, and nothing will drain
-                # this queue again. So it writes its own row, inline and sync,
-                # exactly as this did before the queue existed. The route's
-                # no-blocking-on-the-loop rule yields here for the same reason
-                # _close_turn's sync fallback does: the alternative is losing
-                # the spend of a turn that really did burn tokens.
+                # this queue again. So it writes its own row, inline and sync.
+                # The route's no-blocking-on-the-loop rule yields here for the
+                # same reason _close_turn's sync fallback does: the alternative
+                # is losing the spend of a turn that really did burn tokens.
                 with contextlib.suppress(Exception):
                     record_chat_usage(**row)
         out.put_nowait({"type": "member-end", "entry": entry})
@@ -1225,9 +1222,7 @@ async def _flock_stream(
                     if row:
                         usage_rows.append(row)
         await run_in_threadpool(_close_turn)
-        # before the done frame, never after: the client refreshes the sidebar
-        # and header when its reader loop ends, so a title written past that
-        # point is correct and unread until the next navigation
+        # before the done frame, never after: _summarize_title says why
         await _summarize_title(ui_thread, user)
     finally:
         # an unfinished member keeps running - and keeps filing proposals -
@@ -1275,10 +1270,10 @@ async def _flock_stream(
 
 @router.post("/api/chat")
 async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: ViewerDep):
-    # Sync work (database reads, disk session restore, transcript writes) goes
+    # Sync work (database reads, session restore, transcript writes) goes
     # through run_in_threadpool everywhere in this route: this coroutine and
     # its generators run on the event loop that carries every open SSE
-    # stream, so one inline disk or DB stall freezes them all. main.py's
+    # stream, so one inline DB stall freezes them all. main.py's
     # perimeter middleware documents the same rule.
     ratelimit.check("chat", user)
     subject = subject_for(request, user)
@@ -1287,7 +1282,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     ui_thread = re.sub(r"[^A-Za-z0-9_-]", "", req.thread_id)[:64]
     # "default" is ChatRequest's field default, so an omitted id and an
     # explicit one are the same request - both must land on the caller's own
-    # row rather than the single shared one every scripted client restored.
+    # row, never one shared row that every scripted client restores.
     if not ui_thread or ui_thread == "default":
         ui_thread = chat_threads.default_thread_id(user)
     # /as <persona> <message>: resolve the bench persona BEFORE any model -
@@ -1317,7 +1312,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         rest = parts[1].strip() if len(parts) > 1 else ""
         # bench_slugs() globs; get_persona() parses every persona file to build
         # its error string. Without this pre-check the commonest @ message in
-        # the product - "@mira can you look" - paid a full bench parse to
+        # the product - "@mira can you look" - pays a full bench parse to
         # produce a message nobody reads.
         bench = set(await run_in_threadpool(personas.bench_slugs)) | set(extension_specialists)
         if rest and slug in bench:
@@ -1344,7 +1339,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     if stripped.lower().split(maxsplit=1)[:1] == ["/as"]:
         parts = stripped.split(maxsplit=2)
         # a file needs no words: sticky persona mode sends "/as <slug> " with
-        # it, and a usage error there dropped the file
+        # it, and a usage error there would drop the file
         if len(parts) == 2 and req.attachments:
             parts.append("")
         if len(parts) < 3:
@@ -1406,8 +1401,8 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         if err:
             return await _refusal(err)
 
-    # fb: is private and chat is a sink (session files on disk, the model
-    # provider, OTEL traces) - reject BEFORE the message reaches the agent.
+    # fb: is private and chat is a sink (session rows, the model provider,
+    # OTEL traces) - reject BEFORE the message reaches the agent.
     # Checked AFTER /as extraction so "/as x fb: ..." can't smuggle it past;
     # FB_GUARD also catches the command-wrapped shape ("/remember fb: ..."),
     # which would otherwise transit the transcript and the session bridge.
@@ -1461,11 +1456,8 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             closed = False
 
             def _close_turn() -> None:
-                # idempotent: the threadpool call below can be cancelled at
-                # anyio's checkpoint or limiter wait BEFORE its thread starts
-                # (then the finally's sync call writes), and once the thread
-                # HAS started it runs to completion - the flag set here is
-                # what stops the finally from writing the turn a second time
+                # idempotent for the same reason the agent turn's is (stream()
+                # below): the cancelled path and the normal path can both reach it
                 nonlocal closed
                 if closed:
                     return
@@ -1525,12 +1517,8 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 yield _sse({"type": "error", "message": shown})
                 await run_in_threadpool(_close_turn)
             finally:
-                # sync fallback for the CANCELLED stream (stop button, tab
-                # close): inside the cancelled scope an await in finally
-                # raises instead of running - threadpooling this branch would
-                # drop the transcript and the bridge exactly then. Runs
-                # unconditionally; _close_turn's own flag makes a turn the
-                # threadpool already closed a no-op.
+                # sync, for the reason the agent turn's finally gives (stream()
+                # below): an await here would drop the transcript and the bridge
                 _close_turn()
             yield _sse({"type": "done"})
 
@@ -1546,13 +1534,13 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     if flock_def:
         # Charged HERE, and on the `chat` bucket rather than a bucket of its
         # own: one turn runs an agent loop per member plus the merge, so a
-        # single chat slot bought several turns of model spend. ONE slot is
+        # single chat slot would buy several turns of model spend. ONE slot is
         # already spent by this point - the top-of-route check above - hence
         # the -1. That slot stays spent even when this call refuses.
         # Placement is load-bearing twice over. Inside the /flock parse `try`
         # above, its `except ValueError` would render the cap as an SSE text
         # line while the identical `chat` cap on this route answers 429
-        # (routes/api.py::delete_note carries the same warning). Before
+        # (routes/api.py::post_key_request carries the same warning). Before
         # get_flock, the member count is not known yet. Nothing has run a
         # model by now, so a refusal here costs the caller nothing.
         ratelimit.check(
@@ -1584,9 +1572,11 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
         )
     thread_id = ui_thread
     if persona:
-        # stable, untruncated suffix: deletion globs both separators
-        # (session_store.delete_thread_sessions) and the base is already
-        # capped at 64, so names stay filesystem-safe.
+        # stable, untruncated suffix: session_store._THREAD_SESSION finds
+        # <thread>:<slug> by its exact base (already capped at 64), so a
+        # deleted chat takes its persona sessions with it. Truncating the
+        # joined id can drop the suffix and land the persona on the base
+        # thread's own session.
         thread_id = chat_threads.persona_session_id(thread_id, persona)
     masthead = ""
     if persona:
@@ -1604,7 +1594,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
             pdef = await run_in_threadpool(personas.get_persona, persona)
         # provider-neutral once-per-persona-per-thread check: transcripts are
         # logged under the BASE thread id (the mock path never creates a
-        # session dir, and the suffixed id never appears in chat_messages)
+        # session row, and the suffixed id never appears in chat_messages)
         if not await run_in_threadpool(
             chat_threads.thread_contains, ui_thread, f"**{pdef['name']}**"
         ):
@@ -1651,7 +1641,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     try:
         with leases.held(turn_key):
             # threadpool, not inline: build_agent restores the whole session
-            # transcript from disk before it returns
+            # transcript from the database before it returns
             agent = await run_in_threadpool(
                 build_agent,
                 thread_id,
@@ -1720,9 +1710,10 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 turn_head = persona or "agent"
                 # the requester is set on BOTH paths, not only for personas: proposals
                 # carry the human who asked (requested_by, tools/_gate.py), and the
-                # gate's write bucket keys on the (agent, requester) pair - left empty
-                # here, the default identity "agent" was ONE team-wide 30/min bucket,
-                # and person B's write refused because person A was mid-turn
+                # gate's write bucket keys on the requester - left empty here, every
+                # turn falls back to the default identity "agent" and shares ONE
+                # team-wide 30/min bucket, so person B's write is refused because
+                # person A is mid-turn
                 req_token = set_requester_identity(user)
                 policy_token = set_policy_engine(request.app.state.skein_registry.policy_engine)
                 subject_token = set_policy_subject(subject)
@@ -1753,8 +1744,9 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                     if closed:
                         return
                     closed = True
-                    # ui_thread, not the session id: persona sessions append --<slug>,
-                    # which would break the join that lands spend on an engagement.
+                    # ui_thread, not the session id: a persona session id is
+                    # <thread>:<slug> (chat_threads.persona_session_id), which would
+                    # break the join that lands spend on an engagement.
                     # agent_name already records which head spent it.
                     _log_usage(agent, ui_thread, agent_name=persona or "chief-of-staff")
                     _log_turn(ui_thread, user, "assistant", "".join(transcript))
@@ -1796,8 +1788,8 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                             channel_receipt = payload.get("receipt") if slug else None
                             if slug and channel_receipt:
                                 # a receipt that rode the consult's own channel
-                                # (team_agent.py::_run_consult drains its isolated box
-                                # beside the text) - placement by data. The section
+                                # (team_agent.py::consult_specialist drains its isolated
+                                # box beside the text) - placement by data. The section
                                 # heading names the author, so _attributed with the
                                 # SLUG as head strips the redundant suffix, exactly as
                                 # the flock's per-member drain does.
@@ -1888,9 +1880,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                         transcript.append(_receipt_line(r))
                         yield _sse({"type": "receipt", **r})
                     await run_in_threadpool(_close_turn)
-                    # before the done frame, never after: the client refreshes the
-                    # sidebar and header when its reader loop ends, so a title written
-                    # past that point is correct and unread until the next navigation
+                    # before the done frame, never after: _summarize_title says why
                     await _summarize_title(ui_thread, user)
                 except Exception as exc:  # surface model/config errors to the UI
                     # Provider SDK errors can carry request IDs or credential fragments.
@@ -1960,7 +1950,8 @@ def _log_turn(thread_id: str, owner: str, role: str, text: str) -> None:
 
 
 # FB_GUARD allows one command token before fb:. A refused /as or /flock
-# still carries its slug, so "/as nosuch fb: …" passed it and was logged.
+# still carries its slug, so without this "/as nosuch fb: ..." passes
+# FB_GUARD and is logged.
 _WRAPPED_FEEDBACK = re.compile(r"^\s*/(?:as|flock)\s+\S+\s+fb:", re.I)
 
 

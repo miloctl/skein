@@ -397,9 +397,9 @@ class DatabaseSessionRepository(SessionRepository):
         self.attachments_for = attachments_for
 
     def create_session(self, session: Session, **_kwargs: Any) -> Session:
-        # OR IGNORE where the file store raised "already exists": two
-        # concurrent first turns both construct a manager, and the loser
-        # must join the session, not fail the user's message
+        # ON CONFLICT DO NOTHING where the file store raised "already
+        # exists": two concurrent first turns both construct a manager, and
+        # the loser must join the session, not fail the user's message
         db.execute(
             "INSERT INTO sessions (session_id, payload) VALUES (?, ?) ON CONFLICT DO NOTHING",
             (session.session_id, json.dumps(session.to_dict())),
@@ -411,9 +411,9 @@ class DatabaseSessionRepository(SessionRepository):
         return Session.from_dict(json.loads(row["payload"])) if row else None
 
     def create_agent(self, session_id: str, session_agent: SessionAgent, **_kwargs: Any) -> None:
-        # upsert, never OR REPLACE: REPLACE deletes the existing row to
-        # resolve the conflict, and session_messages CASCADEs off this PK -
-        # two concurrent first turns would wipe the thread's whole history
+        # upsert, never delete-then-insert: session_messages CASCADEs off
+        # this PK - two concurrent first turns would wipe the thread's whole
+        # history
         db.execute(
             "INSERT INTO session_agents (session_id, agent_id, payload) VALUES (?, ?, ?)"
             " ON CONFLICT (session_id, agent_id) DO UPDATE SET payload = excluded.payload",

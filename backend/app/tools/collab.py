@@ -312,7 +312,8 @@ def delete_note(note_id: int) -> str:
         # but only a reviewer who can already read it. scope.detail drops the
         # body for a scoped row: GET /api/review serves this summary to every
         # CurrentUser and propose_change quotes it into a `team` notification,
-        # so the note's own text reached the roster by being deleted.
+        # so without it the note's own text reaches the roster through its
+        # deletion.
         # review.change_diff shows the full body to a reader who passes the
         # tier check, which is where a destructive verdict gets its evidence.
         summary=scope.detail(

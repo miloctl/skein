@@ -289,8 +289,8 @@ def _resolve(
     if auth_mode == "api-key":
         raise HTTPException(status_code=401, detail=NEED_KEY)
     supplied_name = (x_user or "").strip()[:64]
-    # The header is a free string, and a weak write made a roster row of
-    # whatever it carried ("../etc", "a b", "x;drop"). A roster name must be
+    # The header is a free string, and a weak write makes a roster row of
+    # whatever it carries ("../etc", "a b", "x;drop"). A roster name must be
     # one @mention token (services/mentions.py::_MENTION), so the same
     # charset is the wall here. The value is never echoed.
     if supplied_name and not _NAME_SHAPE.fullmatch(supplied_name):
@@ -452,9 +452,10 @@ def is_named_admin(user: str, groups: list[str]) -> bool:
     already decided who it trusts. That reasoning does not carry to a boundary
     that decides what a person READS: with it, any key holder could make
     themselves the steward of any crew and evict the one who was there
-    (routes/api.py::_crew_steward). Membership is that boundary, so it takes
-    the strict test - and an operator who wants an administrator to repair a
-    crew names one in SKEIN_ADMINS.
+    (routes/api.py::_crew_admin_override passes this answer to
+    services/crews.py::assert_steward). Membership is that boundary, so it
+    takes the strict test - and an operator who wants an administrator to
+    repair a crew names one in SKEIN_ADMINS.
     """
     if any(user.casefold() == admin.casefold() for admin in config.ADMINS):
         return True
@@ -509,9 +510,9 @@ def _stash(
 ) -> None:
     """What a handler can read back off the request.
 
-    All three dependencies stash, not only current_user: a route that
-    re-derives admin-ness in its own body (routes/api.py::_crew_steward) reads
-    these, and an empty group list silently refuses every administrator
+    All three dependencies stash, not only current_user: a route helper that
+    re-derives admin-ness off the request (routes/api.py::_crew_admin_override)
+    reads these, and an empty group list silently refuses every administrator
     identified only by SKEIN_OIDC_ADMIN_GROUP. Stashing in one door and not
     the others makes that a property of which dependency the next route
     happens to pick.

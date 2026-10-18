@@ -508,8 +508,8 @@ class GovernedMCPTool(AgentTool):
         # The SDK delegate yields a ToolResultEvent ENVELOPE - a dict shaped
         # {"type": "tool_result", "tool_result": {...}} - and the declared
         # output_schema describes the RESULT inside. Validating the envelope
-        # refused every valid result from a schema with required fields, and
-        # passed everything for a bare {"type": "object"}.
+        # refuses every valid result from a schema with required fields, and
+        # passes everything for a bare {"type": "object"}.
         last = events[-1] if events else None
         result = last.get("tool_result", last) if isinstance(last, dict) else last
         if isinstance(result, dict):

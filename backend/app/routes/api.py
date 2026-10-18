@@ -181,15 +181,13 @@ def _require_resource_policy(
     return attributes
 
 
-# ---- reads -----------------------------------------------------------------
-#
 # Every read that returns a row takes CurrentUser, including the ones whose
 # handler never spends it. It buys ONE thing, and it is not access control:
 # a read with no caller cannot be given a visibility filter later without
 # changing its signature (docs/VISIBILITY.md). The walls `_resolve` applies
-# are already applied at
-# the perimeter in api-key and oidc mode, and in trusted-header mode a caller
-# refused under one name reaches every read by picking another.
+# are already applied at the perimeter in api-key and oidc mode, and in
+# trusted-header mode a caller refused under one name reaches every read by
+# picking another.
 #
 # The file-backed catalogs are the exception, enumerated with a reason each
 # in tests/test_route_identity.py::OPEN_READS. Adding an open GET without a
@@ -1284,7 +1282,7 @@ def share_absence(absence_id: int, body: AbsenceShareIn, user: StrongUser):
 
 @router.delete("/absences/{absence_id}")
 def delete_absence(absence_id: int, user: CurrentUser):
-    ratelimit.check("delete", user)  # outside the try: a rate cap is a 400, not a 404
+    ratelimit.check("delete", user)  # outside the try: a rate cap is a 429, not a 404
     try:
         return absences.delete_absence(absence_id, actor=user)
     except ValueError as e:
@@ -1300,8 +1298,8 @@ def get_capacity(
 ):
     with db.read_transaction():
         # Capacity composes allocations against engagements only, and both
-        # are classified rows - no free-form legacy text rides along. Testing
-        # the full type set (and the unclassified gate) hid the whole card
+        # are classified rows - no free-form legacy text rides along. The
+        # full type set (and the unclassified gate) would hide the whole card
         # behind a rule about regulated tasks that no capacity row contains.
         _require_opaque_project_policy(
             request,
@@ -1824,11 +1822,11 @@ def post_user_active(name: str, body: UserActiveIn, request: Request, user: Admi
     return users.set_active(name, body.active, actor=user)
 
 
-# ---- crews -----------------------------------------------------------------
-#
-# A crew is membership only (docs/VISIBILITY.md) - it grants nothing until the
-# tier columns land. Editing one is a STEWARD's job or an administrator's, and
-# _crew_steward below is the only place that pair is decided.
+# A crew is membership only (docs/VISIBILITY.md), and that membership decides
+# who reads every crew-tier row. Editing one is a STEWARD's job or an
+# administrator's: services/crews.py::assert_steward decides the pair inside
+# the write's transaction, and _crew_admin_override below supplies only the
+# named-administrator half.
 
 
 class CrewIn(BaseModel):
@@ -2210,10 +2208,10 @@ def get_whoami(user: CurrentUser, request: Request):
         "strong": strong,
         # Administrator by CONFIGURATION (SKEIN_ADMINS or the OIDC group), not
         # the scarcity fallback that makes every key holder one in a default
-        # trusted-header deployment. This is the test _crew_steward applies, so
-        # a surface that shows the crew controls on this flag shows exactly the
-        # ones the server will accept. Gated on strong for the same reason
-        # keys_minted is: an unproven identity is whatever the caller typed.
+        # trusted-header deployment. This is the test _crew_admin_override
+        # applies, so a surface that shows the crew controls on this flag shows
+        # exactly the ones the server will accept. Gated on strong for the same
+        # reason keys_minted is: an unproven identity is whatever the caller typed.
         "admin": strong and is_named_admin(user, groups),
         # AdminUser also accepts the trusted-header scarcity fallback. Authority
         # uses AdminUser, so its browser gate must use this result instead of the
@@ -2817,7 +2815,7 @@ class PromiseIn(BaseModel):
     due_date: str = Field("", max_length=10)
     engagement_id: int = 0
     audience: str = Field("external", max_length=20)
-    # 'received' records a promise made TO the team (migration 007)
+    # 'received' records a promise made TO the team
     direction: str = Field("given", max_length=10)
     # No reader check on `to_whom`: it is deliberately not a roster name (the
     # default audience is external) - promises.add_promise says why.
@@ -2833,8 +2831,8 @@ def post_promise(body: PromiseIn, user: CurrentUser):
 
 
 class PromiseStatusIn(BaseModel):
-    # forbid: a stray engagement_id in the body used to select the project the
-    # generic gate judged (extensions/fastapi.py); the handler never read it
+    # forbid: the generic gate judges a body engagement_id as a relink target
+    # (extensions/fastapi.py), and this handler ignores the field
     model_config = ConfigDict(extra="forbid")
     status: str = Field(max_length=20)
 
@@ -2933,7 +2931,6 @@ class FeedbackIn(BaseModel):
 
 @router.post("/feedback")
 def post_feedback(body: FeedbackIn, user: CurrentUser):
-    # outside the try, for the reason post_key_request states
     ratelimit.check("feedback", user)
     data = body.model_dump()
     if not data["input_text"]:
@@ -2962,13 +2959,13 @@ def get_eval_capture(user: AdminUser, request: Request):
     return feedback.eval_capture()
 
 
-# `force` is a SEPARATE, explicit ask, and it defaults off. Both routes passed
-# force=True unconditionally, which walked straight past the weekly claim these
-# rituals keep: every click re-briefed the whole roster with the same personal
-# notifications, and the cockpit's "already ran this week" branch could never be
-# reached because the route it calls never returned that answer. The scheduler
-# runs unforced too, so a manual Monday click after the 06:30 job is a no-op
-# that says so rather than a second notification for everybody.
+# `force` is a SEPARATE, explicit ask, and it defaults off: only an unforced
+# run honors the weekly claim these rituals keep. Forced on every click, each
+# click re-briefs the whole roster with the same personal notifications, and
+# the cockpit's "already ran this week" branch is never reached because the
+# route never returns that answer. The scheduler runs unforced too, so a
+# manual Monday click after the 06:30 job is a no-op that says so rather than
+# a second notification for everybody.
 @router.post("/rituals/week-open")
 def post_week_open(
     user: CurrentUser,
@@ -3262,8 +3259,8 @@ def get_agents_trust(user: CurrentUser, request: Request):
 def get_agent_entities(user: CurrentUser):
     from ..services.delegation import NO_AUTHORITY
 
-    # one set, shared with set_authority: excluding here but validating there
-    # let a direct POST store a grant this picker cannot produce
+    # one set, shared with set_authority: if the two sets differ, a direct
+    # POST stores a grant this picker cannot produce
     from ..services.lexicon import entity_label
     from ..services.review import _registry
     from ..tools._gate import ALWAYS_REVIEW
@@ -3351,16 +3348,16 @@ def post_delegate(
 ):
     # capped like every other content write: this UPDATEs a task, appends a
     # hash-chained activity row, and notifies the sponsor - the amplifier
-    # patch_task's own comment names. It became a one-click control when the
-    # task peek shipped.
+    # patch_task's own comment names, and the task peek
+    # (frontend/components/task-peek.tsx) makes it a one-click control.
     ratelimit.check("write", user)
     # Delegating to an EXISTING agent is ordinary work. Delegating to a name
     # that does not exist MINTS an agent identity (delegate_task calls
-    # ensure_user), and routes/deps.py refuses an agent name at every door -
-    # so an unproven caller could register a teammate's name before they join
-    # and lock them out of sign-in, repairable only through rename_user. The
-    # scarce credential is the bar for creating an identity, matching
-    # POST /api/keys; using one that already exists is not gated.
+    # users.ensure_agent_identity), and routes/deps.py refuses an agent name
+    # at every door - so an unproven caller could register a teammate's name
+    # before they join and lock them out of sign-in, repairable only through
+    # rename_user. The scarce credential is the bar for creating an identity,
+    # matching POST /api/keys; using one that already exists is not gated.
     with db.transaction():
         task = work.get_task(task_id, viewer)
         domain = work.task_read_policy_context(task, viewer)
@@ -3602,9 +3599,8 @@ def get_usage(user: CurrentUser, viewer: ViewerDep, request: Request, subject: P
     """Token and estimated-cost accounting. Costs are estimates from the
     operator's price table; unpriced_calls says how much each sum cannot see."""
     # ONE window for the whole card: the header names the calendar month, so
-    # every section answers for it. Unbounded by-model rows and a trailing-30d
-    # engagement split under that header were three call counts nobody could
-    # reconcile.
+    # every section answers for it. A section on any other window (unbounded,
+    # trailing 30 days) shows a call count that cannot reconcile with the rest.
     month_start = usage.month_start()
     # the engagement split names every tier-visible engagement with its spend
     with db.read_transaction():
@@ -3622,9 +3618,6 @@ def get_usage(user: CurrentUser, viewer: ViewerDep, request: Request, subject: P
         "month": usage.month_to_date(),
         "prices_error": config.MODEL_PRICES_ERROR,
     }
-
-
-# ---- writes ----------------------------------------------------------------
 
 
 class MilestoneIn(BaseModel):
@@ -3713,9 +3706,10 @@ def post_task(
 
 
 class TaskPatch(BaseModel):
-    # every cap here MUST match TaskIn above: a create-time bound that a PATCH
-    # can step around is not a bound, and the oversized value lands in the
-    # list API, the search index and the team-visible ledger just the same
+    # every cap here matches TaskIn (tests/test_patch_cap_parity.py): a
+    # create-time bound that a PATCH can step around is not a bound, and the
+    # oversized value lands in the list API, the search index and the
+    # team-visible ledger just the same
     status: str = Field("", max_length=20)
     assignee: str = Field("", max_length=64)
     priority: str = Field("", max_length=10)
@@ -4112,7 +4106,7 @@ def post_event_outcome(event_id: int, body: OutcomeIn, user: CurrentUser):
     """What came out of a meeting. Set by a reader, never inferred: guessing
     from "was anything written near this time" is wrong in both directions -
     an outcome recorded an hour later reads as empty, an unrelated note reads
-    as an outcome (migration 008)."""
+    as an outcome."""
     ratelimit.check("write", user)
     try:
         return schedule.record_outcome(event_id, body.outcome, actor=user)
@@ -4133,9 +4127,9 @@ class EventIn(BaseModel):
     ends_at: str = Field("", max_length=25)
     description: str = Field("", max_length=4000)
     attendees: str = Field("", max_length=500)
-    # what the meeting is FOR, written before it runs (migration 008). The
-    # post-meeting attention item quotes it back, which is what makes "did
-    # this produce anything" answerable by whoever attended.
+    # what the meeting is FOR, written before it runs. The post-meeting
+    # attention item quotes it back, which is what makes "did this produce
+    # anything" answerable by whoever attended.
     agenda: str = Field("", max_length=2000)
     engagement_id: int = 0
     # the tier the writer picked, checked in the service: crew membership only.
@@ -4788,7 +4782,7 @@ class CaptureIn(BaseModel):
     # gets the roster. The CLI sends workspace only for `--team`.
     visibility: str | None = Field(None, max_length=16)
     crew_id: int = 0
-    # D5's idempotency key. The CLI outbox is at-least-once: a crash between
+    # The idempotency key. The CLI outbox is at-least-once: a crash between
     # the server's accept and the outbox rewrite re-sends the row. A repeated
     # key files nothing and answers "duplicate" instead.
     capture_key: str = Field("", max_length=64, pattern=r"^[A-Za-z0-9_-]*$")
@@ -5241,9 +5235,6 @@ def get_calendar_ics(request: Request, token: str = ""):
         media_type="text/calendar",
         headers={"Cache-Control": "private, no-store"},
     )
-
-
-# ---- admin -----------------------------------------------------------------
 
 
 @router.post("/admin/backup")

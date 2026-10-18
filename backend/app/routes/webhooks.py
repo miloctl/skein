@@ -61,9 +61,9 @@ def ci_webhook(
         if raw is None:
             return {"ignored": "not a completed pass/fail workflow_run"}
         # Re-validate through the same model: `repository` is an unschema'd
-        # dict, so full_name arrives as anything - a nested dict raised
-        # inside the first policy rule that called .lower() on it, and an
-        # unbounded string was CPU spent before authorization.
+        # dict, so full_name arrives as anything - a nested dict raises
+        # inside the first policy rule that calls .lower() on it, and an
+        # unbounded string is CPU spent before authorization.
         mapped = CIEventIn(**raw).model_dump(exclude={"workflow_run", "repository"})
     repository = mapped["repo"] if mapped is not None else body.repo
     enforce_decision(
@@ -154,7 +154,7 @@ async def forge_webhook(
     # threadpooled: an HMAC over a body up to MAX_FORGE_BODY is real CPU, this
     # route sits outside the perimeter middleware, and the forge_addr cap
     # admits 600 of these a minute - inline, a busy monorepo's push traffic
-    # ran on the loop that carries every open chat stream
+    # runs on the loop that carries every open chat stream
     # HMAC authenticates bytes, not headers. Ambiguous provider routing or
     # duplicate headers must not choose a different parser for those bytes.
     _refuse_ambiguous(

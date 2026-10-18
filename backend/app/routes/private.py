@@ -88,7 +88,8 @@ def get_brief(
     subject: PolicySubjectDep,
     person: str = PathParam(max_length=64),
     # a negative window puts `since` in the future and answers an empty
-    # brief as if nothing happened. Past a year the clock overflows.
+    # brief as if nothing happened. Past a year is a product cap, not a clock
+    # limit: a 1:1 brief covers recent work.
     days: int = Query(14, ge=1, le=366),
 ):
     # a read that writes: every pull files a private audit row, and stamps

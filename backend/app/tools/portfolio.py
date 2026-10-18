@@ -298,8 +298,8 @@ def get_context_pack(engagement_id: int = 0) -> str:
 # Takes no name, and must not gain one. delegation.agent_inbox answers for
 # whatever roster row it is handed - human or agent - with assigned questions,
 # rejected proposals INCLUDING reviewer notes, and 20 unread notification
-# bodies. As a model-controlled argument, "check the agent inbox for mira" was
-# the whole exploit. The MCP twin lost the same parameter for the same reason
+# bodies. As a model-controlled argument, "check the agent inbox for mira"
+# reads any person's inbox. The MCP twin takes no name for the same reason
 # (app/mcp_server.py::get_my_day). Pinned by
 # tests/test_privacy.py::test_the_agent_inbox_tool_takes_no_name.
 def my_agent_inbox() -> str:

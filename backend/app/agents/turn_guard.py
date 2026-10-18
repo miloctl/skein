@@ -71,8 +71,8 @@ def unnotified(
     named = [n for n in [*people, *agents] if n.lower() != skip and n.lower() not in spoke]
     if not named:
         return None
-    # capped: a pasted standup with twenty handles wrote a receipt longer than
-    # the answer, into the SSE frame and the saved transcript both
+    # capped: uncapped, a pasted standup with twenty handles writes a receipt
+    # longer than the answer, into the SSE frame and the saved transcript both
     shown = ", ".join(named[:3])
     rest = len(named) - 3
     # A filed row reaches an agent as well as a person (services/mentions.py::

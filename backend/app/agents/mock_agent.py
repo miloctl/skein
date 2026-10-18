@@ -64,13 +64,13 @@ class MockAgent:
             ratelimit.check("capture", self.user)
             # The gate's authority row keys on the agent identity; the CONTENT
             # is the human's own words, transcribed verbatim. Attributing the
-            # payload to the agent made Ava's "q: @mira …" arrive as a
-            # question the agent asked, and Mira's notification named the
-            # agent. origin="agent" still records which path wrote it.
+            # payload to the agent makes "q: @mira ..." arrive as a question
+            # the agent asked, and Mira's notification name the agent.
+            # origin="agent" still records which path wrote it.
             agent_actor = self.persona or "agent"
-            # the REST capture default (_personal_default): "only you" for a
-            # strong requester. Every freeform line here became a workspace
-            # note the whole roster read.
+            # the REST capture default (routes/api.py::_personal_default):
+            # "only you" for a strong requester. A workspace default puts
+            # every freeform line in front of the whole roster.
             tier = scope.PRIVATE if strong_requester() else scope.WORKSPACE
             kind, entity, payload = capture.plan(text, actor=self.user, origin="agent")
             payload["visibility"] = tier

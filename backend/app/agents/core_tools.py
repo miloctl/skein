@@ -46,9 +46,9 @@ def _resource(arguments: dict[str, Any]) -> PolicyResource:
     for key, value in arguments.items():
         # A model sends "42" as often as 42, and Strands coerces the string
         # to int with pydantic AFTER this policy check runs. int() here must
-        # be as wide as that coercion - isdecimal() let ' 42', '+42' and
-        # '4_2' pass as a generic `tool` resource while the delegate wrote
-        # to the real task, skipping its task-scoped rules.
+        # be as wide as that coercion, or ' 42', '+42' and '4_2' pass as a
+        # generic `tool` resource while the delegate writes to the real
+        # task, skipping its task-scoped rules.
         if isinstance(value, str):
             with contextlib.suppress(ValueError):
                 value = int(value)

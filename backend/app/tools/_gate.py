@@ -41,7 +41,10 @@ from ..services.delegation import authority_status
 # irreversible verbs ALWAYS go through the review inbox, even with
 # SKEIN_AGENT_REVIEW off - a prompt-injected agent must never hard-delete
 # the knowledge base or its own steering evidence without a human verdict
-# (edits stay reversible + old->new logged, so they follow the normal flag)
+# (edits stay reversible + old->new logged, so they follow the normal flag).
+# `absence` is a create, not an irreversible verb: it is here because
+# docs/FEATURES.md promises an agent-filed time-away window (add_absence) is
+# ALWAYS a proposal, and trimming the set to irreversible verbs breaks that.
 ALWAYS_REVIEW = {"note_delete", "memory_forget", "event_cancel", "absence"}
 
 # The matrix is keyed on the literal entity a tool passes, and the registry
@@ -167,18 +170,18 @@ def _gated_write_locked(
     if action == "update" and not payload and entity not in ALWAYS_REVIEW:
         return json.dumps({"error": "nothing to change - pass at least one field"})
     # Same 30/min budget the REST creates use, and keyed on the SAME subject:
-    # the human who asked. Keying on the actor alone made it one team-wide
-    # bucket, because the default chat identity is the single name "agent" -
-    # person B's write was refused because person A was mid-turn, under a
-    # message claiming the cap was per person. Keying on the PAIR fixed that
-    # and broke the arithmetic instead: agent identity is per persona, so one
-    # person addressing a 5-member flock held 5 buckets of 30 against a cap
-    # labelled 30 per person, on the path where every write becomes a
-    # proposal. The requester is the subject the label already names.
+    # the human who asked. An actor key is one team-wide bucket, because the
+    # default chat identity is the single name "agent" - person B's write is
+    # refused because person A is mid-turn, under a message claiming the cap
+    # is per person. An (actor, requester) key breaks the arithmetic instead:
+    # agent identity is per persona, so one person addressing a 5-member
+    # flock holds 5 buckets of 30 against a cap labelled 30 per person, on
+    # the path where every write becomes a proposal. The requester is the
+    # subject the label already names.
     #
     # Falls back to the actor for MCP and the scheduler, where the agent IS
     # the caller and no human stands behind the write. No separator, no join:
-    # a composite key collided the moment a teammate picked the name on the
+    # a composite key collides the moment a teammate picks the name on the
     # other side of it.
     try:
         ratelimit.check("write", requester_identity() or actor)
