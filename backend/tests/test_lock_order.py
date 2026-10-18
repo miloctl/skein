@@ -92,6 +92,20 @@ def test_a_task_create_holds_its_engagement_before_its_milestone(fresh_db, monke
     assert parents == [("engagements", eng), ("milestones", ms)], taken
 
 
+def test_a_task_create_probes_its_event_before_its_parents(fresh_db, monkeypatch):
+    """An approval holds the event and then the engagement
+    (review._approve_change_locked). A create that held the engagement first
+    and probed the event after deadlocks with it."""
+    from app.services import engagements, schedule
+
+    eng = engagements.create_engagement("Atlas", actor="tester")["id"]
+    event = schedule.schedule_event("Kickoff", "2026-10-20T15:00", actor="tester")["id"]
+    taken = _row_locks(monkeypatch)
+    work.create_task("t", engagement_id=eng, event_id=event, actor="tester")
+    order = [row for row in taken if row[0] in ("events", "engagements")]
+    assert order == [("events", event), ("engagements", eng)], taken
+
+
 def test_a_public_crew_create_holds_its_crew_before_its_milestone(fresh_db, monkeypatch):
     """work.create_task takes the crew row (scope.resolve_write) before the
     parents, and a crew-tier create_engagement holds the crew and then the

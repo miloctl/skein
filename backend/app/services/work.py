@@ -440,6 +440,13 @@ def _create_task_locked(
     )
     ts = db.now()
     tier, cid = scope.resolve_write(visibility, crew_id, actor=actor)
+    # the event before the parents (hold_task_parents): an approval holds the
+    # event and then the engagement (review._approve_change_locked), and the
+    # other order deadlocks with it
+    if event_id:
+        from .schedule import check_event_link
+
+        check_event_link(event_id, actor=actor, tier=tier, crew_id=cid, label="task")
     _assert_task_relationships(
         milestone_id,
         engagement_id,
@@ -448,10 +455,6 @@ def _create_task_locked(
         task_crew_id=cid,
     )
     with db.transaction():
-        if event_id:
-            from .schedule import check_event_link
-
-            check_event_link(event_id, actor=actor, tier=tier, crew_id=cid, label="task")
         # the roster match blockers and questions already make: a typo'd or
         # differently cased name landed as a phantom assignee that no My Day
         # listed and no notification reached (users.resolve_teammate)
@@ -539,8 +542,8 @@ def hold_task_parents(
     Only a write that sets or moves a link holds them: a create, or an update
     (`current` is the task row) whose milestone or engagement changes. Any
     other update holds nothing here, although its policy decision still reads
-    the project type through the milestone's parent, and an adoption (below)
-    can change that type under the decision. A hold on every update queues
+    the project type through the milestone's parent, and a milestone relink or
+    an adoption (below) can change that type under the decision. A hold on every update queues
     each task write behind an atomic PATCH /api/milestones, which holds that
     milestone while it waits for a second worker thread: with the pool full
     of waiters, every REST request in the process answers 503 at lock_timeout
@@ -561,7 +564,8 @@ def hold_task_parents(
     or crew a decision reads, and sharing only widens its tier.
 
     Order, every path: the task row (an update) or the crew row (a crew-tier
-    create), then the engagement, then the milestone.
+    create), then the linked event (a create), then the engagement, then the
+    milestone.
 
     Write paths only. A read that took these locks under REPEATABLE READ would
     wait on every milestone writer and then fail on serialization

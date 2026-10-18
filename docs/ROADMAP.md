@@ -801,8 +801,8 @@ larger than its finding.
   503 on the e2e stack, on 0.6.17 as well. Run the decision and the handler
   in one thread, or take the hold in the handler, and race it with more
   waiters than `THREAD_POOL`. Until then a task update that moves no link
-  holds no parent (`work.hold_task_parents`), so a milestone adoption can
-  change the project type its policy decision read.
+  holds no parent (`work.hold_task_parents`), so a milestone relink or
+  adoption can change the project type its policy decision read.
 
 - **A nested schema scope resets the search path to public** -
   `db.schema_scope` resets to `public` on exit instead of to the outer
