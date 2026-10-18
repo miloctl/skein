@@ -223,7 +223,9 @@ def main():
         text=True,
         check=True,
     ).stdout.split()
-    files = [f for f in tracked if Path(f).suffix in EXTS and (REPO / f).is_file()]
+    # the index still lists a file deleted but not yet staged
+    tracked = [f for f in tracked if (REPO / f).is_file()]
+    files = [f for f in tracked if Path(f).suffix in EXTS]
     migrations = {p.name for p in (REPO / "backend/app/core_migrations").glob("*.sql")}
     cache: dict[str, str] = {}
 
