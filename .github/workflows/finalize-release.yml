@@ -150,8 +150,8 @@ jobs:
           # A concurrent finalizer may have won the race after the first
           # ls-remote. Accept only its identical annotated tag. If no remote
           # tag exists, keep the original push failure as the diagnosis - an
-          # unconditional fetch used to add a misleading "couldn't find remote
-          # ref" after a credential refusal.
+          # unconditional fetch buries a credential refusal under a misleading
+          # "couldn't find remote ref".
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
             git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
             verify_tag

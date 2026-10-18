@@ -1,13 +1,10 @@
 """Verify every theme pack and colorway in globals.css against the Loom baseline.
 
-Replaces the two hand-written pack checks that lived in docs/reviews/ and were
-never run by anything. Those files listed their pack tokens as Python literals,
-so a pack that shipped after the file was written was never checked. Atelier
-shipped that way and fell outside the surface bounds unnoticed, and no colorway
-older than 2026-08-01 was ever held to the 5.5:1 thread rule. This reads the
-packs out of globals.css, so a new pack is covered on the day it ships.
+Reads the packs out of globals.css, never a hand-written token list, so a new
+pack is covered on the day it ships. A literal list misses every pack added
+after it was written.
 
-Four hard invariants and one advisory note:
+Five hard invariants (an accepted exception under (d) prints as a NOTE line):
 
 (a) Text and status tokens hold >= 4.5:1 on every surface combination that the
     Loom baseline itself passes. Combinations Loom already fails are excluded,
@@ -101,11 +98,9 @@ _ID = re.compile(r'\{\s*id:\s*"([a-z0-9-]+)"')
 def parse_custom(ts: str) -> dict[str, dict]:
     """The custom-colorway formulas, READ from lib/theme.ts.
 
-    This used to be a hand-copied literal, one of three copies of the same
-    numbers (theme.ts, the layout.tsx pre-paint script, here). Parsing means a
-    retuned formula is swept on the next lint instead of when someone
-    remembers. A shape this cannot read is a hard error, never an empty sweep
-    that reports success.
+    Parsed, never copied: a retuned formula is swept on the next lint, and a
+    hand-copied literal keeps sweeping numbers no page renders. A shape this
+    cannot read is a hard error, never an empty sweep that reports success.
     """
     block = _CUSTOM_BLOCK.search(ts)
     if not block:

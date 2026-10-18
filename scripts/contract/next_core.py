@@ -69,9 +69,10 @@ assert (db.MIGRATIONS_DIR / "001_baseline.sql").is_file()
 # Application startup does this automatically. The artifact rehearsal uses
 # identity helpers before startup, so it applies the same step explicitly.
 db.init_db()
-# Nothing can infer private ownership from a generic machine row (the seeds
-# above carry the schema's empty identity_owner). The deployment makes this
-# one-time decision before application start.
+# Nothing can infer private ownership from a generic machine row (the rows
+# written under the prior core, by scripts/contract/prior_core.py, carry the
+# schema's empty identity_owner). The deployment makes this one-time decision
+# before application start.
 for legacy_name, owner in (
     ("atlas.workplace.delivery-specialist", "specialist:atlas.workplace.delivery-specialist"),
     ("atlas-sync", "service:atlas.workplace.sync-identity"),
@@ -332,18 +333,13 @@ def run_sync_tool():
     )
 
 
-# The review gate is a DEPLOYMENT policy, and it decides what a governed
-# extension tool RETURNS: the write itself, or a proposal for a human. Both
-# are correct outcomes of the same contract - the core routed the extension's
-# tool and neither refused nor errored. Only an error or a refusal is a
-# failure here.
+# The write itself and a proposal for a human are both correct outcomes of
+# this contract (the review gate is a deployment policy, see
+# scripts/lib/hermetic-env.sh): the core routed the extension's tool and
+# neither refused nor errored. Only an error or a refusal is a failure here.
 #
-# Rehearsed on BOTH settings rather than inheriting one. This assertion used
-# to read `status == "completed"` against whatever default was compiled in,
-# so it silently encoded "the gate is off" as if it were the extension
-# contract - and flipping that default turned an unrelated release into a red
-# CI job pointing at the extension. Set explicitly, the flip is a fact this
-# gate states instead of a surprise it reports.
+# Rehearsed on BOTH settings explicitly, so a change to the default of
+# config.AGENT_REVIEW cannot fail this extension contract.
 original_agent_review = config.AGENT_REVIEW
 try:
     config.AGENT_REVIEW = False

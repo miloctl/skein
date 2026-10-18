@@ -103,8 +103,9 @@ def docker(*args, input=None, timeout=120):
         check=False,
     )
     if result.returncode:
-        # Arguments can contain credentials. Only local protected evidence gets
-        # command output, never an argv rendered into a public test exception.
+        # Arguments can contain credentials, so the exception names only the
+        # subcommand and carries the stderr tail, never the argv: run_drill
+        # prints the message to stdout.
         raise RuntimeError(f"docker {args[0]} failed: {result.stderr[-2000:]}")
     return (result.stdout + (result.stderr if args[0] in {"logs", "build"} else "")).strip()
 

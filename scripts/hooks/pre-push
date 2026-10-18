@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# CI runs only on push to main (.gitea/workflows/ci.yml), so this hook is the
-# first mechanical gate a change meets. Install: git config core.hooksPath scripts/hooks
+# The first mechanical gate a change meets: it runs before the push that starts
+# either CI (.gitea/workflows/ci.yml, .github/workflows/ci.yml).
+# Install: git config core.hooksPath scripts/hooks
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 

@@ -12,12 +12,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any, NamedTuple
 
-# The gates a publishable run must have passed. `release-guard` and the two
-# publisher jobs left ci.yml when publication moved to publish-release.yml, so
-# requiring them here would reject every run this validator now exists to
-# accept. Publication is no longer proved by a job status at all: finalize
-# compares the registry bytes against this run's artifact, which is a stronger
-# claim than "a publisher job ran" ever was.
+# The ci.yml gate jobs a publishable run must have passed. ci.yml holds no
+# publisher job, so naming one here rejects every run. Publication is proved
+# by finalize-release's byte comparison of the registry files against this
+# run's artifact, never by a job status.
 REQUIRED_JOBS = {
     "packages",
     "backend",
@@ -124,7 +122,6 @@ def validate_release_run(
 
 def main() -> int:
     try:
-        # RETRY_RUN_ID was the retry path's name for it, and that path is gone.
         # Both callers (publish-release, finalize-release) set RELEASE_RUN_ID.
         run_id = os.environ["RELEASE_RUN_ID"]
         release = validate_release_run(

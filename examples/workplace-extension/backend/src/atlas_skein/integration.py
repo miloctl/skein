@@ -342,10 +342,9 @@ class AtlasIntegration:
     def _transaction(self) -> Iterator[None]:
         """One unit of extension-owned work.
 
-        Delegates to the store. A store is a SCHEMA in the Skein database now,
-        not a file of its own, so ExtensionStore.transaction() is the whole
-        contract - and it nests, which is what the re-entrancy guard that used
-        to live here provided.
+        Delegates to the store. A store is a SCHEMA in the Skein database, so
+        ExtensionStore.transaction() is the whole contract - and it nests: an
+        inner call joins the outer transaction instead of committing alone.
         """
         with self.store.transaction():
             yield
@@ -374,8 +373,6 @@ class AtlasIntegration:
         # transaction that wrote it. A retry from a different contribution then
         # reuses the mapping and the same remote idempotency key instead of
         # creating another task - and a slow remote never holds a write open.
-        # (Core and extension data now live in one database, so this ordering
-        # is a deliberate choice rather than something the storage forces.)
         self._deliver_pending_statuses(work, context)
         return result
 
@@ -479,9 +476,13 @@ class AtlasIntegration:
             )
             # FOR UPDATE, then LOOK AGAIN. Two syncs of the same item both read
             # "no link" and both insert - one no-ops on the conflict. The lock
-            # is what makes the loser wait for the winner to finish linking,
-            # and the second read of work_links is what it sees when it wakes
-            # up. Without the pair, both callers create a task for one item.
+            # waits out a winner inside _stage_claim_task or _complete_mapping,
+            # and the second read of work_links sees the link it committed.
+            # This claim commits when the method returns, before the task
+            # exists, so a loser that still sees no link reaches create_task
+            # too: the idempotency_key atlas-item:<id> there
+            # (backend/app/public/work.py::_prior_result) keeps two syncs to
+            # one task.
             claim = self._query_one(
                 "SELECT owner_namespace, skein_task_id FROM sync_claims"
                 " WHERE external_id = ? FOR UPDATE",

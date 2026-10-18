@@ -702,9 +702,9 @@ def cmd_attention(args):
     command, and one that prints a traceback ruins every line.
 
     The cache gates on its MTIME, not on its contents, so a FAILED call is
-    remembered too. Writing only on success left the file untouched, the age
-    check never applied, and a dropped-packet host was retried on every
-    keystroke - a 15-second stall per prompt, forever.
+    remembered too: a dead host costs one ATTENTION_TIMEOUT_S wait per
+    ATTENTION_TTL_S, not one per prompt. If only a success wrote the file, the
+    age check would never apply and every keystroke would wait out the timeout.
     """
     cache = CONFIG_PATH.parent / "attention.cache"
     try:
@@ -788,7 +788,8 @@ def cmd_eval(args):
 # is the person's, and a refresh keeps it byte for byte.
 # The line end is a lookahead, never part of the match: the replaced span ends
 # at the marker, so a CRLF line ending after it stays the person's byte.
-# \d{1,9}: a longer run is past int()'s digit limit, and no id is that long.
+# \d{1,9}: an unbounded run reaches int(), which raises past 4300 digits, and
+# no engagement id reaches 10 digits.
 _PACK_START = re.compile(
     r"^<!-- skein:context-pack(?: engagement=(\d{1,9}))? -->(?=[ \t]*\r?$)", re.M
 )
@@ -952,8 +953,8 @@ def cmd_context(args):
         except (OSError, UnicodeDecodeError) as exc:
             sys.exit(_file_error(args.write, exc))
         # the engagement pack is generated on demand and carries no version
-        # (routes/api.py) - printing pack["version"] raised KeyError AFTER the
-        # file was already written, so the caller got the file and a traceback
+        # (routes/api.py). The file is already written here, so a KeyError on
+        # pack["version"] hands the caller a traceback for a write that worked.
         version = f" v{pack['version']}" if "version" in pack else ""
         print(f"wrote context pack{version} to {args.write}")
         print(
@@ -1161,15 +1162,14 @@ HOOK = """#!/bin/sh
 skein sync-commit || true
 """
 
-# Reads the task id off a `task/42-...` branch and adds the trailer the
-# post-commit hook looks for.
+# Reads the task id off a `task/42-...` branch and adds the Refs-Task trailer
+# the post-commit hook looks for.
 #
 # $2 is git's SOURCE: "" for an editor commit, "message" for -m/-F, "template"
-# for -t, and "merge"/"squash" for those. Skipping every non-empty source
-# skipped `git commit -m`, which is how most commits are written and the case
-# where the trailer helps most - nobody sees an editor to add it by hand. Only
-# merge and squash are skipped, where the message is assembled from other
-# commits and a trailer would claim this commit closed the task.
+# for -t, and "merge"/"squash" for those. Every source but merge and squash
+# gets the trailer: `git commit -m` is how most commits are written, and
+# nobody sees an editor to add it by hand. Merge and squash get no trailer and
+# lose their Closes-Task lines instead (the hook's own comment says why).
 COMMIT_MSG_HOOK = """#!/bin/sh
 # A merge or squash assembles its message from other commits, and a
 # Closes-Task trailer carried in from one of them would claim THIS commit
@@ -1281,8 +1281,9 @@ def _slug(title: str, words: int = 6) -> str:
 
 
 def _git(*args: str) -> str:
-    # argv, never a shell string, and every caller passes literal git
-    # subcommands - the only interpolated value is a branch name built here.
+    # argv, never a shell string: the interpolated values are a branch name
+    # built here and the caller's own --base (cmd_pr_body), and neither
+    # reaches a shell.
     got = subprocess.run(["git", *args], capture_output=True, text=True)  # noqa: S603
     if got.returncode != 0:
         sys.exit(f"error: git {' '.join(args)} failed - {got.stderr.strip()}")

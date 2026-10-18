@@ -160,8 +160,7 @@ spec:
 # PROGRAM, which executes shell commands on this pod as the postgres OS user,
 # and pg_read_file, which reads its filesystem - so every SQL bug, and every
 # buggy extension (ExtensionStore takes raw SQL), escalates from "reads some
-# rows" to running commands on the database container. SQLite had no
-# SQL-reachable exec primitive at all; this restores the bound.
+# rows" to running commands on the database container.
 apiVersion: v1
 kind: ConfigMap
 metadata:

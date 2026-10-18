@@ -3,8 +3,10 @@
 #
 #   ./scripts/audit-deps.sh [backend|frontend|workplace|all]
 #
-# Every mode audits production dependencies only. Dev-tool advisories stay in
-# Renovate rather than blocking an unrelated application release.
+# Every mode audits production dependencies only, so a dev-tool advisory
+# never blocks an unrelated application release. Dev tools are left to the
+# update bots: Dependabot for npm (.github/dependabot.yml), and Renovate for
+# pip (renovate.json) once the Gitea instance enables it (TODO.md).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

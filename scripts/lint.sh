@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# The one list of lint gates. .gitea/workflows/ci.yml calls this script with a
-# mode argument - add a gate here and it runs locally and on push with no
-# second edit. Do not restate a gate in ci.yml.
+# The one list of lint gates. Every workflow (.gitea ci.yml and weekly.yml,
+# .github ci.yml) calls this script with a mode argument - add a gate here and
+# it runs locally and in CI with no second edit. Do not restate a gate in a
+# workflow.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

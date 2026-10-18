@@ -53,8 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       # Same major as docker-compose.yml and the Dockerfile's pg_dump. The
-      # suite has no in-process substitute the way SQLite was - conftest exits
-      # without a reachable server.
+      # suite needs a real server: conftest exits (code 35) when it cannot
+      # reach one.
       postgres:
         image: postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168
         env:
@@ -112,8 +112,8 @@ jobs:
           SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         # The coverage gate lives here, not in addopts: coverage adds ~45%
         # to a run, so local `pytest` stays fast and this step holds the
-        # floor. 90 is a ratchet - measured 91% on 2026-08-14; raise it when
-        # the number rises, never lower it to make a commit pass.
+        # floor. 90 is a ratchet against a measured 91%: raise it when the
+        # number rises, never lower it to make a commit pass.
         run: pytest -q -n auto --cov=app --cov-fail-under=90
       - name: Restricted database role contract
         working-directory: backend
@@ -138,9 +138,8 @@ jobs:
           git -c http.extraHeader="$auth" fetch --tags --unshallow --quiet \
             || git -c http.extraHeader="$auth" fetch --tags --quiet
       - name: Upgrade path
-        # Skips itself until the first v* release tag exists. The psql guard
-        # is for the self-hosted runner image, which ships no PostgreSQL
-        # client - the script creates its databases with psql.
+        # The psql guard is for the self-hosted runner image, which ships no
+        # PostgreSQL client - the script creates its databases with psql.
         env:
           SKEIN_DATABASE_URL: postgresql://skein:skein@localhost:5432/skein
         run: |
@@ -175,8 +174,8 @@ jobs:
         # The floor lives in vitest.config.mts, beside the number it defends.
         run: npm run test:coverage
       - name: Audit production dependencies
-        # the --omit=dev reasoning moved into the script, beside the
-        # backend half that now makes the same call
+        # scripts/audit-deps.sh says why only production dependencies are
+        # audited.
         run: ./scripts/audit-deps.sh frontend
       - name: Build
         working-directory: frontend
@@ -218,8 +217,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-          # The backend and e2e jobs already cache pip. This job installs the
-          # same dependency set and was the only one paying full download.
+          # Same dependency set and cache key as the backend and e2e jobs, so
+          # one pip cache serves all three.
           cache: pip
           cache-dependency-path: backend/pyproject.toml
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0

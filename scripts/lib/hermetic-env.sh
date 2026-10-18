@@ -1,18 +1,17 @@
 # The SKEIN_* environment a contract rehearsal runs under. Source, then call
 # skein_hermetic_env once, before anything builds or boots.
 #
-# A rehearsal already isolates its INFRASTRUCTURE with some care: its own
-# virtualenvs, a database per instance, its own content directories. It used
-# to read every other setting from whatever environment happened to run it,
-# and that split is what made the same script pass on a developer box and
-# fail in CI. Two real examples, both of which reached main:
+# A rehearsal isolates its INFRASTRUCTURE: its own virtualenvs, a database
+# per instance, its own content directories. Every other setting is pinned
+# here as well. An unpinned one comes from whatever environment runs the
+# script, and the same script then passes on a developer box and fails in CI:
 #
-#   * backend/.env sets SKEIN_AUTH_MODE=trusted-header, so a developer's run
-#     authenticated. CI sets no auth mode at all, so its run got the shipped
-#     default and every request 401'd.
+#   * a developer's backend/.env sets SKEIN_AUTH_MODE=trusted-header, so that
+#     run authenticates. CI sets no auth mode at all, so its run gets the
+#     shipped default and every request answers 401.
 #   * v0.2.3 defaults SKEIN_AUTH_MODE to trusted-header and HEAD defaults it
-#     to api-key. With neither pinned, the prior-core leg authenticated and
-#     the next-core leg did not - a default MOVING between the two artifacts
+#     to api-key. With neither pinned, the prior-core leg authenticates and
+#     the next-core leg does not - a default MOVING between the two artifacts
 #     under test, reported as an extension failure.
 #
 # Both are the same defect: an ambient input to a rehearsal that claims to be

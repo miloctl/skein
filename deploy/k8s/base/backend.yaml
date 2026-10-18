@@ -70,8 +70,8 @@ spec:
             # The APPLICATION role, not the bootstrap superuser that
             # initialised the cluster. A superuser can COPY ... FROM PROGRAM,
             # which runs shell commands on the database pod - see the reason
-            # written out in base/postgres.yaml. /health reports it if this
-            # ever points at a superuser again.
+            # written out in base/postgres.yaml. The authenticated /api/health
+            # reports database_warnings if this ever points at a superuser.
             - name: SKEIN_DB_USER
               valueFrom:
                 secretKeyRef:

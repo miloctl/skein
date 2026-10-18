@@ -2,11 +2,6 @@
 # requests before merge. It NEVER publishes: a green run on main stores the
 # exact artifact every gate consumed, and .github/workflows/publish-release.yml
 # publishes those bytes when a human names this run.
-#
-# Publication left this file on 2026-08-30. It keyed on the marker file
-# changing within a push, so a release whose gates failed could never be
-# published from the commit that fixed them. Tags do not trigger publication
-# either, and never did.
 name: ci
 on:
   pull_request:
@@ -18,9 +13,12 @@ permissions:
   contents: read
 
 # One run per ref. A superseded pull-request run is cancelled: its commit is
-# gone and its minutes are paid. A main run is never cancelled: a green main
-# run stores the artifact publish-release.yml names, and cancelling it would
-# drop the one artifact a release can still be completed from.
+# gone and its minutes are paid. A RUNNING main run is never cancelled: a
+# green main run stores the artifact publish-release.yml names, and cancelling
+# it would drop the one artifact a release can still be completed from. A
+# PENDING main run is not protected: GitHub keeps one pending run per group
+# and cancels it when a newer push queues. Name the newer run instead - the
+# release marker stays on every later commit until the next release changes it.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -57,8 +55,9 @@ jobs:
           if-no-files-found: error
           # explicit, not the org default: this artifact is the only thing
           # publish-release.yml may publish, so its lifetime is the window in
-          # which a release can still be completed. An org lowering the default
-          # would otherwise shorten that window silently.
+          # which a release can still be completed. An org retention limit
+          # below 90 still clamps it (with a log warning), and
+          # validate_release_run.py refuses an expired artifact.
           retention-days: 90
 
   backend:
@@ -66,8 +65,8 @@ jobs:
     timeout-minutes: 60
     services:
       # Same major as docker-compose.yml and the Dockerfile's pg_dump. The
-      # suite builds a template database and clones it per test, which needs a
-      # real server - there is no in-process substitute the way SQLite was.
+      # suite needs a real server: conftest exits (code 35) when it cannot
+      # reach one.
       postgres:
         image: postgres:17-alpine@sha256:d4bb0a8c1b7bb2e29f976d099e7bfb9a5d8858cffe9e46b35cd302cd1f1f8168
         env:
@@ -288,8 +287,8 @@ jobs:
       - name: Install backend
         working-directory: backend
         # the e2e configs boot uvicorn from .venv, same path as local runs.
-        # [dev] here and not in the Gitea copy: the oidc walk's stub IdP
-        # signs with pyjwt[crypto], which the runtime deps already carry.
+        # Runtime deps only, as in the Gitea copy: the oidc walk's stub IdP
+        # signs with pyjwt[crypto], a runtime dependency (backend/pyproject.toml).
         run: python -m venv .venv && uv pip install --python .venv/bin/python -e . --exclude-newer "$(date -u -d '7 days ago' +%F)"
       - name: Cache the Chromium download
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

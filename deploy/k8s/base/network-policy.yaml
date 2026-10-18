@@ -1,7 +1,6 @@
 # Only Skein reaches the database.
 #
-# The 1:1 notes used to be a 0600 file inside the backend pod's own volume.
-# They are a schema on a network service now, listening on 5432 with one
+# The 1:1 notes are a schema on a network service, listening on 5432 with one
 # credential - so without this, any workload in the namespace (a sidecar, a
 # debug pod, a CI runner, a compromised unrelated container) can connect and
 # read `private.notes`. The schema boundary is structural, not privileged:

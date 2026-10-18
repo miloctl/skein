@@ -119,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
         form = {k: v[0] for k, v in parse_qs(raw).items()}
         user = _codes.pop(form.get("code", ""), "")
         if not user:
-            # one code, one exchange: the walk asserts a replay is refused
+            # one code, one exchange, as a real provider enforces it
             self._send(400, {"error": "invalid_grant"})
             return
         now = int(time.time())

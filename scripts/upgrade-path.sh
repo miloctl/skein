@@ -15,10 +15,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# The newest v* tag that is NOT the commit under test. Taking the newest tag
-# outright made this check vacuous for exactly one commit per release: the
-# release commit carries the tag, so the baseline was HEAD and the run
-# compared a tree with itself and passed.
+# The newest v* tag that is NOT the commit under test. On the release commit
+# the newest tag IS HEAD, and a run against it compares a tree with itself
+# and passes.
 baseline="${1:-}"
 if [ -z "$baseline" ]; then
     head_commit="$(git rev-parse HEAD)"
@@ -37,13 +36,9 @@ fi
 # A baseline from before the PostgreSQL migration cannot be upgraded to HEAD:
 # its code writes a SQLite file and HEAD reads a PostgreSQL server, so there is
 # no database for HEAD's migrations to apply TO. Skip with the reason rather
-# than fail, and re-arm automatically - the moment a tag exists on this side of
-# the engine change, this test passes and the check runs again.
-#
-# This branch reads as dead now that v0.2.3 is the newest tag, and it is not:
-# a v* tag push runs the GitHub backend release gate, and at the v0.2.3 COMMIT
-# the baseline resolves to v0.2.2 - the last SQLite release.
-# Delete this and pushing that tag fails CI on a database that cannot exist.
+# than fail. Only an explicit baseline of v0.2.2 or older reaches this: the
+# automatic baseline is always past the engine change, and neither CI runs on
+# a tag push.
 # grep reads to EOF on purpose (no -q): under pipefail, grep -q exiting on
 # the first match hands git show a SIGPIPE, the pipeline reports 141, and a
 # PostgreSQL-era baseline skips as if it predated the migration.
@@ -57,11 +52,11 @@ if [ -z "${SKEIN_DATABASE_URL:-}" ]; then
     echo "upgrade-path: SKEIN_DATABASE_URL is not set. Set it to a PostgreSQL server." >&2
     exit 1
 fi
-# This rehearsal only applies migrations - it boots no app and calls no API,
-# so no auth or review setting reaches it today. It shares the pin anyway:
-# the exposure is a SETTING that changes what a migration does, and the cost
-# of finding that out the way the extension contract did is a red CI job
-# nobody can reproduce locally (scripts/lib/hermetic-env.sh).
+# This rehearsal boots no app and calls no REST route, but its seed and its
+# checks run services and the policy engine, and a setting can change what
+# a migration or a service does. It shares the pin for that reason: an
+# unpinned setting is a red CI job nobody can reproduce locally
+# (scripts/lib/hermetic-env.sh).
 # shellcheck source=lib/hermetic-env.sh
 . "$(dirname "$0")/lib/hermetic-env.sh"
 skein_hermetic_env
@@ -71,9 +66,8 @@ python="backend/.venv/bin/python"
 
 tmp="$(mktemp -d)"
 
-# One database per side. Isolation used to be a data directory; the app
-# keeps no database under SKEIN_DATA_DIR now, so two instances sharing a
-# server would share one schema and the comparison would prove nothing.
+# One database per side: two instances on one database share one schema,
+# and the comparison would prove nothing.
 db_base="${SKEIN_DATABASE_URL%/*}"
 upgraded_db="skein_upgrade_upgraded_$$"
 fresh_db="skein_upgrade_fresh_$$"
