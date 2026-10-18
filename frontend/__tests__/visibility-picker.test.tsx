@@ -232,8 +232,9 @@ describe("the fb: path states the tier it actually uses", () => {
     fireEvent.change(input, {
       target: { value: "fb: ada - clearer specs please" },
     });
-    // services/capture.py routes this into private.db before it reads a tier,
-    // so a picker offering "Platform only" here would name one that is dropped
+    // services/capture.py routes this to private_notes (the private schema)
+    // before it reads a tier, so a picker offering "Platform only" here would
+    // name one that is dropped
     expect(screen.queryByLabelText("Who can see this capture")).toBeNull();
     expect(
       screen.getByText(/feedback is kept out of the shared record/),

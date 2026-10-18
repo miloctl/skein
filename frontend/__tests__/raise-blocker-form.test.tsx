@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** A blocker is what sets a task to Blocked (services/blockers.py). The task
- *  panel offered a bare "blocked" status instead, so a task could read
- *  Blocked with nothing on record as blocking it, no owner and no escalation
- *  clock. The panel now raises a real blocker against the task. */
+/** A blocker is what sets a task to Blocked (services/blockers.py), so the
+ *  task panel raises a real blocker against the task, not a bare "blocked"
+ *  status. A bare status makes a task read Blocked with nothing on record as
+ *  blocking it, no owner and no escalation clock. */
 
 const state = vi.hoisted(() => ({
   status: "in_progress",

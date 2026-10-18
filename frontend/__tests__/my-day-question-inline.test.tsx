@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Answer where the ask is read. The question row said "someone is waiting
- *  on the answer" and shipped the reader to Work → Browse to type it -
- *  blocker and meeting rows on the same card already act in place. */
+/** Answer where the ask is read. A question row on My Day is answered in
+ *  place, like the blocker and meeting rows on the same card, not by a trip
+ *  to Work -> Browse. */
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
 

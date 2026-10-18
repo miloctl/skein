@@ -1,11 +1,11 @@
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** The wait before an assistant's first word is real and used to be invisible:
- *  a thinking model streams empty text deltas for seconds (70 of them, 4.4s,
- *  measured on glm-5.2), and an attached image the chat model cannot read
- *  spends a whole extra model call on the vision sidecar first. The bubble sat
- *  blank through all of it, which reads as a hung app. */
+/** The bubble shows a working state before the assistant's first word. The
+ *  wait is real: a thinking model streams empty text deltas for seconds (70
+ *  of them, 4.4s, measured on glm-5.2), and an attached image the chat model
+ *  cannot read spends a whole extra model call on the vision sidecar first.
+ *  A bubble left blank through all of it reads as a hung app. */
 
 const mocks = vi.hoisted(() => ({
   messages: [] as { role: string; attachments?: unknown[]; status?: { type: string } }[],

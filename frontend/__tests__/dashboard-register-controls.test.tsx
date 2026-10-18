@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Browse's registers were read-only mirrors: the blocker list offered no
- *  claim, no impact change and no resolve (My Day held the only resolve, for
- *  rows that reached YOUR attention list), and the Milestones card could not
- *  create what it listed - its empty state sent the reader to Chat, where
- *  the default mock provider has no such grammar. */
+/** Browse's registers act in place. A blocker can be claimed, re-rated and
+ *  resolved from the register - My Day resolves only the rows that reach
+ *  YOUR attention list. The Milestones card creates what it lists, and its
+ *  empty state does not send the reader to Chat, where the default mock
+ *  provider has no milestone grammar. */
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
 
@@ -209,8 +209,8 @@ it.each(["assign", "answer"])("returns to question %s after Escape", async (mode
 
 describe("a refused register action", () => {
   it("refetches the register, so a row resolved behind the page leaves it", async () => {
-    // a teammate resolved #3 before this click; the refusal alone left the
-    // row standing with its resolve button, as if it were still open
+    // a teammate resolved #3 before this click: the refusal refetches, so the
+    // row and its resolve button leave instead of standing as if still open
     mocks.api.mockImplementation((path: string, opts?: { method?: string }) => {
       if (opts?.method === "POST" && path === "/api/blockers/3/resolve")
         return Promise.reject(new ApiError("blocker #3 is already resolved", 400));

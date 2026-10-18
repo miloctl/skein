@@ -1,10 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** The reviewer judged every proposal blind. Approval rate and streak were
- *  computed already and rendered on Team → Agents - two pages from the one
- *  screen where the number decides something, so a reviewer approving a
- *  fourth proposal in a row could not see that it was the fourth. */
+/** The proposer's settled record on this entity - approval rate and streak -
+ *  shows on the Approvals card, where the verdict is made. Shown only on
+ *  Team -> Agents, two pages away, a reviewer approving a fourth proposal in
+ *  a row cannot see that it is the fourth. */
 
 const base = {
   id: 1,

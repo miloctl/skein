@@ -2,10 +2,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /** The two nav surfaces look alike and do opposite things: search READS,
- *  quick capture WRITES a row into the shared record. A user reported not
- *  being able to tell them apart, so each one now names the other at the
- *  moment the reader wants it - and the capture footer must stay silent for
- *  an anonymous visitor, who has no search box in the nav to be sent to. */
+ *  quick capture WRITES a row into the shared record. Each one names the
+ *  other at the moment the reader wants it, or a reader cannot tell them
+ *  apart - and the capture footer must stay silent for an anonymous visitor,
+ *  who has no search box in the nav to be sent to. */
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();

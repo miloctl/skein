@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The Agents page answers one question: can an agent write without asking?
  *  The answer INVERTS with the review gate, which ships on by default
- *  (config.py SKEIN_AGENT_REVIEW). tools/_gate.py takes the direct path on
- *  `not config.AGENT_REVIEW` whatever the authority level, so with the gate
- *  off autonomous, notify and review all mean "acts alone" and only
- *  forbidden stops a write. The page used to state the gate-on rule
- *  unconditionally - a false reassurance about a safety control, in the
- *  explicit opt-out configuration. */
+ *  (config.py SKEIN_AGENT_REVIEW). extensions/policy.py::CorePolicy sends a
+ *  `review` grant to the inbox only while the gate is on, so with the gate
+ *  off autonomous, notify and review all mean "acts alone". ALWAYS_REVIEW
+ *  entities and expired grants still wait, and forbidden still refuses. The
+ *  page states the gate-on rule only when the gate is on: stated in the
+ *  explicit opt-out configuration, it is a false reassurance about a safety
+ *  control. */
 
 const gate: {
   on: boolean | "never";
@@ -236,10 +237,10 @@ describe("authority identity requirements", () => {
  *  gate, so the card states them in every configuration. */
 describe("the authority card and a flock member", () => {
   // BOTH clauses, always. "every other level becomes a wait" is false on its
-  // own - forbidden still refuses (_gate.py checks it before force_review) -
-  // so the not-allowed carve-out is what makes the sentence true, and the
-  // refusal clause is what keeps it from promising an inbox entry that the
-  // four refuse_when_consultative paths never produce.
+  // own - forbidden still refuses (extensions/policy.py::CorePolicy checks it
+  // before force_review) - so the not-allowed carve-out is what makes the
+  // sentence true, and the refusal clause is what keeps it from promising an
+  // inbox entry that the four refuse_when_consultative paths never produce.
   const FLOCK_CARVE_OUT =
     /only\s+not allowed\s+still applies from the levels\s+below/i;
   const FLOCK_CLAIM = /every other level becomes a wait in Inbox → Approvals/i;
@@ -294,11 +295,12 @@ describe("Settings when it explains what a connected agent can do", () => {
   });
 });
 
-/** tools/_gate.py takes the review path for ALWAYS_REVIEW entities before it
- *  reads the level, so a stored "autonomous" on note_delete rendered
- *  "acts alone" over a write that always waits for a human. set_authority
- *  refuses that level now; this pins the display for any row stored before
- *  the guard existed. */
+/** ALWAYS_REVIEW entities always wait for a human
+ *  (extensions/policy.py::CorePolicy), whatever level is stored, and
+ *  services/delegation.py::set_authority refuses autonomous and notify on
+ *  them. A row stored before that guard can still hold "autonomous" on
+ *  note_delete, and the page must not render "acts alone" over a write that
+ *  always waits. */
 describe("a destructive entity holding a level the gate ignores", () => {
   it("never renders acts alone", async () => {
     gate.on = false;

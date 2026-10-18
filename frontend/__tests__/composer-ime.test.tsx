@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** An IME conversion ends with Enter. With the slash popup open, that Enter
- *  ran the active row, so committing a Pinyin or Kana conversion inserted a
- *  command the person never chose. The library ignores a composing Enter
- *  since assistant-ui 0.15.24; the capture handler in thread.tsx runs first
- *  and must ignore it too. keyCode 229 is Safari's form of the same event. */
+/** An IME conversion ends with Enter. With the slash popup open, a composing
+ *  Enter must not run the active row: if it does, committing a Pinyin or Kana
+ *  conversion inserts a command the person never chose. The library ignores a
+ *  composing Enter since assistant-ui 0.15.24; the capture handler in
+ *  thread.tsx runs first and must ignore it too. keyCode 229 is Safari's form
+ *  of the same event. */
 
 class NoopResizeObserver {
   observe() {}

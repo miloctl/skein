@@ -3,13 +3,13 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The peek's accessibility contract, pinned because none of it is caught by
- *  axe - the panel passed an automated sweep clean while a screen reader user
- *  could not read the task list at all.
+ *  axe - the panel can pass an automated sweep clean while a screen reader
+ *  user cannot read the task list at all.
  *
- *  Each test here corresponds to a real defect found by audit:
- *  an aria-label that deleted the task title from the accessibility tree,
- *  aria-modal="true" over a background that stayed tabbable, and focus
- *  restoration that dropped to <body> when the trigger had unmounted. */
+ *  Each test here pins one failure axe does not see: an aria-label that
+ *  deletes the task title from the accessibility tree, aria-modal="true" over
+ *  a background that stays tabbable, and focus restoration that drops to
+ *  <body> when the trigger has unmounted. */
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/api")>();

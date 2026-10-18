@@ -19,11 +19,8 @@ import { timeAgo } from "@/lib/time";
 /** Reports: the record of every ritual that already ran.
  *
  *  The digest, the Monday brief, the Friday close-out, the exec readout and
- *  handoff packages were all being written daily and weekly to files under
- *  data/artifacts/ with a row pointing at each one - and no surface read them
- *  back. The digest in particular had NO reader at all: the scheduler wrote it
- *  at 07:00 every day and the only way to see one was to shell into the
- *  container. The two that did have buttons dumped raw markdown into a <pre>.
+ *  handoff packages are written to files under data/artifacts/ with a row
+ *  pointing at each one, and this page reads them back as rendered markdown.
  *
  *  Nothing here generates a report: the rituals that produce them keep their
  *  own homes on Work → Health. A person writes and edits documents here

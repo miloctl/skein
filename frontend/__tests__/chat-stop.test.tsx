@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** A provider that accepts the request and never answers used to hold the
- *  composer for the whole run: Send is disabled while a turn runs, and no
- *  control ended the run. Stop is that control. The real runtime is used so
- *  the button's effect on isRunning is the library's, not a mock's. */
+/** Send is disabled while a turn runs, so a provider that accepts the request
+ *  and never answers holds the composer for the whole run unless a control
+ *  ends it. Stop is that control. The real runtime is used so the button's
+ *  effect on isRunning is the library's, not a mock's. */
 
 class NoopResizeObserver {
   observe() {}
@@ -71,9 +71,8 @@ function RefusedHarness() {
     // thrown. Both reach the UI identically: performRoundtrip catches a thrown
     // Error, records {type:"incomplete", reason:"error", error: {code, message}},
     // and then RETHROWS. Nothing awaits the append the composer primitive
-    // starts, so that rethrow lands as an unhandled rejection - which the app
-    // accepts (app/runtime-provider.tsx says so at the attachment adapter) but
-    // which fails a vitest run whatever the assertions did.
+    // starts, so that rethrow lands as an unhandled rejection, which fails a
+    // vitest run whatever the assertions did.
     // `error` is a plain object here for the reason this test exists: the
     // runtime never stores an Error, so reading it with `instanceof Error`
     // renders nothing.

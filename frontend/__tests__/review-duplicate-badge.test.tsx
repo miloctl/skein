@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** Two word-for-word identical pending proposals sat adjacent in Approvals
- *  with nothing saying so (agents re-file), and a reviewer read both. The
- *  later one carries a badge naming the first. */
+/** Agents re-file, so a later pending proposal word-for-word identical to an
+ *  earlier one carries a badge naming the first. Without it, a reviewer reads
+ *  an identical pair twice. */
 
 const base = {
   entity: "extension_tool",

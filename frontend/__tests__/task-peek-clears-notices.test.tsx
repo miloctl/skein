@@ -1,9 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** A notice about a task stayed on My Day after the reader had opened the
- *  task. The panel now posts the source, and announces the change so My Day
- *  and the badge refetch (services/notifications.py::mark_source_read). */
+/** Opening a task clears the notices about it, once per opened task: the
+ *  panel posts the source (services/notifications.py::mark_source_read) and
+ *  announces the change so My Day and the badge refetch. Without it, a notice
+ *  about a task stays on My Day after the reader has opened the task. */
 
 const calls = vi.hoisted(() => [] as Array<{ path: string; method: string; body: unknown }>);
 

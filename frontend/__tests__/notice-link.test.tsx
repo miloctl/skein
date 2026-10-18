@@ -2,8 +2,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 /** A notice about a comment links to `?task=12#comment-9`. next/link pushes
- *  that address and fires nothing the task panel listens for, so the panel
- *  stayed shut (components/receipt.tsx records the same trap). */
+ *  that address and fires nothing the task panel listens for, so a notice
+ *  link must announce the target itself or the panel stays shut
+ *  (components/receipt.tsx records the same trap). */
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
 

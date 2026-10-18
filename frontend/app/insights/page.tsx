@@ -35,10 +35,9 @@ function evidenceLine(value: Record<string, unknown>): string {
     .join(" · ");
 }
 
-/** The stored evidence behind a finding, as text a person can check.
- *  This replaced JSON.stringify into a <pre>: the receipt is the ids and
- *  numbers that let a reader verify the rule, and a JSON dump made every
- *  finding read as debug output. */
+/** The stored evidence behind a finding, as text a person can check: the
+ *  receipt is the ids and numbers that let a reader verify the rule, and a
+ *  JSON dump makes every finding read as debug output. */
 function Evidence({ receipt }: { receipt: Record<string, unknown> }) {
   const entries = Object.entries(receipt ?? {});
   if (entries.length === 0) {

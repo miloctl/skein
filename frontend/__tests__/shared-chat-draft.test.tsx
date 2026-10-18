@@ -1,9 +1,10 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/** A draft typed in one room was gone after a visit to another: the text
- *  lived in component state. It is kept per person and room for the tab
- *  (components/shared-chat.tsx) and leaves with the sign-out (lib/auth.ts). */
+/** A draft is kept per person and room for the tab
+ *  (components/shared-chat.tsx) and leaves with the sign-out (lib/auth.ts).
+ *  Held in component state alone, a draft typed in one room is gone after a
+ *  visit to another. */
 
 const rooms: Record<string, Record<string, unknown>> = {
   "shared-room": { id: "shared-room", title: "Launch room" },

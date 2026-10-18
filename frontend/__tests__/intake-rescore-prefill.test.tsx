@@ -1,14 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** Re-scoring a request opened on the neutral 3/3/3/3 and discarded the four
- *  numbers already on record, so correcting ONE of them meant remembering and
- *  retyping the other three - against a score the requester can see. The
- *  stored values were on the wire the whole time (`reach`/`impact`/
- *  `confidence`/`effort` in the intake payload) and the panel dropped them.
+/** Re-scoring a request opens on the four stored numbers (`reach`/`impact`/
+ *  `confidence`/`effort` in the intake payload), so correcting ONE of them
+ *  keeps the other three. Opened on the neutral 3/3/3/3, the panel makes the
+ *  reader remember and retype them - against a score the requester can see.
  *
- *  An UNSCORED row is stored as 0/0/0/1 (migration 001), which the 1-5 inputs
- *  cannot represent - those still open on the 3s. */
+ *  An UNSCORED row is stored as 0/0/0/1 (core_migrations/001_baseline.sql),
+ *  which the 1-5 inputs cannot represent - those still open on the 3s. */
 
 const rows = [
   {

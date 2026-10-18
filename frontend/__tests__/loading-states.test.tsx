@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from "vitest";
  *  loading", "nothing here", and "the load failed" render identically -
  *  and the empty state is a claim ("nothing is waiting on you"), so showing
  *  it before the answer arrives OR next to a failure is a lie the reader
- *  acts on. Review, Intake and Charter all shipped that way;
- *  portfolio-loading.test.tsx pins the same rule for the card version. */
+ *  acts on. portfolio-loading.test.tsx pins the same rule for the card
+ *  version. */
 
 const mode = { fail: false };
 vi.mock("@/lib/api", async (importOriginal) => {

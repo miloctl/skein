@@ -1,17 +1,15 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-/** The half of the app the smoke walks never saw: every page, at phone width,
- *  and in dark. smoke.spec.ts covers seven pages, light, at one desktop width,
- *  plus /portfolio in dark - so a defect that only appears at 360px or only in
- *  dark could not be caught by anything here. Four of those shipped at once:
- *  a `<select>` with no name, a `<p>` inside a `<ul>`, three keyboard-
- *  unreachable scroll regions, and a header that wrapped to a third row and
- *  pushed the chat composer off-screen.
+/** The half of the app the smoke walks never see: every page, at phone width,
+ *  and in dark. smoke.spec.ts walks seven pages, light, at one desktop width,
+ *  plus /portfolio in dark - so without this file, a defect that only appears
+ *  at 360px or only in dark (a header that wraps to a third row and pushes
+ *  the chat composer off-screen) is caught by nothing.
  *
  *  Structured as WALKS, not one test per page: the suite's stated shape is "a
- *  handful of walks", and a per-page test at four combinations would be 56 of
- *  them. Each walk visits every page and reports every problem it found at
+ *  handful of walks", and a per-page test at four combinations would be
+ *  PAGES.length x 4 of them. Each walk visits every page and reports every problem it found at
  *  once, so one run tells you the whole story instead of the first failure. */
 
 const PAGES = [
@@ -75,8 +73,8 @@ async function probe(page: Page) {
     };
     return {
       // if this ever reads ANON the walk is measuring a different app than it
-      // claims: identity lives in localStorage, and a silent miss made a whole
-      // 56-combination audit worthless once
+      // claims: identity lives in localStorage, and a silent miss makes every
+      // page and combination in the walk worthless
       anonymous: !document.querySelector("[data-identity-control]") ||
         (document.querySelector("[data-identity-control]")?.textContent ?? "").includes("anonymous"),
       overflowPx: de.scrollWidth - de.clientWidth,

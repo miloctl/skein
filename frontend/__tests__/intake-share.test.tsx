@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** A `req:` capture now starts at "only you", and its own page said nothing
- *  about it and offered no way to show it to the triage team. */
+/** A `req:` capture starts at "only you". Its row on this page names that
+ *  audience and offers the share to the triage team: without both, the
+ *  requester cannot see who reads the request or widen it on purpose. */
 
 const calls = vi.hoisted(() => [] as { path: string; method?: string }[]);
 const row = {

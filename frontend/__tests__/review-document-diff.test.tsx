@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** A document edit's payload is a quote and its replacement, so the card
- *  showed a lone dash beside the new text. It now shows the change as lines against
- *  the revision the proposal was filed on, and warns when the head moved. */
+/** A document edit's payload is a quote and its replacement. The card shows
+ *  the change as lines against the revision the proposal was filed on, and
+ *  warns when the head moved. Rendered as a plain field diff, the card shows
+ *  a lone dash beside the new text. */
 
 const row = {
   id: 31,

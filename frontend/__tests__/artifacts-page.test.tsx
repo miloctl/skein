@@ -2,10 +2,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /** Reports is a master/detail pair driven by `?id=`, so the two ways to change
- *  the selection - clicking a row and pressing Back - must agree. They did not:
- *  the newest report opened without writing the URL, so the first history entry
- *  was a bare /artifacts and Back left the pane loading forever with nothing
- *  selected. */
+ *  the selection - clicking a row and pressing Back - must agree. The
+ *  auto-opened newest report writes its id with replaceState. If it does not,
+ *  the first history entry is a bare /artifacts and Back leaves the pane
+ *  loading forever with nothing selected. */
 
 const ROWS = [
   { id: 7, engagement_id: null, kind: "digest", title: "Digest 2026-08-09", path: "/d/7.md", created_by: "scheduler", created_at: "2026-08-09T07:00:00+00:00" },

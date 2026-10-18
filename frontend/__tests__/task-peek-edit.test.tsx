@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** The peek is "the one landing place for every task reference" and carried
- *  exactly one control (Delegate). Changing a status or a due date meant
- *  leaving for Browse, whose edit row holds three of these fields - and
- *  marking a task done existed only on My Day, for your own tasks. */
+/** The peek is "the one landing place for every task reference", so it edits
+ *  status, priority and due date in place, marks a task done in one click,
+ *  and sends only the fields the reader changed. An untouched field written
+ *  back silently reverts a concurrent edit. */
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
 

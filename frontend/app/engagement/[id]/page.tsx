@@ -12,10 +12,11 @@ import type { Receipt } from "@/lib/entity-ref";
 
 /** One engagement, whole.
  *
- *  Its outcome was on Browse, its health on Work → Health, its blockers in the
- *  register, its reports on Reports, its agent work on Team → Agents, and its
- *  plan drift only at close. Answering "how is this going" meant touring all of
- *  them and assembling the answer by hand.
+ *  Its outcome lives on Browse, its health on Work -> Health, its blockers in
+ *  the register, its reports on Reports, its agent work on Team -> Agents, and
+ *  its plan drift at close. This page puts them together, so answering "how is
+ *  this going" does not mean touring all of them and assembling the answer by
+ *  hand.
  *
  *  Read-only by design. Every row here links to the surface that owns the write,
  *  so there is one place to change a thing and one place to see it whole.
@@ -385,8 +386,7 @@ export default function EngagementBrief({
         <Card title={`Open blockers (${b.blockers.length})`}>
           {b.blockers.length === 0 ? (
             <p className="text-sm text-ink-3">
-              {/* the same split Open work makes below: a closed engagement's
-                  empty list is history, not an invitation */}
+              {/* the same closed/open split Open work makes below */}
               {e.status === "closed"
                 ? "Nothing is blocked - this engagement is closed."
                 : "Nothing is blocked. Capture one with 'blocked on …' in quick capture."}

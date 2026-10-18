@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { ArtifactMarkdown } from "@/components/artifact-markdown";
 
-/** The reports the scheduler files were being dumped into a <pre> or not shown
- *  at all. This renders the grammar our own generators emit - and only that.
+/** This renders the grammar our own generators emit - and only that.
  *
  *  The body is assembled from rows PEOPLE wrote (task titles, decision text,
  *  promise wording), so the one thing it must never do is treat that text as
@@ -48,8 +47,9 @@ describe("ArtifactMarkdown", () => {
   });
 
   /** An artifact body quotes text people typed. Rendered as HTML, every
-   *  generator becomes an injection sink - the reason nav-search parses FTS5's
-   *  <b> into runs instead of setting innerHTML. */
+   *  generator becomes an injection sink - the reason components/snippet.tsx
+   *  parses the search snippet's <b> (services/search.py ts_headline) into
+   *  runs instead of setting innerHTML. */
   it("shows markup in the source as text, never as elements", () => {
     const { container } = render(
       <ArtifactMarkdown
@@ -76,8 +76,9 @@ describe("ArtifactMarkdown", () => {
 
 describe("the constructs the generators actually emit", () => {
   it("renders italics rather than showing the asterisks", () => {
-    // digest.py:64 emits *(n=1, 7d)*; handoff.py and context_pack.py emit
-    // *Class: …* - all three showed a reader their own markup
+    // services/digest.py's findings list emits *(n=1, 7d)*; handoff.py and
+    // context_pack.py emit *Class: ...* - unrendered, the reader sees the
+    // asterisks
     render(<ArtifactMarkdown markdown={"a finding *(n=1, 7d)*"} />);
     expect(screen.getByText("(n=1, 7d)").tagName).toBe("EM");
     expect(screen.queryByText(/\*\(n=1/)).toBeNull();

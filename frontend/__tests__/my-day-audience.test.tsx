@@ -4,12 +4,12 @@ import recentChanges from "./fixtures/recent-changes.json";
 
 /** "Needs you" has to mean it.
  *
- *  Every attention row landed under that one heading, including the team's
- *  intake queue and every pending proposal - work nobody had assigned to the
- *  reader. The heading was the product's daily habit, and a heading that
- *  overclaims teaches readers to skim past the rows that really are theirs.
- *  services/briefing.py labels each row with an audience; this pins that the
- *  page renders the two audiences apart, and counts only the personal ones.
+ *  services/briefing.py labels each attention row with an audience; this pins
+ *  that the page renders the two audiences apart, and counts only the
+ *  personal ones. Under one heading, the team's intake queue and every
+ *  pending proposal - work nobody assigned to the reader - read as theirs.
+ *  The heading is the product's daily habit, and a heading that overclaims
+ *  teaches readers to skim past the rows that really are theirs.
  */
 
 const mocks = vi.hoisted(() => ({ briefingCalls: 0, delta: {} as unknown, deltaReads: 0, deltaMarks: 0 }));

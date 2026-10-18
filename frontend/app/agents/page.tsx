@@ -133,10 +133,10 @@ const levelLabel = (
 ) => {
   // "not allowed" is absolute and true in every configuration
   if (level === "forbidden") return LEVEL_LABEL.forbidden;
-  // _gate.py takes the review path for ALWAYS_REVIEW entities BEFORE it reads
-  // the level, so any other level here means "needs approval" whatever is
-  // stored - and a row that renders "acts alone" over a destructive write is
-  // the worst lie this card can tell
+  // extensions/policy.py::CorePolicy sends ALWAYS_REVIEW entities to review
+  // whatever level is stored (only forbidden outranks it), so any other level
+  // here means "needs approval" - and a row that renders "acts alone" over a
+  // destructive write is the worst lie this card can tell
   if (always) return "needs approval (always)";
   if (forcedReview) return "needs approval";
   if (gateOn === false && level === "review")
@@ -158,10 +158,11 @@ export default function Agents() {
   const [entities, setEntities] = useState<{ entity: string; label: string }[]>(
     [],
   );
-  // served from tools/_gate.py ALWAYS_REVIEW: the gate takes the review
-  // path for these before it reads the level, so the card must never show
-  // or offer "acts alone" on them. Hand-typing the list here would let the
-  // label drift from the behaviour it describes.
+  // served from tools/_gate.py ALWAYS_REVIEW (GET /api/agents/entities):
+  // extensions/policy.py::CorePolicy sends these to review whatever level is
+  // stored, so the card must never show or offer "acts alone" on them.
+  // Hand-typing the list here would let the label drift from the behaviour
+  // it describes.
   const [alwaysReview, setAlwaysReview] = useState<string[]>([]);
   const [inbox, setInbox] = useState<Inbox | null>(null);
   // the agent whose inbox is open, held separately from the rows themselves so
@@ -715,9 +716,7 @@ export default function Agents() {
                 <b>not allowed</b> stops every write.{" "}
                 {/* rendered from the served ALWAYS_REVIEW set, never typed here:
                   a hand-written list drifts from _gate.py the moment either
-                  the set or a capability phrase changes, and this one already
-                  had - it said "cancel an event" after the phrase became
-                  "delete an event from the calendar" */}
+                  the set or a capability phrase changes */}
                 {alwaysReview.length > 0 && (
                   <>
                     These still wait for a human:{" "}

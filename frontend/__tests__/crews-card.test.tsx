@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** A crew card has the same three states every list surface here has, and two
  *  more things to get right: the edit controls belong to a steward or an
- *  administrator with a key (routes/api.py::_crew_steward), and a failed write
- *  must not clear what the reader typed. */
+ *  administrator with a key (services/crews.py::assert_steward, with
+ *  routes/api.py::_crew_admin_override for the administrator half), and a
+ *  failed write must not clear what the reader typed. */
 
 type Answer = "pending" | "fail" | (() => unknown);
 const mode: { answer: Answer; write: "ok" | "fail" } = {

@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Browse's open list measured 82 rows over a 5,400px page with no way to
- *  narrow it - finding "my in-progress work" meant scrolling. One needle
- *  over title, #id, @assignee, status and priority. */
+/** One needle filters Browse's open list over title, #id, @assignee, status
+ *  and priority. Without it, finding "my in-progress work" in a long open
+ *  list means scrolling the whole page. */
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("@/lib/api", async (importOriginal) => {

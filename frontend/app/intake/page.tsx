@@ -155,9 +155,8 @@ function WhatIf({ requestId }: { requestId: number }) {
             onClick={() => {
               // the projection is computed FROM these inputs, so it stops
               // being an answer the moment they change. Left standing, the
-              // rows read as a projection of the chips now on screen: a
-              // triager who raised 50% to 80% saw Ava at 90% - the number for
-              // 50 - and accepted the request on it.
+              // rows read as a projection of the chips now on screen
+              // (__tests__/intake-what-if.test.tsx).
               setOut(null);
               setPicked((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]));
             }}
@@ -284,12 +283,12 @@ export default function IntakePage() {
     outcome: "",
   });
 
-  /** Takes the ROW, not the id: re-scoring opened on 3/3/3/3 and threw away
-   *  the numbers already on record, so correcting one of the four meant
-   *  remembering and retyping the other three. An unscored row is stored as
-   *  0/0/0/1 (migration 001), which the 1-5 inputs cannot represent - those
-   *  open on the neutral 3s instead. `score > 0` is the same test the row's
-   *  RICE chip uses to decide it has been scored at all. */
+  /** Takes the ROW, not the id: the panel opens on the numbers already on
+   *  record, so correcting one of the four keeps the other three. An unscored
+   *  row is stored as 0/0/0/1 (core_migrations/001_baseline.sql), which the
+   *  1-5 inputs cannot represent - those open on the neutral 3s instead.
+   *  `score > 0` is the same test the row's RICE chip uses to decide it has
+   *  been scored at all. */
   const openPanel = (r: Req, mode: PanelMode) => {
     setPanel({ id: r.id, mode });
     setRice(

@@ -140,12 +140,9 @@ function Section({
 }
 
 /** The paid-for lessons, with a filter by the class of work that produced
- *  them.
- *
- *  `list_lessons` and its `project_class` filter shipped with the retro loop
- *  and the Season band has counted lessons ever since - but nothing listed
- *  one, so the count led nowhere and search rendered a lesson hit as dead
- *  text. A lesson the team cannot re-read is one it pays for twice.
+ *  them (`list_lessons` and its `project_class` filter). It lists what the
+ *  Season band counts, and a lesson search hit lands on its row
+ *  (`#lesson-N`). A lesson the team cannot re-read is one it pays for twice.
  *
  *  Filters on the SERVER, not over the rows already fetched: the list is
  *  capped, and a client-side filter would quietly search only the newest
@@ -703,8 +700,8 @@ export default function Dashboard() {
   const [assigning, setAssigning] = useState<number | null>(null);
   const [assigningBlocker, setAssigningBlocker] = useState<number | null>(null);
   const [answering, setAnswering] = useState<number | null>(null);
-  // one needle over title, #id, @assignee, status and priority - the open
-  // list measured 82 rows over a 5,400px page with no way to narrow it
+  // one needle over title, #id, @assignee, status and priority
+  // (__tests__/dashboard-task-filter.test.tsx)
   const [taskFilter, setTaskFilter] = useState("");
   const [editing, setEditing] = useState<{
     kind: "task" | "milestone";
@@ -1229,12 +1226,12 @@ export default function Dashboard() {
                 </span>
                 <Badge value={String(b.status)} />
               </div>
-              {/* The register was the one blocker surface with no control on
-                  it: resolve lived on My Day (and only for rows that reached
-                  the reader's attention list), an unowned row stayed unowned
-                  unless somebody used the API by hand, and impact was frozen
-                  at capture's default `medium` - which is the field that sets
-                  the escalation clock (services/blockers.py). */}
+              {/* claim, impact and resolve, in place: My Day resolves only the
+                  rows that reach the reader's attention list, and impact is
+                  the field that sets the escalation clock
+                  (services/blockers.py), so a row left at capture's default
+                  `medium` escalates on medium's clock whatever its real
+                  impact. */}
               {b.status !== "resolved" && (
                 <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-ink-3">
                   {assigningBlocker === b.id ? (
@@ -1336,11 +1333,11 @@ export default function Dashboard() {
           rows={data.capacity ?? []}
           empty="No allocations recorded. Add the first one below."
           footer={
-            // The write half of capacity. Five surfaces read allocation math
-            // (this card, Health conflicts, Planning weeks-ahead, intake
-            // what-ifs) and NOTHING in the product wrote one - the table
-            // behind "can we take this on" was reachable only by hand-made
-            // API calls.
+            // The write half of capacity. This card, Health conflicts,
+            // Planning weeks-ahead and intake what-ifs all read allocation
+            // math, and this is the only form that writes one - without it,
+            // the table behind "can we take this on" is reachable only by
+            // hand-made API calls.
             <div className="mt-3 space-y-1.5 text-xs">
               {(data.allocations ?? []).map((a) => (
                 <p

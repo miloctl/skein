@@ -1,12 +1,12 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** The nav search box. GET /api/search and GET /api/ask both shipped working
- *  with no consumer anywhere in the app; this is the surface that delivers
- *  them.
+/** The nav search box: the surface that delivers GET /api/search and
+ *  GET /api/ask.
  *
- *  The load-bearing test here is the last one. FTS5 wraps matches in <b>, and
- *  the snippet is built from indexed row text - every task title, note body
+ *  The load-bearing test here is "renders a snippet as text, never as
+ *  markup". services/search.py builds the snippet with ts_headline, which
+ *  wraps matches in <b>, from indexed row text - every task title, note body
  *  and decision anyone has written. Rendered with dangerouslySetInnerHTML it
  *  would be a stored-XSS sink reachable by any teammate. */
 

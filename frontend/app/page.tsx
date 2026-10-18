@@ -212,9 +212,11 @@ function WhoAreYou() {
 /** The dismiss control, shared by both attention cards.
  *
  *  A personal notification renders under "Needs you" and a team one under
- *  "Team queues" (services/briefing.py sets the audience). `POST
- *  /api/notifications/read` has no other caller in the product - not the CLI,
- *  not chat - so a card that omits this button makes its rows permanent.
+ *  "Team queues" (services/briefing.py sets the audience). The by-id form of
+ *  `POST /api/notifications/read` has no other caller in the product - not
+ *  the CLI, not chat - and components/task-peek.tsx clears only the notices
+ *  about the task it opens, so a card that omits this button makes its other
+ *  rows permanent.
  */
 function Dismiss({ id, label, onDone }: {
   id: number;
@@ -310,9 +312,9 @@ export default function MyDay() {
     todaysThreeRaw,
   ]);
   /** Two setup steps happen on THIS page, not at a route (services/
-   *  onboarding.py marks them with a leading "#"). They used to link to
-   *  "/", so the first-run reader clicked the most inviting thing on the
-   *  page and nothing at all happened. */
+   *  onboarding.py marks them with a leading "#"). A link to "/" does nothing
+   *  here - the first-run reader clicks the most inviting thing on the page
+   *  and nothing happens - so runStep runs them in place. */
   const runStep = (link: string) => {
     if (link === "#capture")
       window.dispatchEvent(new Event("skein-capture-open"));
@@ -537,9 +539,7 @@ export default function MyDay() {
 
   };
 
-  // Answer where the ask is read. The question row said "someone is waiting
-  // on the answer" and shipped the reader to Work → Browse to type it - the
-  // same act-where-you-read rule the blocker and meeting rows above already
+  // Answer where the ask is read, the rule the blocker and meeting rows above
   // follow. The deep link stays for context; the common case needs no
   // navigation at all.
   const [questionAction, setQuestionAction] = useState<{
@@ -621,12 +621,9 @@ export default function MyDay() {
   if (b.user === "anonymous") return <WhoAreYou />;
 
   // the label `committed_week` stores (services/weekly.py), taken from the
-  // SERVER so the chip and the ordering it explains cannot disagree. Computed
-  // in the browser it was wrong twice: the ISO-week arithmetic mixed a
-  // midnight date with a current-time one, which put every week of 2027 one
-  // ahead, and even correct it would read the browser's timezone rather than
-  // the team day the server sorts by. Empty string matches no row, so an
-  // older backend simply shows no chip.
+  // SERVER so the chip and the ordering it explains cannot disagree - see
+  // pulseWeek above for why the browser cannot compute it. Empty string
+  // matches no row, so an older backend simply shows no chip.
   const thisWeek = b.this_week ?? "";
   const todaysThreeTasks = todaysThree.task_ids
     .map((id) => b.your_work.tasks.find((task) => Number(task.id) === id))
@@ -1253,8 +1250,8 @@ export default function MyDay() {
             {b.your_work.due_soon.length > 0 && (
               <li className="pt-1 text-xs text-weld">
                 Due within a week:{" "}
-                {/* links, not a joined string: this line names the exact row
-                    and used to be the dead end the task peek was built for */}
+                {/* links, not a joined string: this line names the exact row,
+                    and each one opens the task peek */}
                 {b.your_work.due_soon.map((t, i) => (
                   <span key={t.id}>
                     {i > 0 ? " · " : ""}

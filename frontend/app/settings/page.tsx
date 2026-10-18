@@ -467,9 +467,7 @@ type KeyRow = {
   last_used_at: string | null;
 };
 
-/** The reader's own keys, with revoke. Minting had a button and revoking did
- *  not - a leaked or lost key was a hand-made API call to kill, in the one
- *  place the page said "revoke old ones from the CLI". Strong identity only:
+/** The reader's own keys, with revoke. Strong identity only:
  *  GET /api/keys is a StrongUser route, because under trusted-header a bare
  *  name would hand out anyone's key metadata. */
 function MyKeys() {
@@ -974,7 +972,7 @@ export default function SettingsPage() {
         if (current !== identityGeneration.current) return;
         // the failure carries its own diagnosis: a served 401 IS the revoked
         // verdict, in the server's words; an unreachable backend gets the one
-        // wording. The old text blamed the key for both.
+        // wording.
         setWho(null);
         setWhoError(loadError(e));
       });

@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { actionError, API_URL, backendUnreachable, isUnreachable, loadError } from "@/lib/api";
 
-/** One condition, one wording (CLAUDE.md). The single condition "the backend
- *  is down" shipped in ~24 phrasings, most of them `alert(String(e))`, which
- *  also leaks the "Error: " class-name prefix into user-visible text. These
- *  pin the helpers those surfaces call. */
+/** One condition, one wording (CLAUDE.md). These pin the helpers every
+ *  surface calls for "the backend is down"; no-handrolled-errors.test.ts pins
+ *  that no surface bypasses them. */
 
 describe("the backend-unreachable wording", () => {
   it("names the URL, because in a self-hosted deployment that is usually the fault", () => {

@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 import { useHashTarget } from "@/lib/hash-target";
 
 /** A comment anchor belongs to the thread that renders it
- *  (components/comment-thread.tsx). A page's own hook claimed it too, and a
- *  late collection pulled focus back to the comment after the reader had
- *  moved on. */
+ *  (components/comment-thread.tsx), and a page's own hook must not claim it.
+ *  If both claim it, a late collection pulls focus back to the comment after
+ *  the reader has moved on. */
 
 function Page({ ready }: { ready: number }) {
   useHashTarget(ready);

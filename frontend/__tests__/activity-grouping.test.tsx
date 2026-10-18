@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** A bulk sweep is one action, not six rows. Six consecutive
- *  "deleted an attached file" entries taught the reader to skim the feed -
- *  and the feed is the product's honesty surface. Same-actor same-action
- *  runs fold into one expandable row; the Raw toggle keeps every row. */
+/** A bulk sweep is one action, not six rows. Same-actor same-action runs
+ *  fold into one expandable row; the Raw toggle keeps every row. Unfolded,
+ *  six identical "deleted an attached file" rows teach the reader to skim
+ *  the feed - and the feed is the product's honesty surface. */
 
 const entry = (seq: number, over: Partial<Record<string, unknown>> = {}) => ({
   seq,

@@ -138,10 +138,9 @@ describe("the 1:1 identity boundary", () => {
   });
 
   it("fires nothing and renders no dead control under weak identity", async () => {
-    // Before this, picking a teammate fired two requests that both refused -
-    // the same sentence rendered twice - over a notes form whose submit was
-    // going to collect a third copy. Under weak identity the banner is the
-    // whole page state.
+    // Under weak identity the banner is the whole page state: no picker, no
+    // notes form, no request (app/people/page.tsx says why at the load
+    // effect).
     render(<PeoplePage />);
     await screen.findByText(/Private notes require strong identity/);
     expect(screen.queryByRole("button", { name: "dana" })).toBeNull();

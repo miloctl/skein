@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** The notes page is where a dump comes back. Before it, the newest 25 notes
- *  were all any surface listed, so an older one was lost unless the reader
- *  remembered its exact words. */
+/** The notes page is where a dump comes back: it pages past the newest 25
+ *  and opens the one note a search hit names. Without the paging, an older
+ *  note is lost unless the reader remembers its exact words. */
 
 // the row shape GET /api/notes returns (services/collab.py::search_notes)
 const note = (id: number) => ({

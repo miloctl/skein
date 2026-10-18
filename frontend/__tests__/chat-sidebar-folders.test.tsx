@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** A failed /api/chats/folders fetch used to be swallowed whole: groups came
- *  only from the fetched list, the t.folder === folder filter matched no
- *  group, and every FILED chat vanished from the sidebar with no error -
- *  server-held data rendered as deleted. Groups now derive from the threads'
- *  own folder fields, so that failure costs only empty folders. */
+/** Groups derive from the threads' own folder fields, so a failed
+ *  /api/chats/folders fetch costs only empty folders. Built from the fetched
+ *  list alone, the t.folder === folder filter matches no group and every
+ *  FILED chat vanishes from the sidebar with no error - server-held data
+ *  rendered as deleted. */
 
 vi.mock("@/lib/chat-threads", () => ({
   chatThreads: () =>

@@ -1,11 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Machine payloads must not reach a reader. Three surfaces shipped one:
- *  the Approvals diff rendered a task list as `[2]`, the health card
- *  promised "each rating shows why" and showed nothing for a green
- *  engagement, and the slip forecast printed "likely <date>" off zero
- *  completed milestones - no information dressed as a prediction. */
+/** Machine payloads must not reach a reader. The Approvals diff renders a
+ *  task list as ids, not as `[2]`; the health card that promises "each
+ *  rating shows why" says why a green engagement is green; and the slip
+ *  forecast prints no "likely <date>" off zero completed milestones - that
+ *  is no information dressed as a prediction. */
 
 // Every endpoint the pages read needs its real SHAPE: returning [] for the
 // forecast makes `forecast.basis` throw, and the page renders nothing at all.

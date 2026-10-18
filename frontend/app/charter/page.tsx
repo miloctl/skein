@@ -40,9 +40,6 @@ export default function CharterPage() {
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
-  // computed in an effect, not a lazy initializer: a prerendered page bakes
-  // the BUILD day's date into the served HTML, which is both wrong for the
-  // reader and a hydration mismatch against the client's recomputed value
   const [reviewBy, setReviewBy] = useState("");
   useEffect(() => {
     // one-shot client init, not a cascading render: a lazy initializer would

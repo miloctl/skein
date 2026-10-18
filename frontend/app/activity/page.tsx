@@ -132,9 +132,9 @@ export default function ActivityPage() {
 
       <WeakIdentityNotice className="mb-3" />
       {error && <p className="mb-3 text-sm text-danger">{error}</p>}
-      {/* Before `loaded` this rendered nothing - no rows, no empty state, no
-          spinner. The ledger feed is the largest read in the app, so the
-          blank is longest exactly where it is least explicable. */}
+      {/* Until `loaded`, a Loading card. The ledger feed is the largest read
+          in the app, so without it the blank screen lasts longest exactly
+          where it is least explicable. */}
       {!loaded && !error && (
         <Card>
           <p className="text-sm text-ink-3">Loading…</p>

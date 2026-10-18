@@ -219,9 +219,9 @@ export default function Portfolio() {
   // Mutations: never silent - failures land in the status region, and every
   // mutation re-fetches so the page shows reality, which can be a teammate's
   // concurrent edit rather than this tab's own write.
-  // `busy` no longer DISABLES a control: disabling the element that has focus
-  // blurs it, and re-enabling never brings focus back - a keyboard reader was
-  // dropped to the top of the document on every action. The guard moved into
+  // `busy` never DISABLES a control: disabling the element that has focus
+  // blurs it, and re-enabling never brings focus back - a keyboard reader is
+  // dropped to the top of the document on every action. The guard lives in
   // the handlers, and the buttons carry aria-busy instead.
   // A thunk, never a started promise: a promise argument has already sent
   // its request by the time this guard reads busyRef. The ref is set here,

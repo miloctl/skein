@@ -134,8 +134,8 @@ export default function PeoplePage() {
         setBriefError("");
       })
       .catch((e) => {
-        // a refused or failed fetch is not an empty brief: null used to
-        // render "no brief available", a claim about data never received
+        // a refused or failed fetch is not an empty brief: "no brief
+        // available" is a claim about data never received
         if (g !== generation.current) return;
         setBrief(null);
         setBriefError(loadError(e));
@@ -201,9 +201,9 @@ export default function PeoplePage() {
   const leadStatus = leadPair?.status ?? "";
 
   useEffect(() => {
-    // never under weak identity: both endpoints refuse it, and firing them
-    // rendered the same refusal twice - once per card - over a notes form
-    // whose submit was going to collect a third copy
+    // never under weak identity: both endpoints refuse it, so each pick
+    // renders the same refusal twice - once per card - over a notes form
+    // whose submit collects a third copy
     if (person && strong !== false) load(person);
   }, [person, strong, load, leadStatus, me]);
 
@@ -286,10 +286,8 @@ export default function PeoplePage() {
         </div>
       )}
 
-      {/* nothing below the identity banner renders under weak identity: the
-          picker fired two requests that both refused, and the notes form
-          collected an entry whose submit was going to refuse too - a wall of
-          the same sentence three times, around a dead control */}
+      {/* nothing below the identity banner renders under weak identity (see
+          the load effect above): every control here ends in a refusal */}
       {strong !== false && (
         <>
           {people === null ? (

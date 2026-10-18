@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-/** A finding's evidence, readable. The panel rendered JSON.stringify into a
- *  <pre>, so checking a review_stall claim meant reading raw dicts - the ids
- *  and numbers are the receipt, and they must read as sentences. */
+/** A finding's evidence, readable: the ids and numbers are the receipt a
+ *  reader checks a review_stall claim against, so they read as sentences.
+ *  Rendered as JSON, checking the claim means reading raw dicts. */
 
 const FINDING = {
   id: 7,

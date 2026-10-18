@@ -164,10 +164,6 @@ type Change = {
 /** What the proposer's past verdicts on this entity say, at the moment the
  *  next one is being made.
  *
- *  The numbers existed already and rendered on Team → Agents - two pages from
- *  the one screen where they decide something. A reviewer approving a fourth
- *  proposal in a row could not see that it was the fourth.
- *
  *  Counts, never a verdict of its own. `proposed` is the SETTLED count
  *  (services/delegation.py selects `status != 'pending'`), so the sentence
  *  says settled rather than letting "3 of 4" read as four proposals made.
@@ -754,8 +750,7 @@ export default function ReviewPage() {
   );
 
   // A later proposal that matches an earlier one word for word gets a badge
-  // naming the first. Agents re-file (two identical atlas sync proposals sat
-  // adjacent with nothing saying so), and a reviewer owes an identical pair
+  // naming the first. Agents re-file, and a reviewer owes an identical pair
   // one reading, not two.
   const duplicateOf = new Map<number, number>();
   {

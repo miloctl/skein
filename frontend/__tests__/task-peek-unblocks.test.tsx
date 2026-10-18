@@ -1,10 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-/** `waiting_on` said what a task was stuck BEHIND and nothing read the other
- *  direction, so typing an edge cost the person who typed it and paid them
- *  nothing back. Unmaintained edges rot, and every synthesis built on them
- *  quietly becomes fiction with receipts. */
+/** `waiting_on` says what a task is stuck BEHIND; the peek reads the other
+ *  direction and lists what the task unblocks, so typing an edge pays the
+ *  person who typed it something back. Unmaintained edges rot, and every
+ *  synthesis built on them quietly becomes fiction with receipts. */
 
 const task: Record<string, unknown> = {
   id: 4,

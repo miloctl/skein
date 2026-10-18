@@ -3,13 +3,12 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-/** One condition, one wording (CLAUDE.md). 59 surfaces used to interpolate the
- *  raw exception - `alert(String(e))` and `${e.message ?? e}` - which gave the
- *  single condition "the backend is down" about 24 phrasings, several of them
- *  leaking the "Error: " class-name prefix. lib/api.ts owns the wording now.
- *
- *  This pins the RULE, not those 59 sites: the next hand-rolled copy fails
- *  here rather than in front of a user.
+/** One condition, one wording (CLAUDE.md). lib/api.ts owns the wording. A
+ *  surface that interpolates the raw exception - `alert(String(e))` or
+ *  `${e.message ?? e}` - gives the single condition "the backend is down" a
+ *  phrasing of its own and leaks the "Error: " class-name prefix into
+ *  user-visible text. This sweep fails the next hand-rolled copy here rather
+ *  than in front of a user.
  */
 
 const ROOT = join(__dirname, "..");

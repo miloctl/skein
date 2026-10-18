@@ -99,10 +99,10 @@ function makeAttachmentAdapter(): AttachmentAdapter {
       checkSessionRevision(owner);
       // this attachment is leaving the composer, so it frees its slot. Only on
       // success: a refused upload stays in the restored draft.
-      // ponytail: a partial failure (one of three refused) under-counts and
-      // lets a later message stage a sixth, which the backend then refuses
-      // with a sentence the person can now read. Track the composer's own list
-      // if that ever matters.
+      // shortcut: a partial failure (one of three refused) under-counts and
+      // lets a later message stage a sixth, which the backend refuses
+      // (routes/chat.py ChatRequest caps attachments at 5), track the
+      // composer's own list if people hit that refusal in practice.
       count = Math.max(0, count - 1);
       return {
         ...attachment,

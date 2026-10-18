@@ -4,10 +4,9 @@ import { join } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-/** Three surfaces asserted facts they did not have: signIn() answered a
- *  failed CONFIG READ with "this deployment does not use sign-in", Settings
- *  blamed the stored key for a backend that was merely down, and the chat
- *  runtime swallowed a failed history load into an empty conversation. */
+/** A surface states only what it received. A failed CONFIG READ is not "this
+ *  deployment does not use sign-in", a down backend is not a bad stored key,
+ *  and a failed history load is not an empty conversation. */
 
 afterEach(() => {
   window.localStorage.clear();
