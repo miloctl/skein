@@ -82,7 +82,10 @@ export function VisibilityPicker({
     value.visibility === "crew" &&
     !crews.some((c) => c.id === value.crew_id);
   // to "only you", never the roster: a remembered crew the person has since
-  // left (lib/audience.ts) must not widen the next row they write
+  // left (lib/audience.ts) must not widen the next row they write. A weak
+  // identity is the exception by design: it reads workspace rows only, so
+  // useRememberedAudience refuses "only you" for it and the row starts at the
+  // roster, the one tier its author can open (lib/audience.ts::useStrongIdentity).
   useEffect(() => {
     if (missing) onChangeRef.current({ visibility: "private", crew_id: 0 });
   }, [missing]);
