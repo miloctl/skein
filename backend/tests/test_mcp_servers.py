@@ -423,6 +423,10 @@ def test_a_failed_connect_is_a_field_not_an_error(client, sealed):
         "http://169.254.169.254/latest/",
         "https://user:pw@host.example/mcp",
         "ftp://host.example/mcp",
+        # a URL is stored in plain text, travels in every backup and reaches
+        # logs, so a credential in its query string escapes the sealed store
+        "https://host.example/mcp?api_key=secret-value",
+        "https://host.example/mcp#secret-value",
     ],
 )
 def test_the_url_check_refuses_this_host_and_odd_schemes(client, sealed, url):

@@ -115,6 +115,16 @@ def add(
         raise ValueError("The sign-in method must be token or oauth.")
     url = url.strip()
     check_url(url)
+    # The URL is stored in plain text and travels in every backup, so a
+    # credential in its query string escapes the sealed token store. Refused
+    # here, not in check_url: that also vets OAuth endpoints the server
+    # names at connect time, which may carry a query string.
+    parts = urlsplit(url)
+    if parts.query or parts.fragment:
+        raise ValueError(
+            "The URL must not carry a query string or a fragment. Put a credential in the"
+            " token field."
+        )
     if auth == "oauth":
         if token:
             raise ValueError("An OAuth server takes no token. Leave the token field empty.")
@@ -249,10 +259,11 @@ def load_oauth(sid: int) -> tuple[str, str]:
     )
     if row is None:
         return "", ""
-    return tuple(  # type: ignore[return-value]
+    tokens, client = (
         credentials.unseal(row[column]) if row[column] is not None else ""
         for column in ("oauth_tokens_sealed", "oauth_client_sealed")
     )
+    return tokens, client
 
 
 def _active_owner(owner: str) -> None:
