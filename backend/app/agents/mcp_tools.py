@@ -2,7 +2,7 @@
 
     SKEIN_MCP_SERVERS='[{"name": "ops", "url": "https://mcp.internal.example/mcp",
       "auth_token_env": "OPS_MCP_TOKEN",
-      "tools": {"lookup": {"version": "1", "effect": "read", "risk": "low",
+      "tools": {"lookup": {"version": "1.0.0", "effect": "read", "risk": "low",
         "policy_action": "ops.lookup", "allowed_agents": [],
         "required_capabilities": [], "output_schema": {"type": "object"},
         "timeout_seconds": 30, "error_codes": [], "receipt": "required",
@@ -320,11 +320,11 @@ class GovernedMCPTool(AgentTool):
             )
             return
         # A personal server's write needs a human even under PERMIT: its
-        # owner classified nothing, so no "mcp-tool" authority level relaxes
-        # it - that level governs the system tier. The engine's decision
-        # object stays as decided -
-        # services/review.py recomputes the approval fingerprint from it, and
-        # a substituted REVIEW decision would stale every approval.
+        # owner classified nothing, so no "mcp-tool" level relaxes it. A
+        # forbidden level still refuses: the DENY check keeps it out of review.
+        # The engine's decision object stays as decided - services/review.py
+        # recomputes the approval fingerprint from it, and a substituted REVIEW
+        # decision would stale every approval.
         # The database calls run on a worker thread (asyncio.to_thread copies
         # the context): on the event loop, a pool wait freezes every chat
         # stream in the process.
@@ -338,6 +338,7 @@ class GovernedMCPTool(AgentTool):
             or decision.effect == PolicyEffect.REVIEW
             or (
                 self.tier == PERSONAL
+                and decision.effect != PolicyEffect.DENY
                 and (
                     self.metadata.effect == "write"
                     or not await asyncio.to_thread(
@@ -582,6 +583,18 @@ class GovernedMCPTool(AgentTool):
         if self.metadata.effect == "write":
             record("wrote", self.tool_name, "remote write completed", actor=actor)
             _audit_mcp(actor, self.tool_name, "completed")
+            if "notify-team" in decision.obligations and self.tier != PERSONAL:
+                # the notify level on the authority card: acts, then tells the
+                # team, as tools/_gate.py does for a gated write
+                from ..services.notifications import notify
+
+                await asyncio.to_thread(
+                    notify,
+                    "team",
+                    f"Agent {actor} ran the remote write {self.tool_name} on {self.server_id}.",
+                    tier="digest",
+                    link="/agents",
+                )
         for event in events:
             yield event
 

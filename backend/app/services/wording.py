@@ -50,8 +50,8 @@ def scoped_read_team_review() -> str:
     # share these words
     return (
         "This turn read notes that only you or your crew can read, and the team"
-        " reviews agent changes here. An agent cannot write a record in the same"
-        " turn. Ask for the change in a new message."
+        " reviews agent work here. An agent cannot write a record or call a remote"
+        " tool in the same turn. Ask for it in a new message."
     )
 
 

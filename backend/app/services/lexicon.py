@@ -20,8 +20,10 @@ nothing here may be fed back into a stored string.
 """
 
 # Authority rows that no review-registry applier handles: CorePolicy reads
-# the agent's "mcp-tool" level for every system MCP write
-# (extensions/policy.py), so the card and set_authority must offer it.
+# the agent's "mcp-tool" level for every MCP write (extensions/policy.py), so
+# the card and set_authority must offer it. Forbidden refuses on both tiers;
+# the other levels relax only the system tier, since every personal write
+# waits for its owner (agents/mcp_tools.py).
 AUTHORITY_ONLY = frozenset({("mcp-tool", "run")})
 
 # Review records for extension executions use these fixed pseudo-entities.

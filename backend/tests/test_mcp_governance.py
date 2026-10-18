@@ -44,7 +44,7 @@ class _Remote:
         yield {"toolUseId": tool_use["toolUseId"], "status": "success", "content": []}
 
 
-def _run(effect, *, scoped, agent=""):
+def _run(effect, *, scoped, agent="", tier="system"):
     remote = _Remote()
     tool = GovernedMCPTool(
         remote,
@@ -62,6 +62,7 @@ def _run(effect, *, scoped, agent=""):
             provenance="service",
         ),
         "lookup-server",
+        tier,
     )
     engine = set_policy_engine(PolicyEngine())
     agent_token = identity.set_agent_identity(agent) if agent else None
@@ -116,21 +117,50 @@ def test_a_team_reviewed_call_after_a_scoped_read_is_refused(fresh_db, monkeypat
     assert fresh_db.query_one("SELECT count(*) AS n FROM pending_changes")["n"] == 0
 
 
-def test_an_operator_can_forbid_an_agents_remote_writes(fresh_db):
+def test_each_mcp_tool_level_does_what_the_authority_card_says(fresh_db, monkeypatch):
     """CorePolicy reads the agent's "mcp-tool" level for every system MCP
     write. With no way to store one, nobody could forbid an agent's remote
-    writes, and with SKEIN_AGENT_REVIEW=0 they applied directly."""
+    writes, and with SKEIN_AGENT_REVIEW=0 they applied directly. With review
+    on, each level must differ: no level waits, autonomous runs, notify runs
+    and tells the team, forbidden refuses."""
     from app.services import delegation, users
 
+    monkeypatch.setattr(config, "AGENT_REVIEW", True)
     users.ensure_user("boss")
+    remote, result = _run("write", scoped=False, agent="scout")
+    assert not remote.called and result["completionStatus"] == "review_required"
+
+    delegation.set_authority("scout", "mcp-tool", "autonomous", actor="boss")
+    remote, result = _run("write", scoped=False, agent="scout")
+    assert remote.called and result["status"] == "success"
+    told = "SELECT count(*) AS n FROM notifications WHERE \"user\" = 'team' AND message LIKE ?"
+    assert fresh_db.query_one(told, ("%lookup%",))["n"] == 0
+
+    delegation.set_authority("scout", "mcp-tool", "notify", actor="boss")
+    remote, result = _run("write", scoped=False, agent="scout")
+    assert remote.called and result["status"] == "success"
+    assert fresh_db.query_one(told, ("%lookup%",))["n"] == 1
+
     delegation.set_authority("scout", "mcp-tool", "forbidden", actor="boss")
     remote, result = _run("write", scoped=False, agent="scout")
     assert not remote.called
     assert "denied" in result["content"][0]["text"]
 
-    delegation.set_authority("scout", "mcp-tool", "autonomous", actor="boss")
-    remote, result = _run("write", scoped=False, agent="scout")
-    assert remote.called and result["status"] == "success"
+
+def test_a_forbidden_agent_is_refused_on_a_personal_server_too(fresh_db, monkeypatch):
+    """Every personal write waits for its owner, but a forbidden level is a
+    refusal, not a review the owner is then told is moot."""
+    from app.agents import mcp_tools
+    from app.agents.mcp_tools import PERSONAL
+    from app.services import delegation, users
+
+    monkeypatch.setattr(mcp_tools, "_personal_row_is_current", lambda *a, **k: True)
+    users.ensure_user("boss")
+    delegation.set_authority("scout", "mcp-tool", "forbidden", actor="boss")
+    remote, result = _run("write", scoped=False, agent="scout", tier=PERSONAL)
+    assert not remote.called
+    assert "denied" in result["content"][0]["text"]
+    assert fresh_db.query_one("SELECT count(*) AS n FROM pending_changes")["n"] == 0
 
 
 def test_the_authority_card_offers_remote_tools(client):
@@ -161,3 +191,19 @@ def test_an_env_entry_cannot_switch_off_its_declared_governance(monkeypatch):
     assert "derive" not in server and "tier" not in server
     # with no tools block an env server governs nothing, so it exposes nothing
     assert mcp_tools._metadata(server, _Remote()) is None
+
+
+def test_the_documented_env_entry_loads_its_tool():
+    """The module docstring and backend/.env.example point an operator at
+    this entry as the complete one. An entry the metadata check refuses
+    exposes no tool, and the operator sees nothing to explain why."""
+    import json
+    import re
+
+    from app.agents import mcp_tools
+
+    example = re.search(r"SKEIN_MCP_SERVERS='(\[.*?\])'", mcp_tools.__doc__, re.S)
+    [entry] = json.loads(example.group(1))
+    remote = _Remote()
+    remote.tool_name = "lookup"
+    assert mcp_tools._metadata(entry, remote) is not None
