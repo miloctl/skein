@@ -787,6 +787,19 @@ larger than its finding.
   decision and the insert. Neither table is in `policy_context._TABLES`.
   Hold the parents first (`SELECT ... FOR SHARE`, engagement before
   milestone) in both paths, with a test that interleaves a parent update.
+- **A weak identity's remembered crew widens to the roster** - the
+  visibility picker narrows a remembered crew the person has left to "only
+  you", and `useRememberedAudience`'s check refuses private for a weak
+  identity, so the form starts at "everyone on the roster". The picker
+  shows it before submit. Trigger: a weak-identity deployment that uses
+  crews. Then start such a form at the crew-less narrowest tier the
+  identity can read, or ask.
+- **The write-boundary scan misses two SQL shapes** - the regex in
+  `tests/test_write_path_boundary.py` does not match `UPDATE {table} SET`
+  (an f-string table name) or `MERGE`. Neither appears in `routes/` or
+  `tools/` today. Extend it the day one does. Its `private_notes.delete_note`
+  exemption in `tests/test_visibility_authz.py` is never exercised (a
+  schema-qualified table escapes the scanner) - drop it with that change.
 
 ## Found by the review of routines (2026-09-29)
 

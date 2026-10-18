@@ -743,8 +743,10 @@ export function ChatSidebar({
                         name="rename-chat"
                         defaultValue={t.title}
                         aria-label="New chat name"
-                        // chat_threads.TITLE_LEN: past it the PATCH answers
-                        // with a pydantic sentence nobody wrote for a reader
+                        // chat_threads.TITLE_LEN, held equal by
+                        // backend/tests/test_frontend_mirrors.py: past it the
+                        // PATCH answers with a pydantic sentence nobody wrote
+                        // for a reader
                         maxLength={60}
                         onFocus={(e) => e.currentTarget.select()}
                         onKeyDown={(e) => {

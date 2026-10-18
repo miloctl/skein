@@ -6,8 +6,9 @@ import { actionError, api } from "@/lib/api";
 import { reportStatus } from "@/lib/status";
 import { PersonInput } from "@/components/person-input";
 
-// mirrors blockers.py::IMPACTS. Impact sets the escalation clock, so it is
-// asked for here rather than left at the default.
+// mirrors blockers.py::IMPACTS (backend/tests/test_frontend_mirrors.py).
+// Impact sets the escalation clock, so it is asked for here rather than left
+// at the default.
 const IMPACTS = ["low", "medium", "high", "critical"];
 
 /** Raise a blocker against one task. The service sets the task to Blocked

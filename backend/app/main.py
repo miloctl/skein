@@ -231,7 +231,7 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
         # that outlives its minute can still overlap the next window's
         # winner, which the at-least-once contract (handlers key on
         # event_id) is what survives. The claim removes the common two-worker
-        # same-minute duplication; a per-delivery lease is the ROADMAP item.
+        # same-minute duplication; a per-delivery lease would close the rest.
         # status "noop" on the lost claim: run_job records nothing for it, so
         # the loser's every-minute skip cannot keep last-success fresh while
         # the winner fails.

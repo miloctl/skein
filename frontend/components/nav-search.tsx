@@ -47,7 +47,8 @@ function announceSearchResult(entity: string, id: number) {
  *  document itself, and every other indexed entity needs a row here. An
  *  entity missing from both renders as dead text, which is the exact
  *  complaint this table exists to close - INDEXED_KINDS in services/search.py
- *  is the set to mirror when a new entity is indexed. */
+ *  is the set to mirror when a new entity is indexed
+ *  (backend/tests/test_frontend_mirrors.py). */
 const ENTITY_PAGE: Record<string, string> = {
   blocker: "/",
   decision: "/charter",

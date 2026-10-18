@@ -704,7 +704,8 @@ export function TaskPeek() {
   );
 }
 
-// mirrors work.py::TASK_STATUSES and PRIORITIES - a value absent here is
+// mirrors work.py::TASK_STATUSES and PRIORITIES
+// (backend/tests/test_frontend_mirrors.py) - a value absent here is
 // merely unpickable, a value absent there is a 400. `void` is deliberately
 // not in the select: it has its own confirmed control below, and a voided
 // task's select carries it so the restore path (pick a live status) exists.
