@@ -29,6 +29,7 @@ keeps its existing `minimum_core` and needs no change.
 ### Operations
 
 - Chat search has no text index: it scans the messages in the caller's own chats (measured 40 to 270 ms for 12,000 messages) under a 3-second statement timeout, and has its own rate cap, `chat_search`, 30 a minute per person. If ordinary searches reach the timeout, the upgrade is a `pg_trgm` index, which the database owner installs first: the application role cannot create extensions.
+- The dependency audit accepts CVE-2026-59951 (mcp < 2.2.0: stateful Streamable HTTP sessions accumulate without bound). Skein's MCP server is stateless, which the advisory lists as not affected, and no strands-agents release yet allows the fixed mcp 2.2. A contract test fails if either reason stops being true, and the acceptance leaves with the mcp upgrade.
 
 ## 0.6.16 - 2026-10-09
 

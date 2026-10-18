@@ -292,6 +292,14 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
   in a step, as the "PostgreSQL 17 client" step already does, which removes
   Docker from CI (largest, and the Gitea runner image must allow apt).
 
+- **Upgrade mcp to 2.2 and drop the accepted advisory** [S] - `scripts/audit-deps.sh`
+  accepts CVE-2026-59951 (stateful Streamable HTTP sessions accumulate in
+  mcp < 2.2.0). Skein's MCP server is stateless, which the advisory lists as
+  not affected, and every strands-agents release through 1.61.1 requires
+  mcp<2.2. Trigger: a strands-agents release that allows mcp 2.2, past the
+  seven-day cooldown. `test_release_contract.py` fails if the server stops
+  being stateless or a lock reaches 2.2 while the acceptance stays.
+
 ## Work durability and multi-replica validation
 
 Intent: [Work durability, at one replica or several](intent/work-durability.md).

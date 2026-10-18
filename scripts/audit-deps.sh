@@ -39,6 +39,16 @@ case "$mode" in
         ;;
 esac
 
+# Accepted advisories. Each entry names why it does not reach Skein and what
+# removes it, and backend/tests/test_release_contract.py fails once a reason
+# stops being true. CVE-2026-59951 (GHSA-84m7-p3x7-pcfv): mcp < 2.2.0 keeps
+# STATEFUL Streamable HTTP sessions without bound. Skein's MCP server is
+# stateless (app/mcp_server.py, StreamableHTTPSessionManager stateless=True),
+# which the advisory lists as not affected, and every strands-agents release
+# through 1.61.1 requires mcp<2.2, so the fix cannot be installed. Remove it
+# and upgrade mcp when strands-agents allows 2.2.
+pip_audit_accepted=(--ignore-vuln CVE-2026-59951)
+
 if [ -d backend/.venv/bin ]; then
     export PATH="$PWD/backend/.venv/bin:$PATH"
 fi
@@ -48,7 +58,7 @@ if [ "$mode" = "backend" ] || [ "$mode" = "all" ]; then
     # compile: a fresh resolve picks newer versions than the image ships, so
     # an advisory against a shipped pin passes unseen.
     echo "== pip-audit (core production lock) =="
-    pip-audit --requirement backend/requirements.lock --no-deps
+    pip-audit --requirement backend/requirements.lock --no-deps "${pip_audit_accepted[@]}"
 fi
 
 if [ "$mode" = "frontend" ] || [ "$mode" = "all" ]; then
@@ -58,7 +68,7 @@ fi
 
 if [ "$mode" = "workplace" ] || [ "$mode" = "all" ]; then
     echo "== pip-audit (workplace production lock) =="
-    pip-audit --requirement examples/workplace-extension/requirements.lock --no-deps
+    pip-audit --requirement examples/workplace-extension/requirements.lock --no-deps "${pip_audit_accepted[@]}"
     echo "== npm audit (workplace frontend production lock) =="
     npm_audit examples/workplace-extension
 fi

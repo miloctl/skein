@@ -10,6 +10,7 @@ import pytest
 import yaml
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
+from packaging.version import Version
 
 from app.extensions import EXTENSION_API_VERSION, SKEIN_CORE_VERSION
 
@@ -119,6 +120,18 @@ def test_core_image_installs_and_audits_the_hashed_lock():
     audit = (ROOT / "scripts/audit-deps.sh").read_text()
     assert "pip-audit --requirement backend/requirements.lock --no-deps" in audit
     assert "uv pip compile" not in audit
+
+
+def test_an_accepted_advisory_holds_only_while_its_reasons_do():
+    """scripts/audit-deps.sh accepts CVE-2026-59951 for two reasons: the MCP
+    server is stateless, and no installable mcp carries the fix. When either
+    stops being true, the acceptance hides a real advisory."""
+    audit = (ROOT / "scripts/audit-deps.sh").read_text()
+    if "CVE-2026-59951" not in audit:
+        return
+    assert "stateless=True" in (ROOT / "backend/app/mcp_server.py").read_text()
+    for lock in ("backend/requirements.lock", "examples/workplace-extension/requirements.lock"):
+        assert Version(_lock_versions(lock)["mcp"]) < Version("2.2.0"), f"{lock} has the fix"
 
 
 def test_workplace_image_installs_the_core_wheel_by_digest():
