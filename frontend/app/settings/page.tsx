@@ -2496,7 +2496,7 @@ export default function SettingsPage() {
             components/status-region.tsx gives. The final branch is not dead - a
             load that returns nothing with no error must still say why the
             section is empty. */}
-                <p role="status" className="text-sm text-ink-3 empty:hidden">
+                <p role="status" className="text-sm text-ink-3">
                   {!canAdminister
                     ? adminAccessMessage
                     : tuneLoaded && !tunables

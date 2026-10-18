@@ -163,7 +163,7 @@ export function McpServersCard({
         writes from your turn. To add a server, use strong identity.
       </p>
 
-      <p role="status" className="text-sm text-danger empty:hidden">
+      <p role="status" className="text-sm text-danger">
         {error}
       </p>
 

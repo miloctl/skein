@@ -185,7 +185,7 @@ export function CrewsCard({
           components/status-region.tsx gives. act() fires load() without
           awaiting, so a failed reload wipes the list one tick after the
           confirmation says the write landed. */}
-      <p role="status" className="text-sm text-danger empty:hidden">
+      <p role="status" className="text-sm text-danger">
         {error}
       </p>
       {error ? null : crews === null ? (
