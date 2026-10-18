@@ -22,6 +22,7 @@ keeps its existing `minimum_core` and needs no change.
 
 - A scheme-relative link (`//host/path`) in an assistant message now opens in a new tab with no handle back to Skein, like any other link to another origin. Before, it opened in the same tab, so model output could move the Skein tab to a page that imitates it.
 - A stored `thread_pool` or `tool_threads` override now also sizes the database connection pool at boot. Before, the connection pool kept the environment size, so a raised thread pool queued requests inside a smaller connection pool.
+- `skein pr-body` now reads a `task/<id>/...` branch, as the commit hook already did. Before, the hook added a `Refs-Task` trailer on that branch and `pr-body` refused it.
 
 ### Operations
 

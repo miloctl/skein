@@ -553,7 +553,7 @@ def test_the_hook_reads_only_a_real_task_number(tmp_path):
 
     def trailer_for(branch: str) -> str:
         repo = tmp_path / branch.replace("/", "_")
-        repo.mkdir()
+        repo.mkdir(exist_ok=True)
         subprocess.run(  # noqa: S603 - git/sh on PATH, tmp_path repo
             ["git", "init", "-q", "-b", branch],  # noqa: S607 - git/sh on PATH, tmp_path repo
             cwd=repo,
@@ -572,6 +572,17 @@ def test_the_hook_reads_only_a_real_task_number(tmp_path):
     assert "Refs-Task: #42" in trailer_for("task/42")
     assert "Refs-Task" not in trailer_for("task/12abc")
     assert "Refs-Task" not in trailer_for("task/nodigits")
+
+    # the hook and `skein pr-body` (BRANCH_RE) read the same branches, and
+    # services/forge.py reads every one of them too
+    from app.services import forge
+
+    for branch in ("task/42-slug", "task/42", "task/42/sub", "task/12abc", "task/nodigits"):
+        hook_id = "Refs-Task: #" in trailer_for(branch)
+        cli_id = cli.BRANCH_RE.match(branch) is not None
+        assert hook_id == cli_id, branch
+        if cli_id:
+            assert forge._BRANCH.search(branch), branch
 
 
 def test_the_hook_leaves_an_existing_trailer_alone(tmp_path):

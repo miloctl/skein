@@ -1263,10 +1263,10 @@ def cmd_install_hooks(args):
 
 
 TRAILER = re.compile(r"^(Closes|Refs)-Task:\s*#?(\d+)", re.I | re.M)
-# the branch shape the forge webhook already understands: a push to
-# `task/42-slug` starts task 42 (services/forge.py). Written the same way
-# here so the two halves cannot disagree about what a task branch looks like.
-BRANCH_RE = re.compile(r"^task/(\d+)(?:-|$)")
+# The branches COMMIT_MSG_HOOK reads: `task/<id>`, then the end, `-` or `/`.
+# services/forge.py reads every one of these and more (`feature/task-42`).
+# tests/test_cli.py holds the hook, this and the forge pattern together.
+BRANCH_RE = re.compile(r"^task/(\d+)(?:[-/]|$)")
 
 
 def _slug(title: str, words: int = 6) -> str:
