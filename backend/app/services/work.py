@@ -536,13 +536,15 @@ def hold_task_parents(
 ) -> None:
     """Hold the parents a task's link decision reads, until the write commits.
 
-    Only a write that sets or moves a link decides anything about its parents:
-    a create, or an update (`current` is the task row) whose milestone or
-    engagement changes. Any other update holds nothing here. A hold on every
-    update queues each task write behind an atomic PATCH /api/milestones,
-    which holds that milestone while it waits for a second worker thread:
-    with the pool full of waiters, every REST request in the process answers
-    503 at lock_timeout (tests/test_lock_order.py).
+    Only a write that sets or moves a link holds them: a create, or an update
+    (`current` is the task row) whose milestone or engagement changes. Any
+    other update holds nothing here, although its policy decision still reads
+    the project type through the milestone's parent, and an adoption (below)
+    can change that type under the decision. A hold on every update queues
+    each task write behind an atomic PATCH /api/milestones, which holds that
+    milestone while it waits for a second worker thread: with the pool full
+    of waiters, every REST request in the process answers 503 at lock_timeout
+    (tests/test_lock_order.py, docs/ROADMAP.md).
 
     The milestone FOR SHARE: task writes under one milestone do not wait for
     each other, but the milestone cannot change parent under the decision.
