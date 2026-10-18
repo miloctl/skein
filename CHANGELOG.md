@@ -18,22 +18,26 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- Extension API 1.0.0 is unchanged, and a package needs no new `minimum_core`. `WorkItems.create_task` and `WorkItems.update_task` now hold the linked milestone until they commit, so a call can wait on a concurrent milestone adoption, and a create whose milestone moved to another engagement is then refused. `ExtensionStore.transaction()` behaves as before: its docstring now states that blocks on one extension serialize.
+- The REST and data contracts for personal MCP servers change, and the change is not backward compatible. `POST /api/mcp/servers/{server_id}/sign-in` and `GET /api/mcp/oauth/callback` are removed. `GET /api/mcp/servers` no longer returns `auth`, `signed_in` or `sign_in_required`, and `POST /api/mcp/servers` accepts only `auth: "token"`. Migration `048_retire_mcp_oauth.sql` drops the `mcp_oauth_flows` table and the `auth`, `oauth_tokens_sealed`, `oauth_client_sealed`, `oauth_redirect_uri` and `oauth_signin_required` columns of `mcp_servers`. `POST /api/agents/authority` and `GET /api/agents/entities` accept and list the entity `mcp-tool`.
+
 ### Behavior
 
 - A scheme-relative link (`//host/path`) in an assistant message now opens in a new tab with no handle back to Skein, like any other link to another origin. Before, it opened in the same tab, so model output could move the Skein tab to a page that imitates it.
 - A stored `thread_pool` or `tool_threads` override now also sizes the database connection pool at boot. Before, the connection pool kept the environment size, so a raised thread pool queued requests inside a smaller connection pool.
 - `skein pr-body` now reads a `task/<id>/...` branch, as the commit hook already did. Before, the hook added a `Refs-Task` trailer on that branch and `pr-body` refused it.
 - Skein reads at most 4 MB of any one MCP server response, and one event at a time on an event stream, and refuses a compressed response. Before, the MCP client read a whole response, decompressed, before any limit, so one registered server could exhaust the API process's memory at registration.
-- After a chat turn reads a private or crew note, every remote MCP tool call in that turn waits for the requester's own review, and is refused when the team would review it. Before, a remote read ran unreviewed with arguments the model chose, and a remote write's team-visible review could quote the private text to every teammate.
+- After a chat turn reads a private or crew note or comment, every remote MCP tool call in that turn waits for the requester's own review, and is refused when the team would review it. Before, a remote read ran unreviewed with arguments the model chose, and a remote write's team-visible review could quote the private text to every teammate.
 - Adding a personal MCP server refuses a URL with a query string or a fragment and asks for the credential in the token field. The URL is stored in plain text and travels in every backup, while the token field is sealed. A server added earlier with such a URL keeps working: delete it and add it again without the query string to move the credential into the sealed store.
 - The chat working indicator announces "Thinking", the long-wait line and a refusal to a screen reader. Its live regions now exist before their text arrives. Before, they mounted together with the text, and screen readers often said nothing.
-- The visibility picker shows "one crew only" for a chosen crew that the person has left, the value the row still carries. Before, it showed "everyone on the roster" while the row kept the crew.
+- When the browser cannot save a form's audience (as in private browsing), the visibility picker shows "one crew only" for a chosen crew that the person has left, the value the row still carries. Before, it showed "everyone on the roster" while the row kept the crew.
 - A request without a credential is refused before Skein reads its body. Before, the body-size check ran first and buffered up to 1 MB of every unsigned request before its 401. An oversized unsigned request now answers 401, not 413.
 - In OIDC mode, a userinfo request that fails in transit answers with the same 503 detail as an identity provider that is down ("the identity provider cannot be reached. Try again in a minute."). The exception class goes to the server log, not to the response.
-- The authority card lists "run a write on a remote MCP server" for each agent. An administrator can forbid an agent's writes through the system MCP servers, or let them run without review. Before, the level existed in policy, but no one could set it.
+- The authority card lists "run a write on a remote MCP server" for each agent. An administrator can forbid an agent's writes through the system MCP servers, let them run without review, or let them run and tell the team. Forbidden also refuses on a personal server. Before, the level existed in policy, but no one could set it.
+- Two week plans that name the same tasks in different orders no longer deadlock. Before, each could hold one task and wait on the other, and one answered 503.
 - A task create and a new engagement that adopts the task's milestone no longer interleave. Before, a task that named another engagement could land between the adoption's check and its update, which left a task whose milestone and engagement disagree, decided for a milestone with no project type. That create now waits and is refused.
 - The personal MCP server URL check unwraps the IPv4 address inside a 6to4 or Teredo IPv6 address. Before, `2002:a9fe:a9fe::1` counted as a private address and reached the cloud metadata service.
-- A personal MCP server signs in with a token only. OAuth sign-in is removed: `POST /api/mcp/servers/{server_id}/sign-in` and `GET /api/mcp/oauth/callback` no longer exist, the Settings card has no sign-in control, and `GET /api/mcp/servers` no longer reports `auth`, `signed_in` or `sign_in_required`. `POST /api/mcp/servers` still accepts `auth: "token"` and refuses any other value with a 400: "OAuth sign-in for MCP servers was removed. Add the server with a token."
+- A personal MCP server signs in with a token only, and the Settings card has no OAuth sign-in. Adding a server with any other sign-in method answers 400: "OAuth sign-in for MCP servers was removed. Add the server with a token." The removed routes and fields are under Contracts.
 
 ### Operations
 
@@ -42,6 +46,8 @@ keeps its existing `minimum_core` and needs no change.
 - The manual `pg_dump` command and the restore fence in `deploy/k8s/README.md` no longer name `mcp_oauth_flows` or the OAuth columns. If you keep a copy of the fence SQL, replace it with the new one: the earlier SQL fails on a backup made after this upgrade.
 
 - A `SKEIN_MCP_SERVERS` entry ignores `derive` and `tier`, two keys that belong to personal servers. With `"derive": true`, an entry replaced its declared `tools` block with the server's own annotations and skipped the first-use review. Such an entry now exposes only the tools it declares. The example in `backend/.env.example` now points at a complete entry.
+
+- A stored `thread_pool` or `tool_threads` override now also raises the database connection pool, to `thread_pool + tool_threads + 4` connections per process. PostgreSQL's `max_connections` must cover that across every process: past it, a request waits for a connection and then answers 503.
 
 - A negative `SKEIN_OIDC_LEEWAY` takes the 30-second default. Before, it became 0, which refused a token on any clock skew. An explicit 0 still sets zero tolerance.
 
