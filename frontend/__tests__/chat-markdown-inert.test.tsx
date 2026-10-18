@@ -54,6 +54,18 @@ describe("assistant markdown containment", () => {
     expect(link?.getAttribute("href")).toBe("https://example.test/docs");
   });
 
+  it("treats a scheme-relative href as another origin", () => {
+    const container = renderMarkdown("[docs](//attacker.test/x)");
+    const link = container.querySelector("a");
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("keeps an app path in this tab", () => {
+    const container = renderMarkdown("[open in Inbox](/review)");
+    expect(container.querySelector("a")?.getAttribute("target")).toBeNull();
+  });
+
   it("drops a javascript: href", () => {
     const container = renderMarkdown("[run](javascript:alert(1))");
     expect(container.querySelector("a")?.getAttribute("href")).toBe("");

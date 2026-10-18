@@ -59,11 +59,13 @@ const InertImage = ({ src, alt }: ComponentPropsWithoutRef<"img">) => (
  *  javascript: href before this renders. The underline is the only thing that
  *  marks a link here - prose-chat gives `a` no color of its own. */
 const SafeLink = ({ href, children }: ComponentPropsWithoutRef<"a">) => {
-  // A RELATIVE href is one of ours - the receipt line's own [open in Inbox]
-  // (/review) is the common one, and sending that to a new tab spawns a second
-  // copy of the app instead of navigating. window.opener is not reachable
-  // same-origin anyway, so the guard buys nothing there.
-  const external = /^[a-z][a-z0-9+.-]*:/i.test(href ?? "");
+  // A path on this origin is one of ours - the receipt line's own [open in
+  // Inbox] (/review) is the common one, and sending that to a new tab spawns a
+  // second copy of the app instead of navigating. A scheme-relative `//host`
+  // is NOT a path: it leaves the origin, and defaultUrlTransform passes it
+  // unchanged. The parser percent-encodes a backslash, so `/\host` arrives as
+  // a path.
+  const external = /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(href ?? "");
   return (
     <a
       href={href}

@@ -20,6 +20,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Behavior
 
+- A scheme-relative link (`//host/path`) in an assistant message now opens in a new tab with no handle back to Skein, like any other link to another origin. Before, it opened in the same tab, so model output could move the Skein tab to a page that imitates it.
+
 ### Operations
 
 ## 0.6.17 - 2026-10-17
