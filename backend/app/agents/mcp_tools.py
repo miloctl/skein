@@ -585,16 +585,25 @@ class GovernedMCPTool(AgentTool):
             _audit_mcp(actor, self.tool_name, "completed")
             if "notify-team" in decision.obligations and self.tier != PERSONAL:
                 # the notify level on the authority card: acts, then tells the
-                # team, as tools/_gate.py does for a gated write
+                # team, as tools/_gate.py does for a gated write. A remote
+                # write leaves no row to source the notice to, so under a
+                # workplace rule notifications.policy_filter hides it.
                 from ..services.notifications import notify
 
-                await asyncio.to_thread(
-                    notify,
-                    "team",
-                    f"Agent {actor} ran the remote write {self.tool_name} on {self.server_id}.",
-                    tier="digest",
-                    link="/agents",
-                )
+                try:
+                    await asyncio.to_thread(
+                        notify,
+                        "team",
+                        f"Agent {actor} ran the remote write {self.tool_name} on {self.server_id}.",
+                        tier="digest",
+                        link="/agents",
+                    )
+                except Exception as exc:
+                    # the write already ran: raised, the model reads a failed
+                    # write and runs it again
+                    log.warning(
+                        "MCP team notice for %s failed (%s)", self.tool_name, type(exc).__name__
+                    )
         for event in events:
             yield event
 

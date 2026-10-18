@@ -163,6 +163,62 @@ def test_a_forbidden_agent_is_refused_on_a_personal_server_too(fresh_db, monkeyp
     assert fresh_db.query_one("SELECT count(*) AS n FROM pending_changes")["n"] == 0
 
 
+def test_a_forbidden_agent_is_refused_after_a_scoped_read_too(fresh_db):
+    """A scoped read sends every effect to review, but forbidden refuses
+    first: a review filed for a forbidden call asks for an approval that the
+    level then refuses."""
+    from app.services import delegation, users
+
+    users.ensure_user("boss")
+    delegation.set_authority("scout", "mcp-tool", "forbidden", actor="boss")
+    remote, result = _run("write", scoped=True, agent="scout")
+    assert not remote.called
+    assert "denied" in result["content"][0]["text"]
+    assert fresh_db.query_one("SELECT count(*) AS n FROM pending_changes")["n"] == 0
+
+
+def test_an_approved_personal_write_does_not_tell_the_team(fresh_db, monkeypatch):
+    """A personal server runs on its owner's credential. A team notice names
+    the server and the tool to every teammate, which publishes what the owner
+    connected."""
+    from app.agents import mcp_tools
+    from app.agents.mcp_tools import PERSONAL, GovernedMCPTool
+    from app.services import delegation, users
+
+    monkeypatch.setattr(mcp_tools, "_personal_row_is_current", lambda *a, **k: True)
+    # the owner's approval: the call resumes with the grant it was filed for
+    monkeypatch.setattr(mcp_tools, "approval_fingerprint", lambda *a, **k: "granted")
+    real = GovernedMCPTool._stream
+    monkeypatch.setattr(
+        GovernedMCPTool,
+        "stream",
+        lambda self, tool_use, state, **k: real(
+            self, tool_use, state, mcp_tools.current_policy_subject(), "scout", "granted"
+        ),
+    )
+    users.ensure_user("boss")
+    delegation.set_authority("scout", "mcp-tool", "notify", actor="boss")
+    remote, result = _run("write", scoped=False, agent="scout", tier=PERSONAL)
+    assert remote.called and result["status"] == "success"
+    told = "SELECT count(*) AS n FROM notifications WHERE \"user\" = 'team'"
+    assert fresh_db.query_one(told)["n"] == 0
+
+
+def test_a_failed_team_notice_still_reports_the_completed_write(fresh_db, monkeypatch):
+    """The remote write already ran. An error from the notice reads to the
+    model as a failed write, and it runs the write again."""
+    from app.services import delegation, notifications, users
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("connection pool timeout")
+
+    users.ensure_user("boss")
+    delegation.set_authority("scout", "mcp-tool", "notify", actor="boss")
+    monkeypatch.setattr(notifications, "notify", unavailable)
+    remote, result = _run("write", scoped=False, agent="scout")
+    assert remote.called and result["status"] == "success"
+
+
 def test_the_authority_card_offers_remote_tools(client):
     entities = client.get("/api/agents/entities").json()["entities"]
     assert any(e["entity"] == "mcp-tool" and e["label"] != "mcp-tool" for e in entities)
