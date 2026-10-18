@@ -222,8 +222,10 @@ export const WorkingIndicator = ({
         !said && <p>The turn ended without a reply.</p>
       )}
       {/* outside the running branch: the long-wait line and a later refusal
-          must change the text of a region that is already mounted */}
-      <p role="status" className="mt-1 first:mt-0 empty:hidden">
+          must change the text of a region that is already mounted. empty:mt-0,
+          never empty:hidden - display:none takes the region out of the
+          accessibility tree, so its first text would arrive with the region */}
+      <p role="status" className="mt-1 first:mt-0 empty:mt-0">
         {running
           ? long && "The model has not answered yet. Press Stop to send a new message."
           : said}
