@@ -935,8 +935,12 @@ class WorkItems:
             return self._task_view(task_id, context, viewer=viewer)
 
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
-        # Keep linked-project resolution, policy, idempotency, and creation in
-        # one serialized write boundary.
+        # One transaction for link resolution, policy, the idempotency receipt
+        # and the insert: they commit together or not at all. Only retries of
+        # one idempotency key serialize (_prior_result's receipt lock). The
+        # linked engagement and milestone are read without a hold, as in
+        # services/work.py::create_task, so a concurrent change to the parent
+        # is not serialized against this create (docs/ROADMAP.md).
         try:
             with db.transaction():
                 return self._create_task_locked(command, context)

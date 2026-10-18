@@ -15,8 +15,8 @@ allowlist. `tools` is deny-by-omission ONCE DECLARED: a persona that lists
 tools gets exactly those and nothing else - enforced at Agent construction,
 so the model never sees an undeclared tool. A persona with no `tools` line
 keeps the full registry, so existing personas are unaffected. Pack-wide
-defaults live in personas/pack.json (`{"defaults": {...}}`); persona
-frontmatter wins field-by-field.
+defaults live in an optional pack.json beside the persona files
+(`{"defaults": {...}}`); persona frontmatter wins field-by-field.
 
 Runtime parsing stays lenient (a malformed file drops off the bench rather
 than 500ing chat); validate_all() is the strict pass, wired into lint.sh so

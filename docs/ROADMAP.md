@@ -796,6 +796,16 @@ larger than its finding.
   relink between the decision and `raise_blocker` applies a rule chosen for
   the old project. Hold the task there with `policy_context.hold_resource`.
 
+## Found by the comment audit (2026-10-18)
+
+- **A task create decides policy on unlocked parent reads** -
+  `public/work.py::create_task` and `services/work.py::create_task` read
+  the linked engagement and milestone without a hold, so a concurrent
+  change to the parent's project type or visibility lands between the
+  decision and the insert. Neither table is in `policy_context._TABLES`.
+  Hold the parents first (`SELECT ... FOR SHARE`, engagement before
+  milestone) in both paths, with a test that interleaves a parent update.
+
 ## Found by the review of routines (2026-09-29)
 
 - **The evidence-gap rule counts a routine's weekly acceptances** -

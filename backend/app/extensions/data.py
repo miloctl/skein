@@ -125,6 +125,11 @@ class ExtensionStore:
 
     @contextmanager
     def transaction(self) -> Iterator[ExtensionStore]:
-        """Serialize one extension-owned operation across threads and workers."""
+        """One database transaction for a unit of extension-owned work. It nests.
+
+        It takes no lock. A read whose result decides a later write must hold
+        the row it read (SELECT ... FOR UPDATE inside this block), or two
+        callers both read the same state and both write.
+        """
         with self._scope():
             yield self
