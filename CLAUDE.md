@@ -232,8 +232,9 @@ that hasn't passed it will fail on push-to-main.
 - `backend/personas/*.md`, `backend/flocks/*.yaml` - the bench, and the groups
   of it that answer one message together (both edited like code)
 - `backend/data/` - gitignored: artifacts/, backups/, exports/, and
-  sessions/ (pre-045 files, kept only until a cleanup release - live sessions
-  are database rows via `agents/session_store.py`)
+  sessions/ (legacy files from before sessions were rows, kept only until a
+  cleanup release - live sessions are database rows via
+  `agents/session_store.py`)
 - `frontend/app/` - pages; `frontend/components/` - UI; `frontend/lib/` - api client/config
 
 ## Conventions

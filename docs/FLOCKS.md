@@ -162,10 +162,12 @@ Execution of a flock turn:
    the session manager and conversation-manager state (today it always
    attaches one for real providers, `team_agent.py:460`). No `--<slug>`
    thread suffix, prompt is the user's message only. The persona's own
-   `tools` allowlist applies as usual, and a member gets NO MCP tools: a
-   remote call reaches neither the gate nor the receipt box, so a member
-   holding one would write to a third party while its trace row reported it
-   proposed nothing.
+   `tools` allowlist applies as usual, and a member gets NO MCP tools. A
+   remote tool does go through policy and receipts (`GovernedMCPTool`), but
+   CorePolicy permits a read-effect remote call even under force_review: one
+   flock message would make one unreviewed third-party call per member, with
+   model-chosen arguments, and a remote write would file one near-duplicate
+   proposal per member.
 2. Run members concurrently (asyncio tasks). Identity is set per task with
    `set_agent_identity(member)` inside each task - contextvars are
    task-local, so member identities cannot bleed into each other's writes.
