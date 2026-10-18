@@ -2,6 +2,7 @@
 owner-scoped, the URL check refuses this host, and the offboarding and rename
 paths carry the rows along."""
 
+import asyncio
 import json
 import threading
 import time
@@ -244,9 +245,10 @@ def test_a_connect_that_never_finishes_gives_its_slot_back(fresh_db, sealed, mon
 
 
 def test_one_owner_cannot_hold_every_connect_slot(fresh_db, sealed, monkeypatch):
-    """An OAuth sign-in holds its slot while the person decides, so one
-    person's abandoned sign-ins took all of them, and every other person's
-    approval said "Skein started to connect it" while nothing started."""
+    """A connect to a server that never answers holds its slot for the whole
+    startup wait, so one person's dead servers took all of them, and every
+    other person's approval said "Skein started to connect it" while nothing
+    started."""
     from app.agents import mcp_tools
     from app.services import mcp_servers
 
@@ -518,6 +520,215 @@ def test_personal_reconnect_rechecks_dns_but_system_urls_remain_configured(monke
     _, configured = mcp_tools._connect_servers([("configured", {**entry, "tier": "system"})])
     assert len(configured) == 1
     configured[0].client.__exit__(None, None, None)
+
+
+def test_an_oauth_server_is_refused_and_a_token_client_keeps_working(client, sealed):
+    """OAuth sign-in is gone. A client that still sends auth="token" adds a
+    server as before, and any other mode is a 400 that names the fix."""
+    ava = _bootstrap("ava")
+    refused = client.post(
+        "/api/mcp/servers",
+        json={"name": "jira", "url": "https://jira.example/mcp", "auth": "oauth"},
+        headers=ava,
+    )
+    assert refused.status_code == 400
+    assert refused.json()["detail"] == (
+        "OAuth sign-in for MCP servers was removed. Add the server with a token."
+    )
+    added = client.post(
+        "/api/mcp/servers",
+        json={"name": "jira", "url": "https://jira.example/mcp", "auth": "token"},
+        headers=ava,
+    )
+    assert added.status_code == 200, added.text
+    listed = client.get("/api/mcp/servers", headers=ava).json()["personal"]
+    assert [row["name"] for row in listed] == ["jira"]
+    assert not {"auth", "signed_in", "sign_in_required"} & set(listed[0])
+
+
+@pytest.mark.parametrize("destination", ["127.0.0.1", "169.254.169.254"])
+def test_the_personal_client_checks_every_request_destination(monkeypatch, destination):
+    """The connect checks the URL once, and the client checks each request
+    again: a session lives for the process, and its host can resolve to
+    loopback or the metadata address after the connect."""
+    import socket
+
+    import httpx2
+
+    from app.agents import mcp_tools
+
+    answers = {"mcp.example": "10.0.0.5"}
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (answers[host], 443))
+        ],
+    )
+    sent = []
+
+    def respond(request):
+        sent.append(str(request.url))
+        return httpx2.Response(200)
+
+    real_client = httpx2.AsyncClient
+    monkeypatch.setattr(
+        httpx2,
+        "AsyncClient",
+        lambda **kwargs: real_client(
+            transport=httpx2.MockTransport(respond), trust_env=False, **kwargs
+        ),
+    )
+
+    async def connect():
+        async with mcp_tools._no_redirect_client() as client:
+            await client.post("https://mcp.example/mcp")
+            answers["mcp.example"] = destination
+            with pytest.raises(ValueError, match="remote MCP server"):
+                await client.post("https://mcp.example/mcp")
+
+    asyncio.run(connect())
+    assert sent == ["https://mcp.example/mcp"]
+
+
+@pytest.mark.parametrize("location", ["https://mcp.example/next", "https://other.example/next"])
+def test_personal_client_refuses_redirects(monkeypatch, location):
+    import httpx2
+
+    from app.agents import mcp_tools
+    from app.services import mcp_servers
+
+    sent = []
+    monkeypatch.setattr(mcp_servers, "check_url", lambda url: None)
+    real_client = httpx2.AsyncClient
+
+    def respond(request):
+        sent.append(str(request.url))
+        return httpx2.Response(307, headers={"Location": location})
+
+    monkeypatch.setattr(
+        httpx2,
+        "AsyncClient",
+        lambda **kwargs: real_client(
+            transport=httpx2.MockTransport(respond), trust_env=False, **kwargs
+        ),
+    )
+
+    async def connect():
+        async with mcp_tools._no_redirect_client(
+            headers={"Authorization": "Bearer secret"}
+        ) as client:
+            assert not client.follow_redirects
+            with pytest.raises(ValueError, match="redirect"):
+                await client.post("https://mcp.example/mcp")
+
+    asyncio.run(connect())
+    assert sent == ["https://mcp.example/mcp"]
+
+
+def test_http_transport_owns_its_client_and_yields_the_sdk_pair(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    import httpx2
+    import mcp.client.streamable_http
+
+    from app.agents import mcp_tools
+    from app.services import mcp_servers
+
+    events = []
+    monkeypatch.setattr(mcp_servers, "check_url", lambda url: None)
+    real_client = httpx2.AsyncClient
+    clients = []
+
+    def make_client(**kwargs):
+        client = real_client(
+            transport=httpx2.MockTransport(lambda request: httpx2.Response(200)),
+            trust_env=False,
+            **kwargs,
+        )
+        clients.append(client)
+        return client
+
+    @asynccontextmanager
+    async def transport(url, *, http_client):
+        assert not http_client.is_closed
+        assert http_client.headers["Authorization"] == "Bearer secret"
+        events.append("enter")
+        try:
+            yield "read", "write"
+        finally:
+            assert not http_client.is_closed
+            events.append("exit")
+
+    monkeypatch.setattr(httpx2, "AsyncClient", make_client)
+    monkeypatch.setattr(mcp.client.streamable_http, "streamable_http_client", transport)
+
+    async def connect():
+        assert clients == []
+        async with mcp_tools._http_transport(
+            "https://mcp.example/mcp", headers={"Authorization": "Bearer secret"}, personal=True
+        ) as streams:
+            assert streams == ("read", "write")
+            assert not clients[0].is_closed
+        assert clients[0].is_closed
+
+    asyncio.run(connect())
+    assert events == ["enter", "exit"]
+
+
+@pytest.mark.parametrize("personal", [False, True])
+@pytest.mark.parametrize("trust", ["default", "file", "directory", "both"])
+def test_mcp_transport_preserves_certificate_trust(monkeypatch, personal, trust):
+    import ssl
+    from contextlib import asynccontextmanager
+
+    import certifi
+    import httpx2
+    import mcp.client.streamable_http
+
+    from app.agents import mcp_tools
+
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    if trust in ("file", "both"):
+        monkeypatch.setenv("SSL_CERT_FILE", "/configured/ca.pem")
+    if trust in ("directory", "both"):
+        monkeypatch.setenv("SSL_CERT_DIR", "/configured/certs")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    seen = []
+    monkeypatch.setattr(
+        ssl, "create_default_context", lambda **kwargs: seen.append(kwargs) or context
+    )
+
+    @asynccontextmanager
+    async def client(**kwargs):
+        assert kwargs["verify"] is context
+        assert kwargs.get("trust_env", True)
+        assert kwargs["follow_redirects"] is (not personal)
+        assert kwargs["timeout"].connect == 30.0
+        assert kwargs["timeout"].read == 300.0
+        yield object()
+
+    @asynccontextmanager
+    async def transport(url, *, http_client):
+        yield "read", "write"
+
+    monkeypatch.setattr(httpx2, "AsyncClient", client)
+    monkeypatch.setattr(mcp.client.streamable_http, "streamable_http_client", transport)
+
+    async def connect():
+        async with mcp_tools._http_transport("https://mcp.example", personal=personal):
+            pass
+
+    asyncio.run(connect())
+    expected = (
+        {"cafile": "/configured/ca.pem"}
+        if trust in ("file", "both")
+        else (
+            {"capath": "/configured/certs"} if trust == "directory" else {"cafile": certifi.where()}
+        )
+    )
+    assert seen == [expected]
 
 
 def test_offboarding_and_rename_carry_the_rows(client, sealed):

@@ -158,7 +158,7 @@ Do not install the fixture in a normal deployment or count the Docker run as clu
    Restore its access before the next gate. Do not modify node networking.
 6. Run the complete restore procedure below against fresh candidate DB and file copies.
    Keep ingress closed until the pre-boot fence and anchor checks pass.
-   Prove revoked browser authority and unfinished OAuth codes cannot return.
+   Prove revoked browser authority cannot return.
    Prove API keys remain disabled and restored work remains `completion_unknown` after boot.
    Check private notes, extension data, artifact bytes, and the independent mirror recovery boundary.
 
@@ -423,15 +423,15 @@ database credentials, including standalone MCP and extension workers. Scale
 the backend to zero. From a one-shot pod labeled `app=skein-maintenance`, with
 PostgreSQL credentials and the `skein-data` mount, run a full-database `pg_dump`
 with no schema filter. Set the PostgreSQL connection variables for the intended
-source database first. Exclude browser sessions and MCP sign-in flows so a restore
-cannot reactivate revoked sessions or unfinished grants:
+source database first. Exclude browser sessions so a restore cannot reactivate
+revoked sessions:
 
 ```sh
 set -euo pipefail
 umask 077
 mkdir -p /data/backups
 backup_file="/data/backups/database-$(date -u +%Y%m%dT%H%M%SZ)-manual.dump"
-pg_dump --format=custom --exclude-table-data=public.browser_sessions --exclude-table-data=public.mcp_oauth_flows --file "$backup_file"
+pg_dump --format=custom --exclude-table-data=public.browser_sessions --file "$backup_file"
 sha256sum "$backup_file"
 ```
 
@@ -462,7 +462,7 @@ The role never receives database-wide `CREATE`.
 
 `tests/test_recovery_runbook.py` executes the pre-boot SQL below, not a parallel implementation.
 Its combined restricted-role drill checks file loss and recovery, dump digests, both anchor logs, and ledger verification.
-It checks disabled keys, cleared browser and OAuth rows, terminal unknown requests, and no replay through application boot.
+It checks disabled keys, cleared browser session rows, terminal unknown requests, and no replay through application boot.
 A separate full-archive drill proves the fence invalidates a session revoked after the archive point.
 The local mirror uses a separate tmpfs filesystem. It does not prove independent storage hardware.
 `tests/test_admin_backup.py` also checks full and mirror-only recovery boundaries.
@@ -541,14 +541,9 @@ Local success does not replace the target-cluster role and storage handoff.
        IF to_regclass('public.browser_sessions') IS NOT NULL THEN
            DELETE FROM public.browser_sessions;
        END IF;
-       IF to_regclass('public.mcp_oauth_flows') IS NOT NULL THEN
-           DELETE FROM public.mcp_oauth_flows;
-       END IF;
        IF to_regclass('public.mcp_servers') IS NOT NULL THEN
            DELETE FROM public.mcp_servers WHERE scope = 'personal';
-           UPDATE public.mcp_servers
-           SET auth_token_sealed = NULL, oauth_tokens_sealed = NULL,
-               oauth_client_sealed = NULL;
+           UPDATE public.mcp_servers SET auth_token_sealed = NULL;
        END IF;
        IF to_regclass('public.merge_requests') IS NOT NULL THEN
            UPDATE public.merge_requests
@@ -679,12 +674,6 @@ their personal API key as the bearer, read from `SKEIN_API_KEY` by a
 `.mcp.json` entry so the key never sits in a shell history; the backend
 venv is not needed on their machine. Tool bodies share the backend's sync
 thread pool with the REST handlers, so size it for both.
-
-An OAuth sign-in for a personal MCP server registers
-`<backend URL>/api/mcp/oauth/callback` as its redirect URI, built from the
-request's own base URL. Behind the router, set `SKEIN_TRUST_PROXY_HOPS` so
-the forwarded scheme is used. Pending sign-in ownership and sealed callback codes live in PostgreSQL.
-Keep one backend replica until the deployment validation gates pass.
 
 `SKEIN_CREDENTIAL_KEY` also belongs in `skein-secrets`. It seals the tokens
 people store for personal MCP servers through Settings. Without it, a

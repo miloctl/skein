@@ -106,10 +106,10 @@ _opening: dict[str, dict] = {}
 # Hold a slot until the worker exits, even after forget/shutdown invalidates
 # its publication. Otherwise repeated add/delete calls bypass the process cap.
 _personal_slots = threading.BoundedSemaphore(_PERSONAL_CONNECT_LIMIT)
-# How many of those slots one owner's connects may hold at once. An OAuth
-# sign-in holds its slot while it waits up to mcp_oauth.FLOW_SECONDS for the
-# person, so without this one person's abandoned sign-ins would take every
-# slot and every other person's server would wait behind them.
+# How many of those slots one owner's connects may hold at once. A connect
+# to a server that never answers holds its slot for _STARTUP_SECONDS plus
+# _ENTER_GRACE_SECONDS, so without this one person's dead servers would take
+# every slot and every other person's server would wait behind them.
 _PER_OWNER_CONNECTS = 2
 _owner_connects: dict[str, int] = {}
 # The SDK's list_tools_sync waits on a future with no deadline, and a server
@@ -661,8 +661,8 @@ def reviewed_policy_contract(
 class MCPServerNotReady(PublicError):
     """A personal server that this process cannot use: not connected here
     (after a restart, or on a replica that never served its owner's turn),
-    backing off after a failed connect, waiting for a connect slot, signed
-    out, or deleted.
+    backing off after a failed connect, waiting for a connect slot, or
+    deleted.
     review._revalidate_policy and the apply step pass it through, so the
     reviewer reads what to do instead of "Request a new review"."""
 
@@ -673,14 +673,7 @@ class MCPServerNotReady(PublicError):
         self.retry_after = retry_after
 
 
-def _not_ready(owner: str, server: str, row: dict, *, warm: bool) -> MCPServerNotReady:
-    if row.get("auth") == "oauth" and (not row.get("signed_in") or row.get("signin_required")):
-        # the rule GET /api/mcp/servers uses for sign_in_required
-        return MCPServerNotReady(
-            "MCP_SIGN_IN_REQUIRED",
-            "The MCP server for this tool needs a new sign-in. Its owner must sign in"
-            " again in Settings, then approve again.",
-        )
+def _not_ready(owner: str, server: str, *, warm: bool) -> MCPServerNotReady:
     if warm:
         personal_mcp_tools(owner)
     with _lock:
@@ -770,7 +763,7 @@ def _governed(name: str, server: str, *, warm: bool = True) -> GovernedMCPTool:
         with _lock:
             connection = _connections.get(server)
         if connection is None or connection.stamp != row["stamp"]:
-            raise _not_ready(owner, server, row, warm=warm)
+            raise _not_ready(owner, server, warm=warm)
         pool = list(connection.tools)
     else:
         # The cache only, never mcp_tools(): before the first load that
@@ -1255,28 +1248,25 @@ def _publish_personal(entries: list[tuple[str, dict]], generation: int, owner: s
         _release_slot(owner)
 
 
-def open_personal(server_id: str, server: dict, *, background: bool = False) -> bool:
-    """The OAuth sign-in thread waits for its grant. Discovery never holds a
-    REST worker or an agent build, including the first connection attempt.
-    False when no connect slot is free: the server joins _busy, which
-    _not_ready reports, and keeps a retry entry so status() lists it."""
+def open_personal(server_id: str, server: dict) -> None:
+    """Discovery runs on its own thread, so it never holds a REST worker or
+    an agent build, including the first connection attempt.
+    When no connect slot is free, the server joins _busy, which _not_ready
+    reports, and keeps a retry entry so status() lists it."""
     owner = str(server.get("owner") or "")
     with _lock:
         if server_id in _opening or server_id in _connections:
-            return True
+            return
         if _owner_connects.get(owner, 0) >= _PER_OWNER_CONNECTS or not _personal_slots.acquire(
             blocking=False
         ):
             _retry_state.setdefault(server_id, (0, 0.0))
             _busy.add(server_id)
-            return False
+            return
         _busy.discard(server_id)
         _owner_connects[owner] = _owner_connects.get(owner, 0) + 1
         _opening[server_id] = server
         generation = _generation
-    if not background:
-        _publish_personal([(server_id, server)], generation, owner)
-        return True
     try:
         threading.Thread(
             target=_publish_personal,
@@ -1291,7 +1281,6 @@ def open_personal(server_id: str, server: dict, *, background: bool = False) -> 
                 _schedule_retry(server_id)
         _release_slot(owner)
         log.warning("MCP retry thread failed to start - MCP will retry (%s)", type(exc).__name__)
-    return True
 
 
 # How often _sweep_personal rechecks every cached personal connection.
@@ -1364,19 +1353,12 @@ def personal_mcp_tools(person: str, reserved_names: set[str] | None = None) -> l
         for server_id, server in entries:
             if server_id in _connections or server_id in _opening:
                 continue
-            if server.get("auth") == "oauth" and (
-                not server.get("signed_in") or server.get("signin_required")
-            ):
-                # nothing to connect with until the person signs in
-                # (agents/mcp_oauth.py start); a connect here would only
-                # meet the authorization demand and refuse it
-                continue
             state = _retry_state.get(server_id)
             if state is None or state[1] <= now:
                 ready.append((server_id, server))
     _close_in_thread(close_after)
     for server_id, server in ready:
-        open_personal(server_id, server, background=True)
+        open_personal(server_id, server)
     with _lock:
         tools = [
             tool
@@ -1518,7 +1500,6 @@ def _connect_servers(
             # collide. Env servers stay unprefixed: renaming their tools
             # would stale every pending proposal keyed on the old name.
             prefix = str(server.get("name") or "") if tier == PERSONAL else ""
-            startup = _STARTUP_SECONDS
             if tier == PERSONAL:
                 # re-checked at every connect, not only at add time: the
                 # host can resolve somewhere else once the row exists.
@@ -1527,31 +1508,15 @@ def _connect_servers(
                 from ..services.mcp_servers import check_url
 
                 check_url(url)
-                auth = None
-                if server.get("auth") == "oauth":
-                    from . import mcp_oauth
-
-                    auth = mcp_oauth.provider(server)
-                    if server.get("flow") is not None:
-                        # the grant runs inside this connect's first request
-                        # and waits for a person; the desktop default of 30
-                        # seconds would cancel it mid-sign-in
-                        startup = int(mcp_oauth.FLOW_SECONDS)
-                transport = partial(
-                    _http_transport,
-                    url,
-                    headers=headers,
-                    personal=True,
-                    auth=auth,
-                )
+                transport = partial(_http_transport, url, headers=headers, personal=True)
             else:
                 transport = partial(_http_transport, url, headers=headers)
             client = (
-                MCPClient(transport, prefix=prefix, startup_timeout=startup)
+                MCPClient(transport, prefix=prefix, startup_timeout=_STARTUP_SECONDS)
                 if prefix
                 else MCPClient(transport)
             )
-            _enter_bounded(client, startup)
+            _enter_bounded(client, _STARTUP_SECONDS)
             entered = True
             found = _list_tools(client)
             if tier == PERSONAL and len(found) > _PERSONAL_TOOL_CAP:
@@ -1596,37 +1561,7 @@ def _connect_servers(
                 with contextlib.suppress(Exception):
                     client.__exit__(None, None, None)
             log.warning("MCP server '%s' failed to connect (%s)", server_id, type(exc).__name__)
-            flow = server.get("flow")
-            if flow is not None:
-                flow.unreachable = _unreachable(exc)
     return _composed_tools(connections), connections
-
-
-def _unreachable(exc: BaseException) -> bool:
-    """Whether a failed connect never got an answer: refused, timed out, or
-    a name that did not resolve. The SDK wraps a server's answer (a 404, a
-    page that is not MCP) in MCPError inside an ExceptionGroup, and a
-    connect that gets nothing ends as OSError or a transport error."""
-    import httpx
-    import httpx2
-    from mcp.shared.exceptions import MCPError
-
-    stack: list[BaseException | None] = [exc]
-    seen: set[int] = set()
-    transport = False
-    while stack:
-        current = stack.pop()
-        if current is None or id(current) in seen:
-            continue
-        seen.add(id(current))
-        if isinstance(current, MCPError):
-            return False
-        transport = transport or isinstance(
-            current, (OSError, httpx.TransportError, httpx2.TransportError)
-        )
-        stack += [current.__cause__, current.__context__]
-        stack += list(getattr(current, "exceptions", ()))
-    return transport
 
 
 def _enter_bounded(client, startup: float) -> None:
@@ -1667,14 +1602,14 @@ def _list_tools(client) -> list:
 
 
 @contextlib.asynccontextmanager
-async def _http_transport(url, *, headers=None, auth=None, personal=False):
+async def _http_transport(url, *, headers=None, personal=False):
     from mcp.client.streamable_http import streamable_http_client
 
     factory = _no_redirect_client if personal else _system_client
     # Strands enters this on its own event-loop thread. An HTTP client made
     # outside this context can retain sockets bound to the caller's loop.
     async with (
-        factory(headers=headers, auth=auth) as client,
+        factory(headers=headers) as client,
         streamable_http_client(url, http_client=client) as streams,
     ):
         yield streams
@@ -1727,7 +1662,7 @@ def _bounded_hooks() -> dict[str, list]:
     return {"request": [ask_identity], "response": [cap]}
 
 
-def _system_client(headers=None, timeout=None, auth=None):
+def _system_client(headers=None, timeout=None):
     """SKEIN_MCP_SERVERS requests follow redirects: the operator chose the URL."""
     import httpx
     import httpx2
@@ -1740,12 +1675,11 @@ def _system_client(headers=None, timeout=None, auth=None):
         timeout=timeout or httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
         verify=httpx.create_ssl_context(),
         headers=headers,
-        auth=auth,
         event_hooks=_bounded_hooks(),
     )
 
 
-def _no_redirect_client(headers=None, timeout=None, auth=None):
+def _no_redirect_client(headers=None, timeout=None):
     """Personal requests validate each destination and refuse every redirect."""
     import httpx
     import httpx2
@@ -1754,8 +1688,8 @@ def _no_redirect_client(headers=None, timeout=None, auth=None):
     from ..services.mcp_servers import check_url
 
     async def validate_destination(request: httpx2.Request) -> None:
-        # OAuth emits discovery and token requests to server-supplied URLs.
-        # Disabling redirects alone does not validate those destinations.
+        # Every request is checked, not only the connect: a session lives for
+        # the process, and its host can resolve somewhere else later.
         await asyncio.to_thread(check_url, str(request.url))
 
     async def refuse_redirect(response: httpx2.Response) -> None:
@@ -1768,7 +1702,6 @@ def _no_redirect_client(headers=None, timeout=None, auth=None):
         verify=httpx.create_ssl_context(),
         timeout=timeout or httpx2.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT),
         headers=headers,
-        auth=auth,
         event_hooks={
             "request": [validate_destination, *bounded["request"]],
             "response": [refuse_redirect, *bounded["response"]],

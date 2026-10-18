@@ -63,8 +63,6 @@ EXCLUDED = frozenset(
         "browser_sessions",
         # sealed personal tokens and private server URLs
         "mcp_servers",
-        # sign-in codes in transit, dead within minutes of the export
-        "mcp_oauth_flows",
         # revision bodies carry no tier of their own (they join their
         # document's), so an exported row would carry a private document's
         # text. The database backups keep them.
@@ -360,7 +358,6 @@ def _backup_one(args: list[str], dest: Path, prefix: str = "") -> None:
                     # Keep schema, never live browser authority: a restored
                     # archive must not undo a logout completed after its snapshot.
                     "--exclude-table-data=public.browser_sessions",
-                    "--exclude-table-data=public.mcp_oauth_flows",
                     "--file",
                     str(tmp),
                     *args,

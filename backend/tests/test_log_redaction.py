@@ -1,8 +1,8 @@
 """Outbound request URLs stay out of the INFO log.
 
 httpx and httpx2 log every request line at INFO, query string included. A
-personal MCP server's URL, an OAuth endpoint and a provider URL reach the
-log that way, and the log travels to whoever reads the pod output.
+personal MCP server's URL and a provider URL reach the log that way, and the
+log travels to whoever reads the pod output.
 """
 
 import asyncio

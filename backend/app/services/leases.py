@@ -175,14 +175,13 @@ def renew() -> int:
 
 def sweep() -> dict:
     from .. import ratelimit
-    from . import agent_wakeups, mcp_servers, shared_chat_agents
+    from . import agent_wakeups, shared_chat_agents
 
     renewed = renew()
-    for cleanup in (ratelimit.prune, mcp_servers.prune_oauth_flows):
-        try:
-            cleanup()
-        except Exception:
-            log.exception("execution cleanup failed")
+    try:
+        ratelimit.prune()
+    except Exception:
+        log.exception("execution cleanup failed")
     if not _recovery:
         return {"renewed": renewed, "wakes": {}, "chats": {}}
     wakes = (

@@ -26,7 +26,6 @@ import traceback
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 # This is an executable test, not a production input surface. SQL identifiers
@@ -42,7 +41,6 @@ DRILLS = (
     "fresh_concurrent_boot",
     "job_exclusion",
     "shared_session_revocation",
-    "oauth_other_pod",
     "cross_pod_artifact_digest",
     "signed_delivery_dedupe",
     "commit_before_ack",
@@ -672,42 +670,6 @@ class Harness:
         )
         assert self.sql("SELECT COUNT(*) AS n FROM browser_sessions")[0]["n"] == 0
         return {"created_on": "a", "used_and_revoked_on": "b"}
-
-    def oauth_other_pod(self):
-        row = self.api(
-            "a",
-            "/api/mcp/servers",
-            method="POST",
-            payload={"name": "durability-oauth", "url": "http://fixture:8080/mcp", "auth": "oauth"},
-        )[1]
-        url = self.api("a", f"/api/mcp/servers/{row['id']}/sign-in", method="POST")[1][
-            "authorization_url"
-        ]
-        state = parse_qs(urlsplit(url).query)["state"][0]
-        assert (
-            request(
-                self.pods["b"]["url"],
-                "/api/mcp/oauth/callback?state=" + state + "&code=durability-code",
-            )[0]
-            == 200
-        )
-        wait(
-            lambda: self.api("b", "/api/mcp/servers")[1]["personal"][0]["signed_in"],
-            description="OAuth token sealed by initiating pod",
-        )
-        assert len(self.events("oauth_token")) == 1
-        wait(
-            lambda: any(row["method"] == "tools/list" for row in self.events("mcp")),
-            description="authenticated MCP discovery after token storage",
-        )
-        assert (
-            request(
-                self.pods["a"]["url"],
-                "/api/mcp/oauth/callback?state=" + state + "&code=durability-code",
-            )[0]
-            == 404
-        )
-        return {"token_exchanges": 1, "real_mcp_tools_list": True}
 
     def cross_pod_artifact_digest(self):
         response, content = self.upload("a")

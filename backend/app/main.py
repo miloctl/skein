@@ -46,8 +46,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 # Both clients log every request line at INFO, query string included: a
-# personal MCP server's URL, OAuth endpoints and provider URLs would reach
-# the pod log (tests/test_log_redaction.py).
+# personal MCP server's URL and provider URLs would reach the pod log
+# (tests/test_log_redaction.py).
 for _client_log in ("httpx", "httpx2"):
     logging.getLogger(_client_log).setLevel(logging.WARNING)
 log = logging.getLogger("skein")
@@ -727,10 +727,6 @@ async def _perimeter_auth(request: Request, call_next):
         "/api/auth/",
         "/api/webhooks/forge",
         "/api/webhooks/gitlab",
-        # the OAuth authorization server sends the browser here with a code;
-        # the state nonce and the browser-binding cookie the sign-in set are
-        # the keys (routes/api.py::get_mcp_oauth_callback)
-        "/api/mcp/oauth/callback",
     )
     # OPTIONS must pass through so CORS preflights (which carry no Authorization
     # header) reach CORSMiddleware instead of 401ing here.

@@ -7555,11 +7555,11 @@ def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monke
     def resume(invocation, _change_id):
         return asyncio.run(execute_reviewed_mcp(invocation, registry))
 
-    with pytest.raises(PermissionError, match="owner's MCP sign-in"):
+    with pytest.raises(PermissionError, match="owner's personal MCP server"):
         verdict("approve", first, "manager")
     assert warmed == [], "a reviewer who can never judge the call connected it"
     # a bare X-User naming the owner proves nothing
-    with pytest.raises(PermissionError, match="owner's MCP sign-in"):
+    with pytest.raises(PermissionError, match="owner's personal MCP server"):
         review.approve_change(
             first,
             actor="requester",
@@ -7582,7 +7582,7 @@ def test_a_personal_remote_call_never_falls_open_to_any_teammate(fresh_db, monke
         sid, tool.client, (tool,), 1, "personal", stamp
     )
     rule["security"] = False
-    with pytest.raises(PermissionError, match="owner's MCP sign-in"):
+    with pytest.raises(PermissionError, match="owner's personal MCP server"):
         verdict("approve", first, "lead", ("security",))
     assert remote.called is False
     assert verdict("approve", first, "requester")["result"]["status"] == "completed"

@@ -20,10 +20,7 @@ type PersonalServer = {
   id: number;
   name: string;
   url: string;
-  auth: "token" | "oauth";
   has_token: boolean;
-  signed_in: boolean;
-  sign_in_required?: boolean;
   server_id: string;
   status: ServerStatus | null;
 };
@@ -81,13 +78,7 @@ export function McpServersCard({
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
-  const [oauth, setOauth] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
-  // a sign-in finishes in another tab: poll until the server connects, or
-  // give up after the grant's own lifetime
-  const [awaiting, setAwaiting] = useState<number | null>(null);
-  const awaitingRef = useRef<number | null>(null);
-  const [signInUrl, setSignInUrl] = useState("");
   const [busy, setBusy] = useState("");
   const restoreTo = useRef<HTMLElement | null>(null);
   const nameInput = useRef<HTMLInputElement>(null);
@@ -99,19 +90,12 @@ export function McpServersCard({
     api<Payload>("/api/mcp/servers")
       .then((p) => {
         if (mine !== gen.current) return;
-        const personal: PersonalServer[] = Array.isArray(p?.personal) ? p.personal : [];
         setData({
           sealing: !!p?.sealing,
           system: Array.isArray(p?.system) ? p.system : [],
-          personal,
+          personal: Array.isArray(p?.personal) ? p.personal : [],
         });
         setError("");
-        const row = personal.find((s) => s.id === awaitingRef.current);
-        if (row?.status?.connected) {
-          awaitingRef.current = null;
-          setAwaiting(null);
-          reportStatus(`Server "${row.name}" signed in and connected.`, "confirmation");
-        }
       })
       .catch((e) => {
         if (mine !== gen.current) return;
@@ -124,18 +108,10 @@ export function McpServersCard({
   }, [load, strong]);
   const connecting = data?.personal.some((s) => s.status?.connecting) ?? false;
   useEffect(() => {
-    if (!strong || (awaiting === null && !connecting)) return;
+    if (!strong || !connecting) return;
     const timer = setInterval(load, 3000);
     return () => clearInterval(timer);
-  }, [awaiting, connecting, load, strong]);
-  useEffect(() => {
-    if (awaiting === null) return;
-    const stop = setTimeout(() => {
-      awaitingRef.current = null;
-      setAwaiting(null);
-    }, 5 * 60 * 1000);
-    return () => clearTimeout(stop);
-  }, [awaiting]);
+  }, [connecting, load, strong]);
 
   const act = async (
     key: string,
@@ -164,19 +140,6 @@ export function McpServersCard({
       });
     }
   };
-
-  // Focus the sign-in link once it EXISTS: scheduled from the click handler,
-  // the frame can run before React commits the link (under load), find
-  // nothing, and leave focus on a disabled button. The frame is still
-  // needed: act's finally restores focus to that button in its own frame,
-  // scheduled earlier, so this one runs after it.
-  useEffect(() => {
-    if (awaiting === null || !signInUrl) return;
-    const frame = requestAnimationFrame(() =>
-      document.getElementById(`mcp-sign-in-${awaiting}`)?.focus(),
-    );
-    return () => cancelAnimationFrame(frame);
-  }, [awaiting, signInUrl]);
 
   const cancelDelete = (id: number) => {
     setDeleting(null);
@@ -254,55 +217,9 @@ export function McpServersCard({
                     <span>
                       <span className="font-medium">{s.name}</span>
                       <span className="ml-2 font-mono text-[10px] text-ink-3">
-                        {s.auth === "oauth" && s.sign_in_required
-                          ? "sign-in needed"
-                          : describe(s.status)}
+                        {describe(s.status)}
                         {s.has_token ? " · token stored" : ""}
-                        {s.auth === "oauth" && s.signed_in ? " · signed in" : ""}
                       </span>
-                      {s.auth === "oauth" && (
-                        <button
-                          disabled={!!busy || awaiting === s.id}
-                          onClick={async () => {
-                            // A link, not window.open: after the await the click's
-                            // user activation is spent, a popup blocker drops the
-                            // tab, and with noopener open() returns null either
-                            // way, so a blocked tab still read as opened.
-                            let url = "";
-                            const ok = await act(
-                              `s${s.id}`,
-                              async () => {
-                                const reply = await api<{ authorization_url: string }>(
-                                  `/api/mcp/servers/${s.id}/sign-in`,
-                                  { method: "POST" },
-                                );
-                                url = reply.authorization_url;
-                              },
-                              () => `The sign-in link for "${s.name}" is ready. Open it to sign in.`,
-                            );
-                            if (ok) {
-                              awaitingRef.current = s.id;
-                              setAwaiting(s.id);
-                              setSignInUrl(url);
-                            }
-                          }}
-                          className="ml-2 rounded-lg border border-line-strong px-2 py-0.5 text-xs hover:border-thread-solid disabled:opacity-50"
-                        >
-                          {awaiting === s.id ? "waiting for sign-in…" : "Sign in"}
-                        </button>
-                      )}
-                      {awaiting === s.id && signInUrl ? (
-                        <a
-                          id={`mcp-sign-in-${s.id}`}
-                          href={signInUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="ml-2 text-xs underline"
-                        >
-                          Open the sign-in page{" "}
-                          <span className="sr-only">for {s.name}</span>
-                        </a>
-                      ) : null}
                     </span>
                     {deleting === s.id ? (
                       <span className="flex items-center gap-1.5 text-xs">
@@ -381,8 +298,7 @@ export function McpServersCard({
                     body: JSON.stringify({
                       name: name.trim(),
                       url: url.trim(),
-                      auth_token: oauth ? "" : token,
-                      auth: oauth ? "oauth" : "token",
+                      auth_token: token,
                     }),
                   }),
                 (result) =>
@@ -392,7 +308,6 @@ export function McpServersCard({
                 setName("");
                 setUrl("");
                 setToken("");
-                setOauth(false);
               }
             }}
           >
@@ -425,19 +340,10 @@ export function McpServersCard({
               placeholder={data.sealing ? "token (optional)" : "token storage is off"}
               value={token}
               maxLength={4000}
-              disabled={!data.sealing || oauth}
+              disabled={!data.sealing}
               onChange={(e) => setToken(e.target.value)}
               className="w-56 rounded-lg border border-line-strong bg-transparent px-2 py-1 text-sm outline-none focus:border-thread-solid disabled:opacity-50"
             />
-            <label className="flex items-center gap-1 text-xs text-ink-3">
-              <input
-                type="checkbox"
-                checked={oauth}
-                disabled={!data.sealing}
-                onChange={(e) => setOauth(e.target.checked)}
-              />
-              sign in with OAuth
-            </label>
             <button
               type="submit"
               disabled={!!busy || !name.trim() || !url.trim()}
@@ -450,12 +356,6 @@ export function McpServersCard({
             <p className="mt-2 text-xs text-ink-3">
               A token cannot be stored: SKEIN_CREDENTIAL_KEY is not set. Whoever
               runs the server must set it. A server without a token can be added.
-            </p>
-          )}
-          {data.sealing && (
-            <p className="mt-2 text-xs text-ink-3">
-              If the server uses OAuth, select sign in with OAuth, add the server,
-              then select Sign in on its row. The sign-in opens in a new tab.
             </p>
           )}
         </>

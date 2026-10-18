@@ -695,17 +695,9 @@ classified nothing. A system server's writes follow the agent's `mcp-tool`
 level on the authority card, the review gate and the workplace policy. A read
 opens one review the first time that tool runs, per server, tool, and
 version, because annotations are the server's own claim. A personal tool
-joins only the chat turns its owner drives. Its token is
-sealed under `SKEIN_CREDENTIAL_KEY` and never travels in an export.
-
-A personal server that uses OAuth 2.1 signs in through the `mcp` package's
-client provider (`agents/mcp_oauth.py`). The provider runs the grant inside
-the first request of a connect. Skein parks the authorization URL for the
-settings card and receives the code on `/api/mcp/oauth/callback`, which is
-open on the perimeter and keyed on the provider's state nonce. A connect
-from a chat turn refuses a fresh authorization demand at once. Pending
-flows live in the process that started them, so the callback must reach
-that replica.
+joins only the chat turns its owner drives. Its bearer token is the only
+way it authenticates. The token is sealed under `SKEIN_CREDENTIAL_KEY` and
+never travels in an export.
 
 Skein serves the same MCP tools two ways. The in-API endpoint
 (`/api/mcp-server`, `mcp_server.remote_app`) runs inside the API process with

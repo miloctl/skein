@@ -6,7 +6,6 @@ import json
 import os
 import subprocess
 import sys
-import threading
 from pathlib import Path
 
 import pytest
@@ -132,62 +131,3 @@ def test_a_deployment_wide_cap_spent_elsewhere_refuses_here(fresh_db, pinned_win
     with pytest.raises(ratelimit.RateLimited, match="per address"):
         ratelimit.check("signin", "198.51.100.4")
     ratelimit.check("signin", "198.51.100.5")
-
-
-def test_a_sign_in_callback_on_another_process_completes_the_waiting_connect(fresh_db, monkeypatch):
-    import asyncio
-
-    from cryptography.fernet import Fernet
-    from mcp.client.auth import AuthorizationCodeResult
-
-    from app import config
-    from app.agents import mcp_oauth
-    from app.services import mcp_servers, users
-
-    key = Fernet.generate_key().decode()
-    monkeypatch.setattr(config, "CREDENTIAL_KEY", key)
-    monkeypatch.setenv("SKEIN_CREDENTIAL_KEY", key)
-    users.ensure_user("ava")
-    row = mcp_servers.add("ava", "jira", "https://jira.example/mcp", auth="oauth", actor="ava")
-    sid, server = mcp_servers.entry_for(row["id"], "ava")
-    claim = mcp_servers.claim_oauth(row["id"], "ava", mcp_oauth.FLOW_SECONDS)
-    assert (
-        other_process(
-            "from app.services import mcp_servers\n"
-            "try:\n"
-            f"    mcp_servers.claim_oauth({row['id']}, 'ava', 300)\n"
-            "except ValueError:\n"
-            "    print(json.dumps('already claimed'))\n"
-        )
-        == "already claimed"
-    )
-    flow = mcp_oauth._Flow(sid, claim)
-    provider = mcp_oauth.provider(
-        {
-            **server,
-            "oauth_redirect_uri": "https://skein.example/cb",
-            "flow": flow,
-        }
-    )
-    asyncio.run(provider.context.redirect_handler("https://idp.example/a?state=remote"))
-    box: dict = {}
-    waiter = threading.Thread(
-        target=lambda: box.update(got=asyncio.run(provider.context.callback_handler()))
-    )
-    waiter.start()
-    landed = other_process(
-        "from app.agents import mcp_oauth\n"
-        "print(json.dumps(mcp_oauth.complete('remote', 'code-r', iss='https://idp.example')))"
-    )
-    assert landed is True
-    waiter.join(10)
-    assert box["got"] == AuthorizationCodeResult(
-        code="code-r", state="remote", iss="https://idp.example"
-    )
-    assert (
-        other_process(
-            "from app.agents import mcp_oauth\nprint(json.dumps(mcp_oauth.complete('remote', 'again')))"
-        )
-        is False
-    )
-    mcp_servers.release_oauth(claim)

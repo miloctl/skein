@@ -26,7 +26,6 @@ PRUNE_LABEL = {
     "mention_log": "orphan mention record",
     "extension_outbox": "delivered extension event",
     "browser_sessions": "expired browser session",
-    "mcp_oauth_flows": "expired MCP sign-in",
     "rate_hits": "expired rate window",
     "sessions": "model session",
     "artifacts": "old daily digest",
@@ -168,10 +167,9 @@ def prune(*, actor: str = "scheduler") -> dict:
     # is bounded in practice by the chat cap, and chat_threads.delete_thread
     # removes a thread's traces with the thread.
     from .. import ratelimit
-    from . import browser_sessions, mcp_servers
+    from . import browser_sessions
 
     removed = {
-        "mcp_oauth_flows": mcp_servers.prune_oauth_flows(),
         "rate_hits": ratelimit.prune(),
         "forecast_snapshots": db.execute_rowcount(
             "DELETE FROM forecast_snapshots WHERE created_at < ?",

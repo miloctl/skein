@@ -1287,15 +1287,6 @@ def rename_user(
             " AND target.client_key = source.client_key)",
             (old, new),
         )
-        # OAuth providers retain their original owner. Cancel their claims
-        # before moving servers, or the new owner cannot start a usable grant.
-        # Hold servers before flows, matching deletion's foreign-key cascade.
-        db.query("SELECT id FROM mcp_servers WHERE owner = ? ORDER BY id FOR UPDATE", (old,))
-        db.execute(
-            "DELETE FROM mcp_oauth_flows WHERE server_id IN"
-            " (SELECT id FROM mcp_servers WHERE owner = ?)",
-            (old,),
-        )
         for table, cols in _ATTRIBUTION.items():
             for col in cols:
                 # The column name is QUOTED because `user` is one of them and
@@ -1621,11 +1612,8 @@ def set_active(name: str, active: bool, *, actor: str = "system") -> dict:
             db.execute("DELETE FROM browser_sessions WHERE user_id = ?", (row["id"],))
             # The registrations stay through erasure.GRACE_DAYS like the rest
             # of the account (erasure.erase deletes them): a wrong deactivation
-            # must be undoable. The live connections and any open OAuth
-            # sign-in go now: a callback that lands after this must not
-            # complete a grant for an account that can no longer act, and a
-            # personal tool joins no turn without the owner's key or sign-in.
-            db.execute("DELETE FROM mcp_oauth_flows WHERE owner = ?", (name,))
+            # must be undoable. The live connections go now: a personal tool
+            # joins no turn without the owner's key or sign-in.
             forget_owner(name)
             # a deactivated account's accepted consent must not keep its brief
             # open, nor let it keep pulling others' (pairings.record_brief)

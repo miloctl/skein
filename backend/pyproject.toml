@@ -12,7 +12,7 @@ dependencies = [
     # Older Strands releases require MCP 1.x, which lacks our server/client API.
     "strands-agents[anthropic,openai,ollama]>=1.55.1",
     "mcp>=2.1.1,<2.2",
-    # The MCP transport and OAuth client import HTTPX2 directly.
+    # The MCP transport imports HTTPX2 directly.
     "httpx2>=2.9",
     # HTTPX builds the TLS context that preserves existing certificate trust.
     "httpx>=0.28.1,<1",
@@ -157,9 +157,6 @@ ignore_names = [
     # RoutineIn and RoutinePatch fields, read via model_dump() in services/routines.py
     "weekdays", "every_weeks",
     "model_config",  # pydantic v2 model settings, read by the metaclass
-    # OAuthClientProvider reads this flag in the MCP SDK. Our refresh-CAS
-    # failure hook clears it so the next request reloads the stored grant.
-    "_initialized",
     # request.state fields the perimeter middleware sets and routes/deps.py
     # reads back through getattr, which static analysis cannot follow
     "auth_key_owner", "auth_claims", "auth_human_owner", "auth_browser_identity",
@@ -179,9 +176,6 @@ ignore_names = [
     # reset - the same place receipts.reset() is called from, which escapes
     # this list only because the bare name `reset` is used inside app/ too
     "reset_consults",
-    # the mcp package's TokenStorage protocol, called by its OAuth client
-    # provider alone (agents/mcp_oauth.py::_SealedStorage)
-    "get_tokens", "set_tokens", "get_client_info", "set_client_info",
     # PyJWT calls the safe redirect and cache override through its base class
     "fetch_data",
     # the strands SDK calls register_hooks on every session manager it is

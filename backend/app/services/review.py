@@ -687,7 +687,7 @@ def _check_personal_mcp_judge(
         or required_capabilities - set(capabilities)
     ):
         raise PermissionError(
-            "This call runs on its owner's MCP sign-in. Only its owner or a"
+            "This call runs on its owner's personal MCP server. Only its owner or a"
             " configured workplace approver can judge it."
         )
 
@@ -1238,7 +1238,7 @@ def _revalidate_policy(
         except (KeyError, TypeError, ValueError, PublicError) as exc:
             from ..agents.mcp_tools import MCPServerNotReady
 
-            # It names its own fix (wait, or sign in again). "Request a new
+            # It names its own fix (wait, then approve again). "Request a new
             # review" sends the reviewer to a new proposal that fails the
             # same way.
             if not approving or isinstance(exc, MCPServerNotReady):

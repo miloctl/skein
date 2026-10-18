@@ -869,25 +869,6 @@ def test_a_cold_personal_server_warms_on_approval_and_answers_retry(
     assert (warm.json()["status"], warm.json()["result"]["status"]) == ("approved", "completed")
 
 
-def test_a_signed_out_oauth_server_asks_for_a_sign_in_not_a_retry(fresh_db, monkeypatch, clean_mcp):
-    """A failed refresh sets oauth_signin_required and keeps the sealed
-    tokens, so signed_in alone read as ready and every approval answered
-    "wait 10 seconds" for a server that could not connect."""
-    from cryptography.fernet import Fernet
-
-    from app.services import mcp_servers
-
-    m = clean_mcp
-    monkeypatch.setattr("app.config.CREDENTIAL_KEY", Fernet.generate_key().decode())
-    mcp_servers.add("ava", "wiki", "https://wiki.example/mcp", auth="oauth", actor="ava")
-    fresh_db.execute(
-        "UPDATE mcp_servers SET oauth_tokens_sealed = 'x', oauth_signin_required = TRUE"
-    )
-    with pytest.raises(m.MCPServerNotReady) as refused:
-        m._governed("wiki_search", "personal:ava:wiki")
-    assert (refused.value.code, refused.value.status_code) == ("MCP_SIGN_IN_REQUIRED", 409)
-
-
 def test_a_shared_server_that_is_down_is_not_ready_and_loads_off_the_verdict(
     monkeypatch, clean_mcp
 ):

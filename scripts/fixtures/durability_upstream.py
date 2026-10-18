@@ -1,4 +1,4 @@
-"""Local effect recorder, OAuth MCP server, HTTP router and per-pod DB links."""
+"""Local effect recorder, HTTP router and per-pod DB links."""
 
 # ruff: noqa: S101, S104 - test assertions and container-internal listeners
 import http.client
@@ -9,7 +9,7 @@ import socket
 import socketserver
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 LOCK = threading.Condition()
 STATE = {
@@ -21,7 +21,6 @@ STATE = {
     "db_a": True,
     "db_b": True,
 }
-BASE = "http://fixture:8080"
 
 
 def event(kind, value):
@@ -60,13 +59,11 @@ class Handler(BaseHTTPRequestHandler):
     def body(self):
         return self.rfile.read(int(self.headers.get("Content-Length", "0")))
 
-    def reply(self, status, value, headers=None):
+    def reply(self, status, value):
         body = json.dumps(value).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        for key, val in (headers or {}).items():
-            self.send_header(key, val)
         self.end_headers()
         self.wfile.write(body)
 
@@ -112,26 +109,6 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/state":
             with LOCK:
                 return self.reply(200, STATE)
-        if path.startswith("/.well-known/oauth-protected-resource"):
-            return self.reply(200, {"resource": BASE + "/mcp", "authorization_servers": [BASE]})
-        if path.startswith("/.well-known/oauth-authorization-server") or path.startswith(
-            "/.well-known/openid-configuration"
-        ):
-            return self.reply(
-                200,
-                {
-                    "issuer": BASE,
-                    "authorization_endpoint": BASE + "/authorize",
-                    "token_endpoint": BASE + "/token",
-                    "registration_endpoint": BASE + "/register",
-                    "response_types_supported": ["code"],
-                    "grant_types_supported": ["authorization_code", "refresh_token"],
-                    "code_challenge_methods_supported": ["S256"],
-                    "token_endpoint_auth_methods_supported": ["none"],
-                },
-            )
-        if path == "/mcp":
-            return self.reply(405, {})
         return self.proxy()
 
     def do_POST(self):
@@ -158,48 +135,6 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith(("/observed/", "/effect/")):
             event(path.strip("/"), json.loads(body))
             return self.reply(200, {"recorded": True})
-        if path == "/register":
-            return self.reply(
-                201,
-                {
-                    **json.loads(body),
-                    "client_id": "durability-client",
-                    "token_endpoint_auth_method": "none",
-                },
-            )
-        if path == "/token":
-            values = parse_qs(body.decode())
-            if values.get("code") != ["durability-code"]:
-                return self.reply(400, {"error": "invalid_grant"})
-            event("oauth_token", {"code": "redeemed"})
-            return self.reply(
-                200,
-                {"access_token": "durability-access", "token_type": "Bearer", "expires_in": 3600},
-            )
-        if path == "/mcp":
-            if self.headers.get("Authorization") != "Bearer durability-access":
-                return self.reply(
-                    401,
-                    {},
-                    {
-                        "WWW-Authenticate": f'Bearer resource_metadata="{BASE}/.well-known/oauth-protected-resource"'
-                    },
-                )
-            value = json.loads(body)
-            if "id" not in value:
-                return self.reply(202, {})
-            method = value.get("method")
-            result = (
-                {"tools": []}
-                if method == "tools/list"
-                else {
-                    "protocolVersion": value.get("params", {}).get("protocolVersion", "2025-03-26"),
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "durability-fixture", "version": "1.0"},
-                }
-            )
-            event("mcp", {"method": method})
-            return self.reply(200, {"jsonrpc": "2.0", "id": value["id"], "result": result})
         return self.proxy(body)
 
     def do_DELETE(self):

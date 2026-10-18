@@ -715,10 +715,6 @@ UNSCOPED: dict[str, str] = {
     ),
     "forge_receipts": "provider-namespaced delivery IDs and body digests; task joins must apply the task viewer filter",
     "rate_hits": "a count per surface, key and minute - a name or an address, no content",
-    "mcp_oauth_flows": (
-        "server-bound OAuth ownership and callback nonces, with sealed one-time codes;"
-        " expires in minutes, pruned on the lease sweep, excluded from export and backups"
-    ),
     "mention_log": "a dedupe key, not content",
     "released_names": "a folded name and a time, no content",
     "notification_reads": (

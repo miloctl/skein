@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -84,17 +84,6 @@ def _oidc_session(monkeypatch):
     )
 
 
-def _oauth_flow():
-    from app.services import mcp_servers
-
-    server = mcp_servers.add(
-        "restore-owner", "oauth", "https://mcp.example/mcp", auth="oauth", actor="restore-owner"
-    )
-    claim = mcp_servers.claim_oauth(server["id"], "restore-owner", 300)
-    mcp_servers.register_oauth_state(claim, "restore-flow")
-    assert mcp_servers.complete_oauth("restore-flow", "restore-code", False)
-
-
 def _queued_work(db, monkeypatch):
     from app.services import (
         agent_wakeups,
@@ -157,7 +146,6 @@ def _restricted_restore_drill(db, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", data)
     issued = _oidc_session(monkeypatch)
     _queued_work(db, monkeypatch)
-    _oauth_flow()
     key = api_keys.create_key("restore-owner")
     # a document's text is in its revision rows, so the dump alone restores
     # it. A digest report is a file on the artifact volume, and it is the
@@ -190,7 +178,6 @@ def _restricted_restore_drill(db, tmp_path, monkeypatch):
             text=True,
         ).stdout
         assert " TABLE DATA public browser_sessions " not in listing
-        assert " TABLE DATA public mcp_oauth_flows " not in listing
         restore_list = tmp_path / "restore.list"
         restore_list.write_text(
             "\n".join(line for line in listing.splitlines() if " SCHEMA - " not in line)
@@ -229,7 +216,6 @@ def _restricted_restore_drill(db, tmp_path, monkeypatch):
         claims = db.query("SELECT * FROM job_runs ORDER BY job, run_key")
         _apply_fence()
         assert db.query("SELECT * FROM browser_sessions") == []
-        assert db.query("SELECT * FROM mcp_oauth_flows") == []
         assert db.query_row("SELECT active FROM api_keys WHERE id = ?", (key["id"],))["active"] == 0
         with pytest.raises(browser_sessions.SessionInvalid):
             browser_sessions.authenticate(issued.cookie, mode="oidc")
@@ -260,7 +246,6 @@ def test_preboot_fence_invalidates_restored_revoked_oidc_authority(
     from app.services import admin, api_keys, browser_sessions
 
     issued = _oidc_session(monkeypatch)
-    _oauth_flow()
     key = api_keys.create_key("restore-owner")
     env = admin._pg_env()
     archive = tmp_path / "external-full.dump"
@@ -291,9 +276,7 @@ def test_preboot_fence_invalidates_restored_revoked_oidc_authority(
         capture_output=True,
     )
     assert browser_sessions.authenticate(issued.cookie, mode="oidc").user == "restore-owner"
-    assert scratch_db.query("SELECT * FROM mcp_oauth_flows")
     _apply_fence()
-    assert scratch_db.query("SELECT * FROM mcp_oauth_flows") == []
     assert (
         scratch_db.query_row("SELECT active FROM api_keys WHERE id = ?", (key["id"],))["active"]
         == 0
@@ -411,33 +394,9 @@ def test_preboot_fence_cancels_restored_pending_merge_requests(scratch_db):
 
 
 def test_preboot_fence_accepts_backups_before_session_and_queue_tables(scratch_db):
-    for table in ("browser_sessions", "mcp_oauth_flows", "chat_agent_runs", "agent_wakeups"):
+    for table in ("browser_sessions", "chat_agent_runs", "agent_wakeups"):
         scratch_db.execute(f"DROP TABLE {table} CASCADE")
     _apply_fence()
-
-
-@pytest.mark.parametrize("operation", ["restore", "upgrade"])
-def test_legacy_plaintext_oauth_flows_are_discarded(scratch_db, operation):
-    migrations = ROOT / "backend/app/core_migrations"
-    legacy = (migrations / "024_process_memory_rows.sql").read_text().split("ALTER TABLE", 1)[0]
-    scratch_db.execute("DROP TABLE mcp_oauth_flows")
-    scratch_db.execute(legacy)
-    scratch_db.execute(
-        "INSERT INTO mcp_oauth_flows (state, server_id, code, done, created_at, expires_at)"
-        " VALUES (?, ?, ?, TRUE, ?, ?)",
-        (
-            "legacy-state",
-            "personal:restore-owner:oauth",
-            "unsealed-code",
-            scratch_db.now(),
-            (datetime.now(UTC) + timedelta(minutes=5)).isoformat(timespec="seconds"),
-        ),
-    )
-    if operation == "restore":
-        _apply_fence()
-    else:
-        scratch_db.execute((migrations / "027_oauth_flow_ownership.sql").read_text())
-    assert scratch_db.query("SELECT * FROM mcp_oauth_flows") == []
 
 
 def test_preboot_fence_rolls_back_on_unexpected_schema(scratch_db):
@@ -465,13 +424,11 @@ def test_manual_backup_command_excludes_session_data(fresh_db, tmp_path, monkeyp
     from app.services import admin
 
     _oidc_session(monkeypatch)
-    _oauth_flow()
     guide = README.read_text()
     command = re.search(r"^pg_dump --format=custom.*(?:\n .*?)*", guide, re.M)
     assert command, "The manual recovery point needs an executable pg_dump command"
     argv = shlex.split(command[0].replace("\\\n", ""))
     assert "--exclude-table-data=public.browser_sessions" in argv
-    assert "--exclude-table-data=public.mcp_oauth_flows" in argv
     assert "--schema" not in " ".join(argv)
     env = admin._pg_env()
     archive = tmp_path / "manual.dump"
@@ -487,8 +444,6 @@ def test_manual_backup_command_excludes_session_data(fresh_db, tmp_path, monkeyp
     )
     assert " TABLE public browser_sessions " in result.stdout
     assert " TABLE DATA public browser_sessions " not in result.stdout
-    assert " TABLE public mcp_oauth_flows " in result.stdout
-    assert " TABLE DATA public mcp_oauth_flows " not in result.stdout
     assert " TABLE DATA public users " in result.stdout
 
 

@@ -183,7 +183,8 @@ def test_shutdown_prevents_commit_when_database_revocation_fails(fresh_db, monke
 def test_slow_maintenance_does_not_block_the_heartbeat(fresh_db, monkeypatch):
     import threading
 
-    from app.services import leases, mcp_servers
+    from app import ratelimit
+    from app.services import leases
 
     entered, release, renewed = threading.Event(), threading.Event(), threading.Event()
     original_renew = leases.renew
@@ -200,7 +201,7 @@ def test_slow_maintenance_does_not_block_the_heartbeat(fresh_db, monkeypatch):
 
     monkeypatch.setattr(leases, "HEARTBEAT_SECONDS", 0.02)
     monkeypatch.setattr(leases, "renew", renew)
-    monkeypatch.setattr(mcp_servers, "prune_oauth_flows", cleanup)
+    monkeypatch.setattr(ratelimit, "prune", cleanup)
     token = fresh_db.claim_job("healthy", "turn", lease_seconds=90)
     assert token
     with leases.held(token):

@@ -93,6 +93,46 @@ def test_forge_fingerprint_index_upgrade_keeps_duplicate_receipts_and_activity(s
     assert len(scratch_db.query("SELECT * FROM forge_receipts")) == 3
 
 
+def test_retiring_mcp_oauth_keeps_the_server_and_drops_its_grant(scratch_db):
+    """A row added with OAuth keeps the name and URL its owner typed and
+    becomes a token server with no token. The sealed grant and the flow
+    table go, so nothing can complete an old sign-in."""
+    from app.services import mcp_servers
+
+    # rebuild the schema as it stood before 048_retire_mcp_oauth.sql
+    for name in (
+        "020_mcp_oauth.sql",
+        "024_process_memory_rows.sql",
+        "027_oauth_flow_ownership.sql",
+        "034_mcp_oauth_browser_binding.sql",
+    ):
+        scratch_db.execute((MIGRATIONS / name).read_text())
+    scratch_db.execute("DELETE FROM schema_version WHERE version = '048_retire_mcp_oauth.sql'")
+    now = scratch_db.now()
+    sid = scratch_db.execute(
+        "INSERT INTO mcp_servers (scope, owner, name, url, auth, oauth_tokens_sealed,"
+        " oauth_client_sealed, oauth_redirect_uri, created_at, updated_at)"
+        " VALUES ('personal', 'ava', 'jira', 'https://jira.example/mcp', 'oauth', ?, ?, ?, ?, ?)"
+        " RETURNING id",
+        (b"sealed-grant", b"sealed-client", "https://skein.example/cb", now, now),
+    )
+    scratch_db.execute(
+        "INSERT INTO mcp_oauth_flows (claim_id, server_id, owner, created_at, expires_at)"
+        " VALUES ('claim', ?, 'ava', ?, ?)",
+        (sid, now, now),
+    )
+    scratch_db.init_db()
+    assert scratch_db.query_one("SELECT to_regclass('public.mcp_oauth_flows') AS t")["t"] is None
+    row = scratch_db.query_one("SELECT * FROM mcp_servers WHERE id = ?", (sid,))
+    assert not [column for column in row if "oauth" in column or column == "auth"]
+    assert (row["name"], row["url"], row["auth_token_sealed"]) == (
+        "jira",
+        "https://jira.example/mcp",
+        None,
+    )
+    assert mcp_servers.list_for("ava")[0]["has_token"] is False
+
+
 def test_pending_migrations_empty_after_init(scratch_db):
     assert scratch_db.pending_migrations() == []
     scratch_db.execute("DELETE FROM schema_version WHERE version = ?", (BASELINE,))

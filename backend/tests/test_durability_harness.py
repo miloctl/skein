@@ -185,7 +185,7 @@ def test_signed_delivery_drill_preserves_human_edit_on_native_redelivery(
     assert result["human_edit_preserved"] is True
     assert sum("status" in response for response in result["responses"]) == 1
     assert sum("ignored" in response for response in result["responses"]) == 1
-    assert len(harness.DRILLS) == 16
+    assert len(harness.DRILLS) == 15
 
 
 def test_storage_oracle_requires_actual_filesystem_failure(monkeypatch):

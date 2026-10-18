@@ -33,14 +33,19 @@ keeps its existing `minimum_core` and needs no change.
 - The authority card lists "run a write on a remote MCP server" for each agent. An administrator can forbid an agent's writes through the system MCP servers, or let them run without review. Before, the level existed in policy, but no one could set it.
 - A task create and a new engagement that adopts the task's milestone no longer interleave. Before, a task that named another engagement could land between the adoption's check and its update, which left a task whose milestone and engagement disagree, decided for a milestone with no project type. That create now waits and is refused.
 - The personal MCP server URL check unwraps the IPv4 address inside a 6to4 or Teredo IPv6 address. Before, `2002:a9fe:a9fe::1` counted as a private address and reached the cloud metadata service.
+- A personal MCP server signs in with a token only. OAuth sign-in is removed: `POST /api/mcp/servers/{server_id}/sign-in` and `GET /api/mcp/oauth/callback` no longer exist, the Settings card has no sign-in control, and `GET /api/mcp/servers` no longer reports `auth`, `signed_in` or `sign_in_required`. `POST /api/mcp/servers` still accepts `auth: "token"` and refuses any other value with a 400: "OAuth sign-in for MCP servers was removed. Add the server with a token."
 
 ### Operations
+
+- On upgrade, migration `048_retire_mcp_oauth.sql` drops the `mcp_oauth_flows` table and the OAuth columns of `mcp_servers`. A server added with OAuth keeps its name and URL, but it loses its grant and stops connecting. Its owner deletes it and adds it again with a token, such as a GitLab fine-grained personal access token with the MCP permission. `SKEIN_CREDENTIAL_KEY` stays: it seals those tokens.
+
+- The manual `pg_dump` command and the restore fence in `deploy/k8s/README.md` no longer name `mcp_oauth_flows` or the OAuth columns. If you keep a copy of the fence SQL, replace it with the new one: the earlier SQL fails on a backup made after this upgrade.
 
 - A `SKEIN_MCP_SERVERS` entry ignores `derive` and `tier`, two keys that belong to personal servers. With `"derive": true`, an entry replaced its declared `tools` block with the server's own annotations and skipped the first-use review. Such an entry now exposes only the tools it declares. The example in `backend/.env.example` now points at a complete entry.
 
 - A negative `SKEIN_OIDC_LEEWAY` takes the 30-second default. Before, it became 0, which refused a token on any clock skew. An explicit 0 still sets zero tolerance.
 
-- The server log no longer carries the httpx request line for each outbound call (MCP servers, OAuth endpoints, model providers). Those lines held full URLs, query strings included. Warnings and errors from both HTTP clients still log.
+- The server log no longer carries the httpx request line for each outbound call (MCP servers, model providers). Those lines held full URLs, query strings included. Warnings and errors from both HTTP clients still log.
 
 ## 0.6.17 - 2026-10-17
 

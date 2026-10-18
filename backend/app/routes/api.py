@@ -4,14 +4,13 @@ alongside agent tools - both go through app.services)."""
 import asyncio
 import json
 import logging
-import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import config, db, ratelimit
@@ -2374,7 +2373,10 @@ class McpServerIn(BaseModel):
     name: str = Field(..., max_length=40)
     url: str = Field(..., max_length=2000)
     auth_token: str = Field("", max_length=4000)
-    auth: Literal["token", "oauth"] = "token"
+    # Existing clients send auth="token", the one mode left. post_mcp_server
+    # refuses any other value with a 400 that names the fix. A Literal here
+    # answers 422, which names no fix.
+    auth: str = Field("token", max_length=20)
 
 
 # StrongUser throughout, as /keys: a personal server carries a credential and
@@ -2390,8 +2392,6 @@ def get_mcp_servers(user: StrongUser):
     live = {row["server_id"]: row for row in status()}
     for row in mine:
         row["status"] = live.get(row["server_id"])
-        required = row.pop("oauth_signin_required")
-        row["sign_in_required"] = row["auth"] == "oauth" and (not row["signed_in"] or required)
     # an env server's URL is deployment shape; only its name and health show
     return {
         "sealing": credentials.available(),
@@ -2405,7 +2405,9 @@ def post_mcp_server(body: McpServerIn, user: StrongUser):
     from ..agents.mcp_tools import personal_mcp_tools, status
 
     ratelimit.check("write", user)
-    row = mcp_servers.add(user, body.name, body.url, body.auth_token, auth=body.auth, actor=user)
+    if body.auth != "token":
+        raise ValueError("OAuth sign-in for MCP servers was removed. Add the server with a token.")
+    row = mcp_servers.add(user, body.name, body.url, body.auth_token, actor=user)
     # A remote startup timeout must not occupy a REST worker. Discovery runs
     # in the background; GET /mcp/servers reports its eventual result.
     personal_mcp_tools(user)
@@ -2417,72 +2419,6 @@ def post_mcp_server(body: McpServerIn, user: StrongUser):
 def delete_mcp_server(server_id: int, user: StrongUser):
     ratelimit.check("write", user)
     return mcp_servers.delete(server_id, user, actor=user)
-
-
-@router.post("/mcp/servers/{server_id}/sign-in")
-def post_mcp_sign_in(server_id: int, request: Request, response: Response, user: StrongUser):
-    """Begin the OAuth grant for one of the caller's servers. The reply
-    carries the authorization URL the browser must open; the authorization
-    server sends the code to the callback below."""
-    from ..agents import mcp_oauth
-
-    ratelimit.check("write", user)
-    sid, server = mcp_servers.entry_for(server_id, user)
-    if server["auth"] != "oauth":
-        raise ValueError("This server uses a bearer token. Delete it and add it again with OAuth.")
-    # the URI the browser must reach, registered with the authorization
-    # server as this client's redirect. Behind a router the scheme is the
-    # forwarded one when the deployment trusts its proxy (SKEIN_TRUST_PROXY_HOPS).
-    base = request.base_url
-    if config.TRUST_PROXY_HOPS and request.headers.get("x-forwarded-proto"):
-        base = base.replace(scheme=request.headers["x-forwarded-proto"].split(",")[0].strip())
-    redirect_uri = f"{base}api/mcp/oauth/callback"
-    server["oauth_redirect_uri"] = redirect_uri
-    # The callback accepts only the browser that holds this cookie
-    # (mcp_servers.oauth_browser_matches).
-    browser = secrets.token_urlsafe(32)
-    server["oauth_browser"] = browser
-    url = mcp_oauth.start(sid, server)
-    response.set_cookie(
-        f"{mcp_oauth.BROWSER_COOKIE}{server['id']}",
-        browser,
-        max_age=int(mcp_oauth.FLOW_SECONDS),
-        path="/",
-        secure=True,
-        httponly=True,
-        samesite="lax",
-    )
-    return {"authorization_url": url}
-
-
-@router.get("/mcp/oauth/callback", response_class=HTMLResponse)
-def get_mcp_oauth_callback(
-    request: Request, state: str = "", code: str = "", error: str = "", iss: str | None = None
-):
-    """Where the authorization server sends the browser back. Open on the
-    perimeter (main.py open_paths): the browser arrives from the IdP with
-    no Skein credential. The state is the provider's 256-bit nonce, and the
-    browser must also hold the cookie the sign-in set. Nothing here is
-    echoed, and an unknown state or browser learns nothing."""
-    from ..agents import mcp_oauth
-
-    held = [v for k, v in request.cookies.items() if k.startswith(mcp_oauth.BROWSER_COOKIE)]
-    if (
-        not state
-        or not mcp_servers.oauth_browser_matches(state, held)
-        or not mcp_oauth.complete(state, code, error or "", iss=iss)
-    ):
-        return HTMLResponse(
-            "<p>This sign-in is not known. Start it again from Skein Settings.</p>",
-            status_code=404,
-        )
-    if error:
-        return HTMLResponse(
-            "<p>The sign-in was refused. Start it again from Skein Settings.</p>", status_code=400
-        )
-    return HTMLResponse(
-        "<p>Sign-in received. Return to Skein Settings. This tab can be closed.</p>"
-    )
 
 
 @router.get("/admin/keys")
