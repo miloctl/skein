@@ -605,10 +605,12 @@ def _set_authority_locked(
     if (actor_row and actor_row["kind"] == "agent") or actor == agent:
         raise ValueError("authority levels are set by humans, not by the agent itself")
     from ..tools._gate import ALWAYS_REVIEW
+    from .lexicon import AUTHORITY_ONLY
     from .review import _registry
 
-    if entity not in _registry():
-        raise ValueError(f"unknown entity - one of {sorted(_registry())}")
+    known = set(_registry()) | {e for e, _action in AUTHORITY_ONLY}
+    if entity not in known:
+        raise ValueError(f"unknown entity - one of {sorted(known)}")
     # routes/api.py hides these from the picker because no agent tool passes
     # them to the gate. Validating there but not here let a direct POST store
     # a grant the picker cannot produce and the gate never reads - a row on

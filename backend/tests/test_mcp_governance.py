@@ -1,6 +1,6 @@
-"""A remote MCP call after a scoped read never carries that text out unreviewed.
+"""A remote MCP tool call takes the governance a gated write takes.
 
-A turn that read a row only the requester or their crew can read
+After a scoped read: a turn that read a row only the requester or their crew can read
 (identity.note_scoped_read) holds that text in the model's context. Any
 remote call's arguments are model-chosen, so a read-effect call is an egress
 channel to the server, and a write's proposal payload quotes the arguments
@@ -44,7 +44,7 @@ class _Remote:
         yield {"toolUseId": tool_use["toolUseId"], "status": "success", "content": []}
 
 
-def _run(effect, *, scoped):
+def _run(effect, *, scoped, agent=""):
     remote = _Remote()
     tool = GovernedMCPTool(
         remote,
@@ -64,6 +64,7 @@ def _run(effect, *, scoped):
         "lookup-server",
     )
     engine = set_policy_engine(PolicyEngine())
+    agent_token = identity.set_agent_identity(agent) if agent else None
     subject = set_policy_subject(PolicySubject("ava", strong=True))
     viewer = identity.set_requester_viewer(scope.Viewer("ava", True))
     if scoped:
@@ -80,6 +81,8 @@ def _run(effect, *, scoped):
     try:
         events = asyncio.run(go())
     finally:
+        if agent_token is not None:
+            identity.reset_agent_identity(agent_token)
         identity.reset_requester_viewer(viewer)
         reset_policy_subject(subject)
         reset_policy_engine(engine)
@@ -111,3 +114,25 @@ def test_a_team_reviewed_call_after_a_scoped_read_is_refused(fresh_db, monkeypat
     assert not remote.called
     assert result["status"] == "error" and "only you or your crew" in result["content"][0]["text"]
     assert fresh_db.query_one("SELECT count(*) AS n FROM pending_changes")["n"] == 0
+
+
+def test_an_operator_can_forbid_an_agents_remote_writes(fresh_db):
+    """CorePolicy reads the agent's "mcp-tool" level for every system MCP
+    write. With no way to store one, nobody could forbid an agent's remote
+    writes, and with SKEIN_AGENT_REVIEW=0 they applied directly."""
+    from app.services import delegation, users
+
+    users.ensure_user("boss")
+    delegation.set_authority("scout", "mcp-tool", "forbidden", actor="boss")
+    remote, result = _run("write", scoped=False, agent="scout")
+    assert not remote.called
+    assert "denied" in result["content"][0]["text"]
+
+    delegation.set_authority("scout", "mcp-tool", "autonomous", actor="boss")
+    remote, result = _run("write", scoped=False, agent="scout")
+    assert remote.called and result["status"] == "success"
+
+
+def test_the_authority_card_offers_remote_tools(client):
+    entities = client.get("/api/agents/entities").json()["entities"]
+    assert any(e["entity"] == "mcp-tool" and e["label"] != "mcp-tool" for e in entities)

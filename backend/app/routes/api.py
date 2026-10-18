@@ -3261,7 +3261,7 @@ def get_agent_entities(user: CurrentUser):
 
     # one set, shared with set_authority: if the two sets differ, a direct
     # POST stores a grant this picker cannot produce
-    from ..services.lexicon import entity_label
+    from ..services.lexicon import AUTHORITY_ONLY, entity_label
     from ..services.review import _registry
     from ..tools._gate import ALWAYS_REVIEW
 
@@ -3271,11 +3271,12 @@ def get_agent_entities(user: CurrentUser):
         # same grant also resolves them
         "entities": [
             {"entity": e, "label": entity_label(e)}
-            for e in sorted(_registry())
+            for e in sorted(set(_registry()) | {e for e, _action in AUTHORITY_ONLY})
             if e not in NO_AUTHORITY
         ],
-        # the gate takes the review path for these before it reads the level,
-        # so the card must not offer or display "acts alone" for them
+        # extensions/policy.py::CorePolicy sends these to review at every level
+        # short of forbidden, so the card must not offer or display "acts
+        # alone" for them
         "always_review": sorted(ALWAYS_REVIEW),
     }
 

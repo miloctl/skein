@@ -312,9 +312,9 @@ class GovernedMCPTool(AgentTool):
             )
             return
         # A personal server's write needs a human even under PERMIT: its
-        # owner classified nothing, and the authority matrix has no mcp-tool
-        # level that could relax it (delegation.set_authority refuses the
-        # entity). The engine's decision object stays as decided -
+        # owner classified nothing, so no "mcp-tool" authority level relaxes
+        # it - that level governs the system tier. The engine's decision
+        # object stays as decided -
         # services/review.py recomputes the approval fingerprint from it, and
         # a substituted REVIEW decision would stale every approval.
         # The database calls run on a worker thread (asyncio.to_thread copies

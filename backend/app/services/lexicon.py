@@ -19,6 +19,11 @@ hash-chained ledger and those rows can never be rewritten (CLAUDE.md), so
 nothing here may be fed back into a stored string.
 """
 
+# Authority rows that no review-registry applier handles: CorePolicy reads
+# the agent's "mcp-tool" level for every system MCP write
+# (extensions/policy.py), so the card and set_authority must offer it.
+AUTHORITY_ONLY = frozenset({("mcp-tool", "run")})
+
 # Review records for extension executions use these fixed pseudo-entities.
 # They are not part of the legacy authority registry, but they still reach
 # the same human approval interface and therefore need stable labels.
@@ -37,6 +42,7 @@ REVIEW_ONLY = frozenset(
 CAPABILITY: dict[tuple[str, str], str] = {
     ("absence", "create"): "add time away for a teammate",
     ("authority", "create"): "change what an agent can do alone",
+    ("mcp-tool", "run"): "run a write on a remote MCP server",
     ("blocker", "create"): "raise a blocker",
     ("blocker", "update"): "resolve a blocker",
     ("blocker_edit", "update"): "change a blocker or its owner",
