@@ -45,6 +45,11 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+# Both clients log every request line at INFO, query string included: a
+# personal MCP server's URL, OAuth endpoints and provider URLs would reach
+# the pod log (tests/test_log_redaction.py).
+for _client_log in ("httpx", "httpx2"):
+    logging.getLogger(_client_log).setLevel(logging.WARNING)
 log = logging.getLogger("skein")
 
 

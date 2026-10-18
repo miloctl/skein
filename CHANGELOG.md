@@ -28,6 +28,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- The server log no longer carries the httpx request line for each outbound call (MCP servers, OAuth endpoints, model providers). Those lines held full URLs, query strings included. Warnings and errors from both HTTP clients still log.
+
 ## 0.6.17 - 2026-10-17
 
 ### Contracts
