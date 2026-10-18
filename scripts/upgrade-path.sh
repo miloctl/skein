@@ -110,33 +110,19 @@ SKEIN_DATABASE_URL="$db_base/$upgraded_db" PYTHONPATH="backend" "$python" -c "fr
 # 3. a fresh database from HEAD alone
 SKEIN_DATABASE_URL="$db_base/$fresh_db" PYTHONPATH="backend" "$python" -c "from app import db; db.init_db()"
 
-# 4. the two schemas must be identical, object by object
-"$python" - "$db_base/$upgraded_db" "$db_base/$fresh_db" <<'PY'
+# 4. the two schemas must be identical, object by object: columns,
+#    constraints, indexes, sequences, triggers and functions
+#    (scripts/contract/schema_parity.py::catalog)
+PYTHONPATH="scripts/contract" "$python" - "$db_base/$upgraded_db" "$db_base/$fresh_db" <<'PY'
 import sys
 
-import psycopg
+from schema_parity import catalog, differences
 
-
-def schema(url):
-    """Every column, as the catalog reports it - not a dump, whose owners,
-    comments and ordering differ between two freshly created databases and
-    would make every run a false failure."""
-    with psycopg.connect(url) as conn:
-        rows = conn.execute(
-            "SELECT table_name, column_name, data_type, is_nullable, column_default"
-            " FROM information_schema.columns WHERE table_schema = 'public'"
-        ).fetchall()
-    return {(r[0], r[1]): r[2:] for r in rows}
-
-
-upgraded, fresh = schema(sys.argv[1]), schema(sys.argv[2])
-diverged = False
-for key in sorted(set(upgraded) | set(fresh)):
-    a, b = upgraded.get(key), fresh.get(key)
-    if a != b:
-        diverged = True
-        print(f"upgrade-path: {key[0]}.{key[1]} upgraded={a} fresh={b}")
-if diverged:
+lines = differences(
+    catalog(sys.argv[1], ("public", "private")), catalog(sys.argv[2], ("public", "private"))
+)
+if lines:
+    print("\n".join(f"upgrade-path: {line}" for line in lines))
     sys.exit("upgrade-path: the upgraded schema differs from a fresh one")
 print("upgrade-path: schemas identical")
 PY
