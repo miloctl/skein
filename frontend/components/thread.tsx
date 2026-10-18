@@ -178,49 +178,56 @@ export const WorkingIndicator = ({
     const last = [...s.thread.messages].reverse().find((m) => m.role === "user");
     return (last?.attachments?.length ?? 0) > 0;
   });
+  const [labelled, setLabelled] = useState(false);
   const [long, setLong] = useState(false);
   useEffect(() => {
+    // the label lands 100 ms after its live region: a region created with its
+    // text already inside is not announced (components/status-region.tsx)
+    const label = setTimeout(() => setLabelled(true), 100);
     const t = setTimeout(() => setLong(true), LONG_WAIT_S * 1000);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(label);
+      clearTimeout(t);
+    };
   }, []);
-  if (status && status.type !== "running") {
-    // the sentence the backend refused with (a 503 "model session is in
-    // use", a rate cap) is the whole answer; without it the bubble says a
-    // turn ended and nothing says why
-    // the local runtime stores toAssistantError(e): a plain {code, message}
-    // object, never the Error the adapter threw, so instanceof finds nothing
-    const raw = status.error;
-    const said =
-      typeof raw === "string"
-        ? raw
-        : raw && typeof raw === "object" && typeof (raw as { message?: unknown }).message === "string"
-          ? (raw as { message: string }).message
-          : "";
-    return (
-      <p role={said ? "status" : undefined} className="text-sm text-ink-3">
-        {said || "The turn ended without a reply."}
-      </p>
-    );
-  }
+  const running = !status || status.type === "running";
+  // the sentence the backend refused with (a 503 "model session is in
+  // use", a rate cap) is the whole answer; without it the bubble says a
+  // turn ended and nothing says why
+  // the local runtime stores toAssistantError(e): a plain {code, message}
+  // object, never the Error the adapter threw, so instanceof finds nothing
+  const raw = running ? undefined : status?.error;
+  const said =
+    typeof raw === "string"
+      ? raw
+      : raw && typeof raw === "object" && typeof (raw as { message?: unknown }).message === "string"
+        ? (raw as { message: string }).message
+        : "";
   return (
     <div className="text-sm text-ink-3">
-      <p className="flex items-center gap-2">
-        <span aria-hidden className="flex gap-1">
-          <span className="working-dot size-1.5 rounded-full bg-ink-3" />
-          <span className="working-dot size-1.5 rounded-full bg-ink-3" />
-          <span className="working-dot size-1.5 rounded-full bg-ink-3" />
-        </span>
-        {/* aria-live so a screen reader is told the turn is working rather than
-            left on a silent empty message */}
-        <span aria-live="polite">
-          {readingFile ? "Reading the attachment…" : "Thinking…"}
-        </span>
-      </p>
-      {long && (
-        <p role="status" className="mt-1">
-          The model has not answered yet. Press Stop to send a new message.
+      {running ? (
+        <p className="flex items-center gap-2">
+          <span aria-hidden className="flex gap-1">
+            <span className="working-dot size-1.5 rounded-full bg-ink-3" />
+            <span className="working-dot size-1.5 rounded-full bg-ink-3" />
+            <span className="working-dot size-1.5 rounded-full bg-ink-3" />
+          </span>
+          {/* aria-live so a screen reader is told the turn is working rather than
+              left on a silent empty message */}
+          <span aria-live="polite">
+            {labelled && (readingFile ? "Reading the attachment…" : "Thinking…")}
+          </span>
         </p>
+      ) : (
+        !said && <p>The turn ended without a reply.</p>
       )}
+      {/* outside the running branch: the long-wait line and a later refusal
+          must change the text of a region that is already mounted */}
+      <p role="status" className="mt-1 first:mt-0 empty:hidden">
+        {running
+          ? long && "The model has not answered yet. Press Stop to send a new message."
+          : said}
+      </p>
     </div>
   );
 };
@@ -318,29 +325,19 @@ const FALLBACK_COMMANDS: SlashCommand[] = [
 // on every thread switch - uncached, each switch costs two requests. The
 // authConfig() shape (lib/auth.ts): a failed read is not cached, so the
 // next mount retries.
-let commandsCache: Promise<SlashCommand[]> | null = null;
-function chatCommands(): Promise<SlashCommand[]> {
-  if (!commandsCache) {
-    const attempt = api<SlashCommand[]>("/api/chat/commands").catch((e) => {
-      if (commandsCache === attempt) commandsCache = null;
+function pageCached<T>(load: () => Promise<T>): () => Promise<T> {
+  let cache: Promise<T> | null = null;
+  return () => {
+    cache ??= load().catch((e) => {
+      cache = null;
       throw e;
     });
-    commandsCache = attempt;
-  }
-  return commandsCache;
+    return cache;
+  };
 }
 
-let personasCache: Promise<Persona[]> | null = null;
-function personaList(): Promise<Persona[]> {
-  if (!personasCache) {
-    const attempt = api<Persona[]>("/api/personas").catch((e) => {
-      if (personasCache === attempt) personasCache = null;
-      throw e;
-    });
-    personasCache = attempt;
-  }
-  return personasCache;
-}
+const chatCommands = pageCached(() => api<SlashCommand[]>("/api/chat/commands"));
+const personaList = pageCached(() => api<Persona[]>("/api/personas"));
 
 // The roster the @ picker lists under People. Agent rows share this table
 // (/as and /flock mint them), so the picker filters by kind rather than
@@ -361,33 +358,13 @@ const MENTIONABLE = /^[a-z0-9][a-z0-9._-]*$/i;
 // leading-@ rows never read this: /as is deterministic on every provider.
 // A failed fetch leaves it unresolved and the rows hidden, which fails
 // toward the path that always works.
-let statusCache: Promise<{ provider: string }> | null = null;
-function agentStatus(): Promise<{ provider: string }> {
-  if (!statusCache) {
-    const attempt = api<{ provider: string }>("/api/agents/status").catch((e) => {
-      if (statusCache === attempt) statusCache = null;
-      throw e;
-    });
-    statusCache = attempt;
-  }
-  return statusCache;
-}
+const agentStatus = pageCached(() => api<{ provider: string }>("/api/agents/status"));
 
 // Cached like the catalogs above, but the roster is NOT restart-stable: a
 // person who joins mid-session is not offered until the page reloads. The
 // picker missing a brand-new name costs one manual @type; a fetch per thread
 // switch costs a request on every switch, in every open tab.
-let peopleCache: Promise<Person[]> | null = null;
-function peopleList(): Promise<Person[]> {
-  if (!peopleCache) {
-    const attempt = api<Person[]>("/api/users").catch((e) => {
-      if (peopleCache === attempt) peopleCache = null;
-      throw e;
-    });
-    peopleCache = attempt;
-  }
-  return peopleCache;
-}
+const peopleList = pageCached(() => api<Person[]>("/api/users"));
 
 // Only the fields the argument popup reads. /api/flocks also carries the
 // resolved member cards and the synthesis flag, which the composer never
@@ -398,31 +375,10 @@ type Flock = { slug: string; description: string; emoji: string };
 // projection the Settings page renders); "/model <id>" and
 // "/reasoning <level>" complete from it
 type MenuModel = { id: string; label?: string; detail?: string; reasoning?: string[] };
-let menuCache: Promise<MenuModel[]> | null = null;
-function modelMenu(): Promise<MenuModel[]> {
-  if (!menuCache) {
-    const attempt = api<{ menu?: MenuModel[] }>("/api/settings/model")
-      .then((r) => r.menu ?? [])
-      .catch((e) => {
-        if (menuCache === attempt) menuCache = null;
-        throw e;
-      });
-    menuCache = attempt;
-  }
-  return menuCache;
-}
-
-let flocksCache: Promise<Flock[]> | null = null;
-function flockList(): Promise<Flock[]> {
-  if (!flocksCache) {
-    const attempt = api<Flock[]>("/api/flocks").catch((e) => {
-      if (flocksCache === attempt) flocksCache = null;
-      throw e;
-    });
-    flocksCache = attempt;
-  }
-  return flocksCache;
-}
+const modelMenu = pageCached(() =>
+  api<{ menu?: MenuModel[] }>("/api/settings/model").then((r) => r.menu ?? []),
+);
+const flockList = pageCached(() => api<Flock[]>("/api/flocks"));
 
 const Composer = () => {
   const text = useAuiState((s) => s.composer.text);

@@ -121,8 +121,8 @@ export function ChatSearch({
           className="w-full rounded-lg border border-line-strong bg-transparent px-2.5 py-1.5 text-sm outline-none placeholder:text-ink-3 focus:border-thread-solid"
         />
       </form>
-      {/* always mounted: a live region added together with its text is
-          often not announced. Empty, it has no line box and no height. */}
+      {/* always mounted, for the reason components/status-region.tsx gives.
+          Empty, it has no line box and no height. */}
       <p role="status" className="px-1 text-xs leading-6 text-ink-3">
         {loading
           ? "Searching…"

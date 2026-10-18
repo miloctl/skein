@@ -102,6 +102,23 @@ describe("the picker never describes a tier it is not sending", () => {
     expect(select.name).toBe("task-visibility");
   });
 
+  it("keeps naming the crew a parent that ignores onChange still sends", async () => {
+    // the reconciliation only REQUESTS "only you". A parent that filters or
+    // debounces onChange still holds crew 1, and the select must say so
+    // rather than fall back to "everyone on the roster".
+    mine = [];
+    const onChange = vi.fn();
+    render(
+      <VisibilityPicker value={{ visibility: "crew", crew_id: 1 }} onChange={onChange} label="task" />,
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({ visibility: "private", crew_id: 0 }),
+    );
+    expect(
+      (screen.getByLabelText("Who can see this task") as HTMLSelectElement).value,
+    ).toBe("crew:1");
+  });
+
   it("leaves a crew the caller really is in alone", async () => {
     render(<Harness initial={{ visibility: "crew", crew_id: 1 }} />);
     await screen.findByText("Platform only");

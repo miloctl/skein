@@ -181,9 +181,8 @@ export function CrewsCard({
         </form>
       )}
 
-      {/* role=status on a node that is ALWAYS mounted: a live region inserted
-          in the same paint as its text is not announced (the pattern
-          app/settings/page.tsx documents). act() fires load() without
+      {/* role=status on a node that is ALWAYS mounted, for the reason
+          components/status-region.tsx gives. act() fires load() without
           awaiting, so a failed reload wipes the list one tick after the
           confirmation says the write landed. */}
       <p role="status" className="text-sm text-danger empty:hidden">

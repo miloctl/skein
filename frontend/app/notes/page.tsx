@@ -92,8 +92,8 @@ function NoteEditor({
       onSubmit={async (e) => {
         e.preventDefault();
         if (busy) return;
-        // through the page's status region, which is always mounted: a live
-        // region inserted with its text already in it is often not read
+        // through the page's status region, always mounted for the reason
+        // components/status-region.tsx gives
         if (blocked) {
           reportStatus(blocked);
           return;
@@ -547,8 +547,7 @@ export default function NotesPage() {
             })}
           </ul>
           {hasMore && (
-            // aria-disabled, not disabled: Chrome blurs a focused button the
-            // moment it turns disabled, and a keyboard reader lands on <body>
+            // aria-disabled, never disabled, for the reason components/document-editor.tsx gives
             <button
               onClick={more}
               aria-disabled={loadingMore}

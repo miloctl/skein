@@ -94,7 +94,9 @@ if [ "$mode" != "backend" ]; then
     fi
 
     echo "== eslint =="
-    (cd frontend && npm run --silent lint)
+    # zero warnings: react-hooks/exhaustive-deps only warns, and each missing
+    # dependency it reports is a stale closure that ships with the gate green
+    (cd frontend && npm run --silent lint -- --max-warnings 0)
 
     echo "== knip (dead code) =="
     (cd frontend && npm run --silent knip)

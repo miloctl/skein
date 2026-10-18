@@ -63,14 +63,11 @@ export function VisibilityPicker({
   // The one thing this control must never do is describe a tier it is not
   // sending. `value` is the parent's and the option list is ours: with a crew
   // selected, an identity change (or a reopen as somebody in no crew) leaves
-  // the select falling back to "everyone on the roster" while the parent
-  // still holds `crew_id: 1` and submits it. The effect below reconciles them.
-  //
-  // This REQUESTS the correction, it cannot enforce it: a parent that ignores
-  // onChange still holds the stale crew while the select reads "everyone on
-  // the roster". Every call site passes its tier setter directly, so the two
-  // agree today - a new caller that filters or debounces onChange brings the
-  // mismatch back.
+  // the parent holding `crew_id: 1` with no option for it, and a select with
+  // no matching option displays its first one, "everyone on the roster". The
+  // effect below asks the parent to narrow, and the "one crew only" option
+  // keeps the select truthful until it does - or for good, if the parent
+  // ignores onChange.
   //
   // onChange through a ref: callers pass an inline arrow, so depending on it
   // re-runs this effect every render and the reset fights the parent forever.
@@ -125,10 +122,11 @@ export function VisibilityPicker({
             {c.name} only
           </option>
         ))}
-        {/* the fetch failed and a crew is already chosen: keep an option that
-            matches `value`, or the select falls back to displaying
-            "everyone on the roster" while the parent still holds the crew */}
-        {crews === false && value.visibility === "crew" && (
+        {/* a chosen crew the list does not hold (the fetch failed, or the
+            caller left it): keep an option that matches `value`, or the
+            select falls back to displaying "everyone on the roster" while the
+            parent still holds the crew */}
+        {value.visibility === "crew" && !options.some((c) => c.id === value.crew_id) && (
           <option value={`crew:${value.crew_id}`}>one crew only</option>
         )}
         {allowPrivate && <option value="private">only you</option>}
@@ -244,8 +242,7 @@ export function VisibilityBadge({
       </span>
       {own && share ? (
         <button
-          // aria-disabled, not disabled: Chrome blurs a focused element the
-          // moment it is disabled (components/crews-card.tsx)
+          // aria-disabled, never disabled, for the reason components/document-editor.tsx gives
           aria-disabled={sharing}
           aria-label={share.label ? `Share with the team: ${share.label}` : undefined}
           onClick={async (e) => {

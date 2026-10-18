@@ -1255,8 +1255,8 @@ export function SharedChat({
         </section>
       ) : null}
 
-      {/* the live region stays mounted while empty - one that first appears
-          already populated is frequently not announced at all */}
+      {/* the live region stays mounted while empty, for the reason
+          components/status-region.tsx gives */}
       <div
         aria-live="polite"
         className={

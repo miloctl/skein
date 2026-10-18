@@ -15,9 +15,9 @@ import { notifyAttentionChange } from "@/lib/attention";
 import { opensCapture } from "@/lib/capture-key";
 import { isGated, subscribeGated } from "@/lib/gated";
 
-// mirrors backend/app/services/capture.py PATTERNS - the preview must tell
-// the truth about where a line will land, so the grammar is afforded, not
-// memorized
+// mirrors backend/app/services/capture.py PATTERNS, character for character
+// (backend/tests/test_frontend_mirrors.py) - the preview must tell the truth
+// about where a line will land, so the grammar is afforded, not memorized
 const RULES: [string, RegExp][] = [
   ["question", /^\s*(q:|question:)/i],
   ["blocker", /^\s*(blocked|blocker|stuck)\b[:\s]/i],
@@ -30,7 +30,7 @@ const RULES: [string, RegExp][] = [
   // entities to the parser, so only the COLON form routes here - the bare
   // `waiting on` heuristic below still means blocker, and docs/LEXICON.md
   // settles the colon form as a promise
-  ["awaiting", /^\s*(awaiting|waiting for):/i],
+  ["awaiting", /^\s*(awaiting:|waiting for:)/i],
   ["request", /^\s*(req:|request:)/i],
   ["task", /^\s*(todo:|task:)/i],
   ["note", /^\s*(note:|fyi:|til:)/i],
@@ -43,7 +43,8 @@ const RULES: [string, RegExp][] = [
 
 // `commitment:` in the regexes above is an INPUT alias only (typed muscle
 // memory keeps working); the kind on the wire and on screen is promise
-// (docs/LEXICON.md row 1)
+// (docs/LEXICON.md row 1). capture.py PREFIX plus `fb`, which the backend
+// parses before PREFIX is read (backend/tests/test_frontend_mirrors.py).
 const KNOWN_PREFIX =
   /^\s*(q|question|todo|task|note|fyi|til|decision|blocker|blocked|stuck|promised?|commitment|awaiting|waiting for|req|request|fb):\s*/i;
 
@@ -267,10 +268,6 @@ export function CapturePalette() {
     } finally {
       setBusy(false);
     }
-    // tier IS a dependency: without it the callback closes over the tier as it
-    // was when the text last changed, so choosing a crew AFTER typing filed the
-    // capture at workspace - and the picker sits below the textarea, which
-    // makes type-then-choose the natural order
   }, [text, busy, tier]);
 
   // An edit starts the next capture. A result left standing hides the

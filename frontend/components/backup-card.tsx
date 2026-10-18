@@ -146,8 +146,7 @@ export function BackupCard({
           {accessMessage}
         </p>
       )}
-      {/* always-mounted status node, same reason as the tunables section:
-          a live region inserted with its own text is not announced */}
+      {/* always mounted, for the reason components/status-region.tsx gives */}
       <p aria-live="polite" className="mt-3 min-h-4 text-sm text-ink-2">
         {line}
       </p>

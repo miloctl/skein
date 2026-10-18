@@ -40,26 +40,26 @@ import { reportStatus } from "@/lib/status";
 import { LONG_WAIT_S, Thread, WorkingIndicator } from "@/components/thread";
 
 describe("the working indicator", () => {
-  it("says the turn is thinking when nothing was attached", () => {
+  it("says the turn is thinking when nothing was attached", async () => {
     mocks.messages = [{ role: "user" }];
     render(<WorkingIndicator />);
-    expect(screen.getByText("Thinking…")).toBeTruthy();
+    expect(await screen.findByText("Thinking…")).toBeTruthy();
   });
 
-  it("names the attachment wait, which is a whole extra model call", () => {
+  it("names the attachment wait, which is a whole extra model call", async () => {
     mocks.messages = [{ role: "user", attachments: [{ id: "7" }] }];
     render(<WorkingIndicator />);
-    expect(screen.getByText("Reading the attachment…")).toBeTruthy();
+    expect(await screen.findByText("Reading the attachment…")).toBeTruthy();
   });
 
-  it("reads the LAST user message, not the first", () => {
+  it("reads the LAST user message, not the first", async () => {
     mocks.messages = [
       { role: "user", attachments: [{ id: "7" }] },
       { role: "assistant" },
       { role: "user" },
     ];
     render(<WorkingIndicator />);
-    expect(screen.getByText("Thinking…")).toBeTruthy();
+    expect(await screen.findByText("Thinking…")).toBeTruthy();
   });
 
   it("does not claim progress after the turn failed", () => {
@@ -95,13 +95,23 @@ describe("the working indicator", () => {
     vi.useFakeTimers();
     try {
       mocks.messages = [{ role: "user" }];
-      render(<WorkingIndicator status={{ type: "running" }} />);
-      expect(screen.queryByRole("status")).toBeNull();
+      const { rerender } = render(<WorkingIndicator status={{ type: "running" }} />);
+      // the region is in the DOM, empty, before the sentence lands in it: a
+      // live region inserted together with its text is not announced
+      const region = screen.getByRole("status");
+      expect(region.textContent).toBe("");
       act(() => vi.advanceTimersByTime(LONG_WAIT_S * 1000));
-      expect(screen.getByRole("status").textContent).toBe(
+      expect(screen.getByRole("status")).toBe(region);
+      expect(region.textContent).toBe(
         "The model has not answered yet. Press Stop to send a new message.",
       );
       expect(screen.getByText("Thinking…")).toBeTruthy();
+      // a refusal after the wait lands in the same region, so it is spoken
+      rerender(
+        <WorkingIndicator status={{ type: "incomplete", error: { code: "unknown", message: "Rate cap." } }} />,
+      );
+      expect(screen.getByRole("status")).toBe(region);
+      expect(region.textContent).toBe("Rate cap.");
     } finally {
       vi.useRealTimers();
     }
@@ -115,13 +125,24 @@ describe("the working indicator", () => {
 
   it("announces itself to a screen reader", () => {
     // an empty message is silent to assistive tech, so the state has to be
-    // spoken rather than only animated
-    mocks.messages = [{ role: "user" }];
-    const { container } = render(<WorkingIndicator />);
-    expect(container.querySelector("[aria-live='polite']")?.textContent).toBe("Thinking…");
-    // the dots are decoration over that sentence
-    expect(container.querySelectorAll(".working-dot")).toHaveLength(3);
-    expect(container.querySelector("[aria-hidden]")).not.toBeNull();
+    // spoken rather than only animated - into a region that was mounted
+    // empty first, or the screen reader meets region and text together and
+    // says nothing
+    vi.useFakeTimers();
+    try {
+      mocks.messages = [{ role: "user" }];
+      const { container } = render(<WorkingIndicator />);
+      const region = container.querySelector("[aria-live='polite']");
+      expect(region?.textContent).toBe("");
+      act(() => vi.runOnlyPendingTimers());
+      expect(container.querySelector("[aria-live='polite']")).toBe(region);
+      expect(region?.textContent).toBe("Thinking…");
+      // the dots are decoration over that sentence
+      expect(container.querySelectorAll(".working-dot")).toHaveLength(3);
+      expect(container.querySelector("[aria-hidden]")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

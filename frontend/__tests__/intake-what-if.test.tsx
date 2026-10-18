@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /** The capacity projection on the accept panel is computed FROM the chips
  *  and the percent, so it stops being an answer the moment either changes.
- *  Left standing it reads as a projection of what is on screen now: a
- *  triager who raised 50% to 80% saw the number for 50 and accepted on it.
- *  These pin the invalidation, the roster filter, and the percent clamp. */
+ *  Left standing it reads as a projection of what is on screen now, so a
+ *  triager who raises 50% to 80% sees the number for 50 and accepts on it.
+ *  The projection on screen always belongs to the chips and percent on
+ *  screen. These pin the invalidation, the roster filter, and the percent
+ *  clamp. */
 
 const mocks = vi.hoisted(() => ({
   users: vi.fn(),

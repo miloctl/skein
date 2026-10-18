@@ -53,7 +53,9 @@ function makeAttachmentAdapter(): AttachmentAdapter {
       if (count >= MAX_ATTACHMENTS) {
         // refused HERE, not by the backend: ChatRequest caps attachments at 5,
         // and a sixth would upload (spending quota), then 422 the whole turn
-        // with the pydantic detail lost
+        // with pydantic's sentence as the reader's only reason
+        // ("body.attachments: List should have at most 5 items after
+        // validation, not 6", main.py::validation_error_handler)
         const refused = `Attach ${MAX_ATTACHMENTS} files at most in one message.`;
         reportStatus(refused);
         throw new Error(refused);

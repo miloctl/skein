@@ -93,11 +93,11 @@ export function CommentThread({
   const focusItem = (commentId: number) =>
     setTimeout(() => document.getElementById(`comment-${commentId}`)?.focus(), 0);
 
-  // One write at a time, guarded here: the write buttons are aria-disabled
-  // while it runs, never disabled, because a disabled button drops focus to
-  // the page. A failed write rereads the thread: the refusal is usually that
-  // the comment changed (deleted meanwhile), and the editor must not stay
-  // open over a tombstone.
+  // One write at a time, guarded here: the write buttons are aria-disabled,
+  // never disabled, for the reason components/document-editor.tsx gives. A
+  // failed write rereads the thread: the refusal is usually that the comment
+  // changed (deleted meanwhile), and the editor must not stay open over a
+  // tombstone.
   const run = useCallback(async (work: () => Promise<void>, failed = actionError) => {
     if (inFlight.current) return;
     inFlight.current = true;
