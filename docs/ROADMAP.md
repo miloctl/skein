@@ -794,13 +794,6 @@ larger than its finding.
 
 ## Found by the comment audit (2026-10-18)
 
-- **A task create decides policy on unlocked parent reads** -
-  `public/work.py::create_task` and `services/work.py::create_task` read
-  the linked engagement and milestone without a hold, so a concurrent
-  change to the parent's project type or visibility lands between the
-  decision and the insert. Neither table is in `policy_context._TABLES`.
-  Hold the parents first (`SELECT ... FOR SHARE`, engagement before
-  milestone) in both paths, with a test that interleaves a parent update.
 - **A weak identity's remembered crew widens to the roster** - the
   visibility picker narrows a remembered crew the person has left to "only
   you", and `useRememberedAudience`'s check refuses private for a weak

@@ -886,6 +886,11 @@ _UNFILTERED_READS = {
         "reads only tier metadata after the actor-visible id probe succeeds,"
         " inside the task write transaction; no row data is returned to the caller"
     ),
+    "work.py::hold_task_parents": (
+        "locks the named parent rows and reads one milestone's parent id to"
+        " pick the lock; it returns nothing, and every caller then reads the"
+        " parents through the actor-visible checks"
+    ),
     "work.py::_assert_task_relationships": (
         "reads one validated milestone's parent id only to enforce audience"
         " containment; hidden parents receive the same missing-milestone refusal"

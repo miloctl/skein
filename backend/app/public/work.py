@@ -797,6 +797,7 @@ class WorkItems:
         child_crew_id: int | None = None,
     ) -> dict[str, Any]:
         """Resolve all task links without exposing an unreadable parent."""
+        work.hold_task_parents(engagement_id, milestone_id)
         engagement = None
         milestone = None
         if engagement_id:
@@ -936,11 +937,11 @@ class WorkItems:
 
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
         # One transaction for link resolution, policy, the idempotency receipt
-        # and the insert: they commit together or not at all. Only retries of
-        # one idempotency key serialize (_prior_result's receipt lock). The
-        # linked engagement and milestone are read without a hold, as in
-        # services/work.py::create_task, so a concurrent change to the parent
-        # is not serialized against this create (docs/ROADMAP.md).
+        # and the insert: they commit together or not at all.
+        # _relationship_context holds the linked engagement and milestone
+        # (work.hold_task_parents), so the parents the decision read stay put
+        # until the insert commits. Retries of one idempotency key serialize
+        # on _prior_result's receipt lock.
         try:
             with db.transaction():
                 return self._create_task_locked(command, context)

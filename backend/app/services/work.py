@@ -531,6 +531,29 @@ def _visible_link(table: str, row_id: int, actor: str) -> dict:
     return row
 
 
+def hold_task_parents(engagement_id: int, milestone_id: int) -> None:
+    """Hold the engagement and milestone a task's link decision reads.
+
+    FOR SHARE: concurrent task creates under one parent do not wait for each
+    other, but the parent cannot move or go away under the decision.
+    create_engagement adopts an orphan milestone (its engagement_id goes from
+    NULL to the new engagement), and a create inside that adoption would be
+    decided for a milestone with no project type
+    (tests/test_task_parent_holds.py). Engagements first, then the milestone:
+    update_engagement locks its row and then its milestones.
+    """
+    if not db.in_transaction():
+        return
+    parent = 0
+    if milestone_id > 0:
+        row = db.query_one("SELECT engagement_id FROM milestones WHERE id = ?", (milestone_id,))
+        parent = int((row or {}).get("engagement_id") or 0)
+    for held in sorted({e for e in (engagement_id, parent) if e > 0}):
+        db.query("SELECT 1 FROM engagements WHERE id = ? FOR SHARE", (held,))
+    if milestone_id > 0:
+        db.query("SELECT 1 FROM milestones WHERE id = ? FOR SHARE", (milestone_id,))
+
+
 def _assert_task_relationships(
     milestone_id: int,
     engagement_id: int,
@@ -540,6 +563,7 @@ def _assert_task_relationships(
     task_crew_id: int | None,
 ) -> dict[str, str]:
     """Validate link visibility without turning hidden ids into an oracle."""
+    hold_task_parents(engagement_id, milestone_id)
     project_type = ""
     direct_engagement = None
     if engagement_id:

@@ -2705,3 +2705,32 @@ def test_the_review_queue_shows_what_it_is_approving(fresh_db):
     assert preview["title"] == "closed on arrival"
     assert preview["status"] == "done"
     assert preview["assignee"] == "marcus"
+
+
+def test_a_public_task_create_holds_its_parents_before_it_decides(fresh_db, monkeypatch):
+    """The core create and this one share work.hold_task_parents, which
+    tests/test_task_parent_holds.py races against a milestone adoption. This
+    pins that the public door takes it too, before any policy decision."""
+    from app.services import engagements
+    from app.services import work as core_work
+
+    registry = ExtensionRegistry.build(())
+    work_items = WorkItems(registry.policy_engine)
+    engagement = engagements.create_engagement("Atlas", project_class="regulated")["id"]
+    events = []
+    real_hold, real_authorize = core_work.hold_task_parents, work_items._authorize
+    monkeypatch.setattr(
+        core_work,
+        "hold_task_parents",
+        lambda e, m: events.append(("hold", e, m)) or real_hold(e, m),
+    )
+    monkeypatch.setattr(
+        work_items,
+        "_authorize",
+        lambda *a, **k: events.append(("decide",)) or real_authorize(*a, **k),
+    )
+    work_items.create_task(
+        CreateTaskCommand(title="Linked", engagement_id=engagement), _context(work_items)
+    )
+    assert events[0] == ("hold", engagement, 0), events
+    assert ("decide",) in events
