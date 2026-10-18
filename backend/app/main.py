@@ -634,6 +634,7 @@ MAX_JSON_BODY = 1024 * 1024
 UPLOAD_PATH = "/api/files"
 MAX_UPLOAD_BODY = uploads.MAX_UPLOAD_BYTES + 64 * 1024
 _TOO_LARGE = "The request body is too large. Send less than 1 MB."
+_OPTIONS_BODY = "An OPTIONS request cannot have a body. Send it without a body."
 _UPLOAD_TOO_LARGE = (
     "The request body is too large."
     f" Send a file smaller than {uploads.MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
@@ -656,9 +657,12 @@ class BodyCap:
         headers = dict(scope["headers"])
         upload = scope["path"] == UPLOAD_PATH and scope["method"] == "POST"
         limit = MAX_UPLOAD_BODY if upload else MAX_JSON_BODY
-        too_large = JSONResponse(
-            status_code=413, content={"detail": _UPLOAD_TOO_LARGE if upload else _TOO_LARGE}
-        )
+        detail = _UPLOAD_TOO_LARGE if upload else _TOO_LARGE
+        if scope["method"] == "OPTIONS":
+            # unsigned past the perimeter for CORS preflights, and no route
+            # reads its body: any cap above 0 buffers that much for anyone
+            limit, detail = 0, _OPTIONS_BODY
+        too_large = JSONResponse(status_code=413, content={"detail": detail})
         declared = headers.get(b"content-length", b"")
         if declared.isdigit() and int(declared) > limit:
             return await too_large(scope, receive, send)

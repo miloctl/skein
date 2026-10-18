@@ -262,3 +262,14 @@ def test_an_unsigned_caller_is_refused_before_its_body_is_read(client, monkeypat
         "/api/ingest", content=big, headers={"content-type": "application/json", "X-User": ""}
     )
     assert refused.status_code == 401
+
+
+def test_an_options_request_carries_no_body(client, monkeypatch):
+    """OPTIONS passes the perimeter unsigned, for CORS preflights, and no
+    route reads its body. Any cap above 0 lets an unsigned caller make the
+    process buffer that much before the 405."""
+    from app import config
+
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    r = client.request("OPTIONS", "/api/ingest", content=b"x" * 1000, headers={"X-User": ""})
+    assert r.status_code == 413
