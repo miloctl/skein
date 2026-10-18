@@ -802,6 +802,15 @@ larger than its finding.
   in one thread, or take the hold in the handler, and race it with more
   waiters than `THREAD_POOL`.
 
+- **A nested schema scope resets the search path to public** -
+  `db.schema_scope` resets to `public` on exit instead of to the outer
+  scope's path. Inside `ExtensionStore.transaction()`, a core `db.*` call
+  before the block's first store statement resolves against the extension's
+  schema (`relation "tasks" does not exist`), and the same call after one
+  resolves against `public`. Store statements are not affected: each sets
+  its own path. Restore the outer path on exit, and pin a core call on both
+  sides of a store statement.
+
 ## Found by the review of routines (2026-09-29)
 
 - **The evidence-gap rule counts a routine's weekly acceptances** -
