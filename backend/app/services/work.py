@@ -531,29 +531,55 @@ def _visible_link(table: str, row_id: int, actor: str) -> dict:
     return row
 
 
-def hold_task_milestone(milestone_id: int) -> None:
-    """Hold the milestone a task's link decision reads, until the write commits.
+def hold_task_parents(
+    milestone_id: int, engagement_id: int, *, current: dict | None = None
+) -> None:
+    """Hold the parents a task's link decision reads, until the write commits.
 
-    FOR SHARE: task writes under one milestone do not wait for each other, but
-    the milestone cannot change parent under the decision. create_engagement
-    adopts an orphan milestone (engagement_id goes from NULL to the new
-    engagement) after it reads the milestone's tasks, and a create inside that
-    window was decided for a milestone with no project type
-    (tests/test_task_parent_holds.py). The engagement is not held: no writer
-    changes the project type or crew a decision reads, and sharing only widens
-    its tier.
+    Only a write that sets or moves a link decides anything about its parents:
+    a create, or an update (`current` is the task row) whose milestone or
+    engagement changes. Any other update holds nothing here. A hold on every
+    update queues each task write behind an atomic PATCH /api/milestones,
+    which holds that milestone while it waits for a second worker thread:
+    with the pool full of waiters, every REST request in the process answers
+    503 at lock_timeout (tests/test_lock_order.py).
 
-    Write paths only. A read that took this lock under REPEATABLE READ would
+    The milestone FOR SHARE: task writes under one milestone do not wait for
+    each other, but the milestone cannot change parent under the decision.
+    create_engagement adopts an orphan milestone (engagement_id goes from NULL
+    to the new engagement) after it reads the milestone's tasks, and a create
+    inside that window is decided for a milestone with no project type
+    (tests/test_task_parent_holds.py).
+
+    A new engagement FOR KEY SHARE, BEFORE the milestone. It is the lock the
+    write's foreign key check takes anyway, and only FOR UPDATE waits on it.
+    Taken after the milestone (by that check), a create crosses
+    update_engagement, which holds the engagement and then writes its
+    milestones. Nothing stronger is needed: no writer changes the project type
+    or crew a decision reads, and sharing only widens its tier.
+
+    Order, every path: the task row (an update) or the crew row (a crew-tier
+    create), then the engagement, then the milestone.
+
+    Write paths only. A read that took these locks under REPEATABLE READ would
     wait on every milestone writer and then fail on serialization
     (tests/test_public_extension_contracts.py).
 
-    rename_user writes milestones before tasks and crews (users._ATTRIBUTION),
-    while a task write holds its task row (an update) or its crew row (a
-    crew-tier create) before this one. A rename that crosses such a write on
-    the renamed person's rows can deadlock: PostgreSQL aborts one side, which
-    answers 503 (db.BUSY_ERRORS).
+    rename_user writes milestones before tasks and crews (users._ATTRIBUTION).
+    A rename that crosses a task write on the renamed person's rows can
+    deadlock: PostgreSQL aborts one side, which answers 503 (db.BUSY_ERRORS).
     """
-    if milestone_id > 0 and db.in_transaction():
+    if current is not None:
+        moved_engagement = engagement_id != int(current["engagement_id"] or 0)
+        if not moved_engagement and milestone_id == int(current["milestone_id"] or 0):
+            return
+        if not moved_engagement:
+            engagement_id = 0
+    if not db.in_transaction():
+        return
+    if engagement_id > 0:
+        db.query("SELECT 1 FROM engagements WHERE id = ? FOR KEY SHARE", (engagement_id,))
+    if milestone_id > 0:
         db.query("SELECT 1 FROM milestones WHERE id = ? FOR SHARE", (milestone_id,))
 
 
@@ -564,9 +590,10 @@ def _assert_task_relationships(
     actor: str,
     task_visibility: str,
     task_crew_id: int | None,
+    current: dict | None = None,
 ) -> dict[str, str]:
     """Validate link visibility without turning hidden ids into an oracle."""
-    hold_task_milestone(milestone_id)
+    hold_task_parents(milestone_id, engagement_id, current=current)
     project_type = ""
     direct_engagement = None
     if engagement_id:
@@ -654,6 +681,7 @@ def task_update_policy_context(
             actor=actor,
             task_visibility=str(current["visibility"]),
             task_crew_id=current["crew_id"],
+            current=current,
         )
 
 
@@ -969,6 +997,7 @@ def _update_task_locked(
         actor=actor,
         task_visibility=current["visibility"],
         task_crew_id=current["crew_id"],
+        current=current,
     )
     if not fields:
         raise ValueError("nothing to update")

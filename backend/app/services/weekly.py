@@ -6,7 +6,7 @@ import json
 from datetime import timedelta
 
 from .. import db
-from . import scope, wording
+from . import policy_context, scope, wording
 from .scope import WORKSPACE_ONLY
 from .work import redact_task_relationships, update_task, week_monday
 
@@ -114,6 +114,11 @@ def apply_plan(
     # plan: update_task raises a ValueError for it, so apply what exists and
     # report the ids that were skipped
     committed, skipped = [], []
+    # in id order, as the direct plan (routes/api.py::post_week_plan) holds
+    # them. An approved proposal arrives here holding nothing, and in draft
+    # order it holds one task the direct plan waits on, then waits on another.
+    for tid in sorted({int(t) for t in task_ids}):
+        policy_context.hold_resource("task", tid)
     for tid in task_ids:
         try:
             update_task(int(tid), committed_week=week, actor=actor, origin=origin)

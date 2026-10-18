@@ -937,9 +937,9 @@ class WorkItems:
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
         # One transaction for link resolution, policy, the idempotency receipt
         # and the insert: they commit together or not at all.
-        # _create_task_locked holds the linked milestone
-        # (work.hold_task_milestone), so the parent the decision read stays put
-        # until the insert commits. Retries of one idempotency key serialize
+        # _create_task_locked holds the linked parents
+        # (work.hold_task_parents), so what the decision read stays put until
+        # the insert commits. Retries of one idempotency key serialize
         # on _prior_result's receipt lock.
         try:
             with db.transaction():
@@ -956,7 +956,14 @@ class WorkItems:
     ) -> TaskView:
         self._require_issued_context(context)
         viewer = self._viewer(context)
-        work.hold_task_milestone(command.milestone_id)
+        # the crew row before the parents, the order work.create_task takes
+        # them in (work.hold_task_parents). Parents first deadlocks with a
+        # crew-tier create_engagement, which holds the crew, then milestones.
+        try:
+            scope.resolve_write(command.visibility, command.crew_id, actor=context.execution_actor)
+        except (ValueError, PermissionError) as exc:
+            raise PublicError("TASK_CREATE_REJECTED", str(exc)) from exc
+        work.hold_task_parents(command.milestone_id, command.engagement_id)
         link_attributes = self._relationship_context(
             command.engagement_id,
             command.milestone_id,
@@ -1483,7 +1490,7 @@ class WorkItems:
                     engagement_id = max(int(changes["engagement_id"]), 0)
                 if changes.get("milestone_id"):
                     milestone_id = max(int(changes["milestone_id"]), 0)
-                work.hold_task_milestone(milestone_id)
+                work.hold_task_parents(milestone_id, engagement_id, current=current_row)
                 attributes = self._relationship_context(
                     engagement_id,
                     milestone_id,

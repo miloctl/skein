@@ -2707,8 +2707,8 @@ def test_the_review_queue_shows_what_it_is_approving(fresh_db):
     assert preview["assignee"] == "marcus"
 
 
-def test_a_public_task_create_holds_its_milestone_before_it_decides(fresh_db, monkeypatch):
-    """The core create and this one share work.hold_task_milestone, which
+def test_a_public_task_create_holds_its_parents_before_it_decides(fresh_db, monkeypatch):
+    """The core create and this one share work.hold_task_parents, which
     tests/test_task_parent_holds.py races against a milestone adoption. This
     pins that the public door takes it too, before any policy decision."""
     from app.services import work as core_work
@@ -2717,11 +2717,11 @@ def test_a_public_task_create_holds_its_milestone_before_it_decides(fresh_db, mo
     work_items = WorkItems(registry.policy_engine)
     milestone = core_work.create_milestone("Orphan gate", project="Atlas")["id"]
     events = []
-    real_hold, real_authorize = core_work.hold_task_milestone, work_items._authorize
+    real_hold, real_authorize = core_work.hold_task_parents, work_items._authorize
     monkeypatch.setattr(
         core_work,
-        "hold_task_milestone",
-        lambda m: events.append(("hold", m)) or real_hold(m),
+        "hold_task_parents",
+        lambda m, e, **k: events.append(("hold", m)) or real_hold(m, e, **k),
     )
     monkeypatch.setattr(
         work_items,
@@ -2733,6 +2733,36 @@ def test_a_public_task_create_holds_its_milestone_before_it_decides(fresh_db, mo
     )
     assert events[0] == ("hold", milestone), events
     assert ("decide",) in events
+
+
+def test_a_public_task_update_holds_its_parents_before_it_reads_them(fresh_db, monkeypatch):
+    """The update twin of the test above. A relink is decided on the parents
+    _relationship_context reads; work.update_task holds them again later,
+    which is too late for this decision."""
+    from app.services import work as core_work
+
+    work_items = WorkItems(ExtensionRegistry.build(()).policy_engine)
+    milestone = core_work.create_milestone("Orphan gate", project="Atlas")["id"]
+    task = core_work.create_task("Relinked", actor="atlas-sync")["id"]
+    events = []
+    real_hold, real_read = core_work.hold_task_parents, work_items._relationship_context
+    monkeypatch.setattr(
+        core_work,
+        "hold_task_parents",
+        lambda m, e, **k: events.append(("hold", m)) or real_hold(m, e, **k),
+    )
+    monkeypatch.setattr(
+        work_items,
+        "_relationship_context",
+        lambda *a, **k: events.append(("read", a[1])) or real_read(*a, **k),
+    )
+    work_items.update_task(
+        UpdateTaskCommand(task_id=task, milestone_id=milestone),
+        _context(work_items, project_type="standard"),
+    )
+    # the first read is the task's current links (_task_state), held by the
+    # task row; the hold must precede the read of the NEW milestone
+    assert events.index(("hold", milestone)) < events.index(("read", milestone)), events
 
 
 def test_a_public_task_read_waits_on_no_row_lock(fresh_db):

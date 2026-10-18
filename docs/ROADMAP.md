@@ -788,6 +788,20 @@ larger than its finding.
   chat's core write tools do not. Hold the resource row first in
   `gated_write`, before the ledger lock, and race it in a test.
 
+- **An atomic REST route holds its row lock between two worker threads** -
+  an `extensions/fastapi.py::_ATOMIC_POLICY` route runs the policy
+  dependency and the handler as two thread-pool calls inside one
+  `db.async_transaction()`. The dependency holds the deciding row
+  (`policy_context.hold_resource`), and the connection sits idle in
+  transaction until a second thread is free. When every REST thread waits
+  on that row, the handler never runs, PostgreSQL sees no cycle, and every
+  sync REST request in the process stalls until `lock_timeout` answers 503.
+  Task creates under a milestone reach it through their foreign key check
+  during a `PATCH /api/milestones`: about 45% of concurrent creates answered
+  503 on the e2e stack, on 0.6.17 as well. Run the decision and the handler
+  in one thread, or take the hold in the handler, and race it with more
+  waiters than `THREAD_POOL`.
+
 ## Found by the review of routines (2026-09-29)
 
 - **The evidence-gap rule counts a routine's weekly acceptances** -
