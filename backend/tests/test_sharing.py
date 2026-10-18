@@ -12,13 +12,14 @@ from app.services import scope, search, users
 
 
 def test_personal_records_start_private_and_their_author_shares_them(client, fresh_db):
-    """Standups and captures started at the workspace tier, and a private row
-    had no way to reach the team without filing it again."""
+    """Standups and captures start private, and their author can share a
+    private row with the team without filing it again."""
     for name in ("ava", "bob"):
         users.ensure_user(name)
     ava, bob = _strong(client, "ava"), _strong(client, "bob")
     standup = client.post("/api/standups", json={"today": "ZZSTANDUPZZ"}, headers=ava).json()
     note = client.post("/api/capture", json={"text": "note: ZZNOTEZZ"}, headers=ava).json()
+    # S608: the table names come from the literal tuple below
     rows = {
         table: fresh_db.query_one(f"SELECT visibility FROM {table} WHERE id = ?", (row_id,))  # noqa: S608
         for table, row_id in (("standups", standup["id"]), ("notes", note["id"]))

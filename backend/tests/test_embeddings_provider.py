@@ -38,9 +38,6 @@ def restore_config(monkeypatch):
     importlib.reload(config)
 
 
-# ---- readiness / validation ----
-
-
 def test_off_by_default(monkeypatch, restore_config):
     cfg = _reload_config(monkeypatch)
     assert cfg.EMBED_READY is False
@@ -138,9 +135,6 @@ def test_chat_provider_does_not_leak_into_embeddings(monkeypatch, restore_config
     )
     assert cfg.EFFECTIVE_PROVIDER == "anthropic"
     assert cfg.EMBED_READY is True
-
-
-# ---- the client and the vector store ----
 
 
 class _FakeEmbeddings:
@@ -433,6 +427,6 @@ def test_a_semantic_hit_must_clear_the_similarity_floor(monkeypatch, fresh_db):
     hits = search.semantic_search("anything", limit=10)
     assert [(h["entity"], h["entity_id"]) for h in hits] == [("task", 1)]
 
-    # a floor of 0 is the old behavior, and returns the unrelated row too
+    # a floor of 0 turns the cutoff off and returns the unrelated row too
     monkeypatch.setattr(config, "EMBED_MIN_SCORE", 0.0)
     assert len(search.semantic_search("anything", limit=10)) == 2

@@ -97,9 +97,6 @@ class _Answering:
             yield {"data": c}
 
 
-# ---- who holds the tool ------------------------------------------------------
-
-
 def test_the_chief_of_staff_holds_the_tool(real_provider):
     agent = team_agent.build_agent("t-cos")
     assert "consult_specialist" in agent.tool_names
@@ -387,9 +384,6 @@ def test_a_bench_that_will_not_parse_does_not_stop_the_agent(monkeypatch):
     assert "no specialists are installed" in team_agent._bench_block()
 
 
-# ---- invoking ----------------------------------------------------------------
-
-
 def test_a_consult_runs_the_specialist_and_relays_its_answer(real_provider, monkeypatch):
     agent = team_agent.build_agent("t-run")
     consult = _consult_tool(agent)
@@ -411,9 +405,10 @@ def test_a_consult_runs_the_specialist_and_relays_its_answer(real_provider, monk
 
 
 def test_the_specialist_is_built_stateless_under_its_own_identity(real_provider, monkeypatch):
-    """stateless=True is not cosmetic: it withholds MCP tools (which reach
-    neither the gate nor the receipt box) and keeps the sub-agent off the
-    session the human is talking to."""
+    """stateless=True is not cosmetic: it withholds MCP tools (CorePolicy
+    permits a read-effect MCP tool even under force_review, so the specialist
+    could make an unreviewed third-party call - team_agent.build_agent says
+    why) and keeps the sub-agent off the session the human is talking to."""
     agent = team_agent.build_agent("t-ident")
     consult = _consult_tool(agent)
     seen = {}
@@ -494,9 +489,6 @@ def test_the_identity_is_restored_even_when_the_specialist_fails(real_provider, 
         return identity.agent_identity(), identity.force_review()
 
     assert asyncio.run(run()) == ("agent", False)
-
-
-# ---- failure modes -----------------------------------------------------------
 
 
 def test_an_unknown_specialist_returns_an_error_and_does_not_raise(real_provider):
@@ -595,9 +587,6 @@ def test_the_budget_is_shared_across_tool_calls_not_reset_by_each(real_provider,
     a, b = asyncio.run(two_concurrent())
     outcomes = [json.loads(x[-1]) for x in (a, b)]
     assert sum("error" in o for o in outcomes) == 1, "the second consult must be refused"
-
-
-# ---- the route side: heading, relay, transcript, guard, knot ------------------
 
 
 def _read_chat(client, message, thread, who="tester"):
@@ -1167,9 +1156,6 @@ def test_a_consulted_write_carries_the_specialist_identity(real_provider, monkey
     )
 
 
-# ---- receipt attribution -----------------------------------------------------
-
-
 class _LateFiler:
     """An orchestrator whose specialist's write lands AFTER the consult
     section closed - the timing that motivates the actor field. The gate runs
@@ -1255,8 +1241,8 @@ def test_the_turn_heads_own_receipts_stay_unattributed(client, monkeypatch):
 
 def test_a_receipt_after_the_final_drain_is_not_dropped(client, monkeypatch):
     """A specialist's write finishing in a threadpool after pump's last drain
-    used to land in a box nothing read again: the proposal sat in the inbox
-    while the chat said nothing about it. The close-out drain narrows that
+    can land in a box nothing reads again: the proposal sits in the inbox
+    while the chat says nothing about it. The close-out drain narrows that
     window; the inbox row is the backstop for anything later still."""
     from app.agents import turn_guard
     from app.routes import chat as chat_route

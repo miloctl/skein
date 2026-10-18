@@ -275,10 +275,10 @@ def test_every_tool_that_writes_leaves_a_receipt(fresh_db, monkeypatch):
         " either they bypassed the gate or a gate exit forgot to record:\n"
         + "\n".join(silent_writers)
     )
-    # the FULL snapshot of writers, not a floor: a floor of 20 would let 14
-    # tools silently degrade to error paths before anything went loud. One
-    # line of maintenance per new writing tool, which is the point - a new
-    # tool declares itself here or fails the suite.
+    # the FULL snapshot of writers, not a floor: any floor lets tools silently
+    # degrade to error paths before anything goes loud. One line of
+    # maintenance per new writing tool, which is the point - a new tool
+    # declares itself here or fails the suite.
     expected_writers = {
         "add_absence",
         "add_promise",

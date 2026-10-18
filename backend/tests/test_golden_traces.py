@@ -153,6 +153,7 @@ def test_golden_trace(scenario, fresh_db, monkeypatch):
     if "expect_error" in scenario:
         assert last_error == scenario["expect_error"], f"wanted refusal, got: {last_error!r}"
 
+    # S608 below: every table name comes from the SCENARIOS literal, never from input
     for table, count in scenario.get("expect_tables", {}).items():
         n = fresh_db.query_row(f"SELECT COUNT(*) AS n FROM {table}")["n"]  # noqa: S608
         assert n == count, f"{table}: expected {count}, got {n}"

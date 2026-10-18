@@ -44,7 +44,7 @@ def test_registry_and_dispatch_agree():
     assert set(config.PROVIDERS) == set(EXPECTED_CLASS) | {"mock"}
 
 
-# ---- every provider socket is bounded, because a deadline cannot reach it ----
+# every provider socket is bounded, because a deadline cannot reach it
 
 # bedrock alone passes no timeout, and it is NOT an oversight: strands applies
 # its own read_timeout (120s) while no boto_client_config is passed, and
@@ -88,9 +88,6 @@ def test_the_socket_outlives_the_turn_deadline():
     assert team_agent.READ_TIMEOUT_S > MEMBER_TIMEOUT_S
 
 
-# ---- openai-compatible: the actual point of the feature ----
-
-
 def test_openai_compatible_sends_base_url_and_key(monkeypatch):
     _configure(
         monkeypatch, "openai_compatible", base_url="http://localhost:8001/v1", api_key="sk-local"
@@ -113,7 +110,7 @@ def test_plain_openai_sends_no_base_url(monkeypatch):
     assert "base_url" not in team_agent._model().client_args
 
 
-# ---- max_tokens reaches the providers that accept it, and skips those that don't ----
+# max_tokens reaches the providers that accept it, and skips those that don't
 
 
 @pytest.mark.parametrize("provider", ["anthropic", "ollama", "bedrock"])
@@ -164,7 +161,7 @@ def test_openai_compatible_forwards_custom_headers(monkeypatch):
     assert request["extra_headers"] == headers
 
 
-# ---- misconfiguration: loud at the agent, harmless everywhere else ----
+# misconfiguration: loud at the agent, harmless everywhere else
 
 
 def _reload_config(monkeypatch, **env):
@@ -205,7 +202,7 @@ def test_unknown_provider_does_not_break_import(monkeypatch, restore_config):
     cfg = _reload_config(monkeypatch, SKEIN_MODEL_PROVIDER="olama")
     assert "olama" in cfg.MODEL_PROVIDER_ERROR
     assert cfg.EFFECTIVE_PROVIDER == "mock"
-    # the old bug: a typo silently became Anthropic with model_id "mock"
+    # a typo degrades to mock, never to Anthropic with model_id "mock"
     assert cfg.MODEL_ID == "mock"
 
 
@@ -318,7 +315,7 @@ def test_provider_without_default_model_demands_one(monkeypatch, restore_config)
     assert cfg.EFFECTIVE_PROVIDER == "mock"
 
 
-# ---- keyless-first: a bad model setting must never take the product down ----
+# keyless-first: a bad model setting must never take the product down
 
 
 def test_rest_api_survives_a_broken_provider(monkeypatch, restore_config):
@@ -351,7 +348,7 @@ def test_agents_status_reports_the_fault(monkeypatch, restore_config):
     assert "nonsense" in body["provider_error"]
 
 
-# ---- free-form model ids: cloud-suffixed ollama ids pass through untouched ----
+# free-form model ids: cloud-suffixed ollama ids pass through untouched
 
 
 def test_ollama_cloud_model_id_passes_untouched(monkeypatch, restore_config):
@@ -365,9 +362,6 @@ def test_ollama_cloud_model_id_passes_untouched(monkeypatch, restore_config):
     assert cfg.EFFECTIVE_PROVIDER == "ollama"
     assert cfg.MODEL_ID == "glm-5.2:cloud"  # free-form, never allowlisted
     assert cfg.OLLAMA_HOST == "http://localhost:11434"
-
-
-# ---- key hygiene and operator-input traps: leaks, leftovers, collisions ----
 
 
 def test_openai_key_never_leaks_to_a_third_party_endpoint(monkeypatch, restore_config):
@@ -527,7 +521,7 @@ def test_real_clients_retry_once_not_twice(monkeypatch):
     assert team_agent._model().client.max_retries == 1
 
 
-# ---- a reasoning level reaches the request of the model that won ----
+# a reasoning level reaches the request of the model that won
 
 LEVEL_PARAMS = {
     "anthropic": {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}},

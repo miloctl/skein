@@ -88,7 +88,7 @@ def test_the_filter_defaults_closed(fresh_db):
 
 
 def test_the_filter_drops_the_crew_clause_for_someone_in_no_crew(fresh_db):
-    """SQLite has no `IN ()`. Emitting an empty one is a syntax error, not a
+    """PostgreSQL has no `IN ()`. Emitting an empty one is a syntax error, not a
     disjunct that matches nothing - and being in no crew is the common case."""
     users.ensure_user("ava")
     sql, params = scope.visible_filter(scope.Viewer("ava", True), "tasks")

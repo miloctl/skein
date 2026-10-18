@@ -205,6 +205,7 @@ def test_half_set_waiting_on_pair_is_refused_by_the_schema(fresh_db):
     t = work.create_task(title="probe")
     for sets in ("waiting_on_type = 'task'", "waiting_on_id = 99"):
         with pytest.raises(db.IntegrityError):
+            # S608: `sets` comes from the literal tuple above
             db.execute(f"UPDATE tasks SET {sets} WHERE id = ?", (t["id"],))  # noqa: S608
 
 

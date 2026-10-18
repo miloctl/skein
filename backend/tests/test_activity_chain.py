@@ -479,11 +479,10 @@ def test_the_feed_orders_by_seq_not_rowid(fresh_db):
 
     users.ensure_user("tester")
     _log(3)
-    # Give seq 1 the HIGHEST id, so id order and seq order disagree. It cannot
-    # be done with an UPDATE any more - `id` is GENERATED ALWAYS, which is the
-    # schema refusing the resequencing this test used to perform - so the row
-    # is rewritten verbatim and takes a fresh id on the way back in. Ordering
-    # by id would now put seq 1 first.
+    # Give seq 1 the HIGHEST id, so id order and seq order disagree. `id` is
+    # GENERATED ALWAYS, so an UPDATE cannot resequence it: the row is deleted
+    # and re-inserted verbatim to take the newest id. Ordering by id then puts
+    # seq 1 first.
     row = db.query_row("SELECT * FROM activity WHERE seq = 1")
     db.execute("DELETE FROM activity WHERE seq = 1")
     db.execute(
@@ -691,9 +690,6 @@ def test_findings_rule_fires_on_a_break(fresh_db):
     assert fired[0]["rule_id"] == "activity_chain_broken"
     assert fired[0]["severity"] == "high"
     assert fired[0]["receipt"]["broken_at"] == 2
-
-
-# ---- the anchor log (the configured-mirror half) ---------------------------
 
 
 def _reforge_everything(edit_seq: int, new_actor: str) -> None:
@@ -1259,7 +1255,7 @@ def test_the_count_fault_survives_until_adoption_records_it(fresh_db):
 
 
 def test_the_baseline_check_does_not_mask_a_reforge(fresh_db):
-    """The baseline finding used to `return` early, short-circuiting the
+    """A baseline finding must not `return` early: that short-circuits the
     per-seq digest replay that is this function's primary job."""
     from app.services import activity
 
@@ -1281,9 +1277,6 @@ def test_the_baseline_check_does_not_mask_a_reforge(fresh_db):
     assert "no longer in the ledger" in out["reason"]
 
 
-# ---- adoption: the heal that replaced the permanent unchained alarm ----------
-
-
 def test_adoption_does_not_recreate_a_missing_baseline(fresh_db):
     _log(2)
     orphan = db.execute(
@@ -1298,8 +1291,8 @@ def test_adoption_does_not_recreate_a_missing_baseline(fresh_db):
 
 
 def test_a_fallback_row_is_adopted_into_the_chain(fresh_db):
-    """db.log_activity records a row UNCHAINED when the write lock cannot be
-    taken. Before adoption, one such row flipped every later verification to
+    """db.log_activity records a row UNCHAINED when a standalone chained append
+    fails. Without adoption, one such row flips every later verification to
     "tampered" forever - an alarm with no recovery path, caused by nothing
     but load, aimed at whoever runs the server."""
     _log(3)
@@ -1389,10 +1382,9 @@ def test_adoption_lowers_the_baseline_so_it_is_not_an_allowance(fresh_db):
 
 
 def test_the_adoption_finding_fires_once_per_receipt(fresh_db, monkeypatch):
-    """The finding is the push signal that replaced the permanent alarm: the
-    feed line alone is skimmable, and after adoption verify_chain goes green
-    again, so without this rule a smuggled row never reached the findings
-    surface at all."""
+    """The finding is the push signal for an adopted row: the feed line alone
+    is skimmable, and after adoption verify_chain goes green again, so without
+    this rule a smuggled row never reaches the findings surface at all."""
     from datetime import date
 
     from app.services import insights
@@ -1408,8 +1400,8 @@ def test_the_adoption_finding_fires_once_per_receipt(fresh_db, monkeypatch):
     assert found[0]["rule_id"] == "ledger_rows_adopted"
     assert found[0]["severity"] == "medium"
     # the two counts, and the comparison between them, are the whole signal:
-    # told to grep the log instead, an operator who found ONE genuine warning
-    # stood down for every row adopted that night
+    # told to grep the log instead, an operator who finds ONE genuine warning
+    # stands down for every row adopted that night
     assert "expected" in found[0]["message"]
     assert "more than the rows expected" in found[0]["message"]
     receipt = db.query_row("SELECT seq FROM activity WHERE action = 'adopt_unchained'")
@@ -1421,10 +1413,10 @@ def test_the_adoption_finding_fires_once_per_receipt(fresh_db, monkeypatch):
 
 
 def test_an_unchained_row_does_not_suppress_the_digest_walk(fresh_db):
-    """verify_chain used to RETURN at the unchained count, before the walk
+    """verify_chain must not RETURN at the unchained count, before the walk
     that is its primary job. One row with a NULL seq - cheap to arrange, and
-    the honest lock-timeout path produces one by itself - then hid a re-forge
-    of the whole chain until the nightly adoption cleared it."""
+    the honest lock-timeout path produces one by itself - then hides a re-forge
+    of the whole chain until the nightly adoption clears it."""
     _log(4)
     assert activity.verify_chain()["ok"]  # sets the baseline at 0
     # a smuggled unchained row AND a tampered chained row
@@ -1435,12 +1427,12 @@ def test_an_unchained_row_does_not_suppress_the_digest_walk(fresh_db):
     db.execute("UPDATE activity SET detail = 'rewritten' WHERE seq = 2")
     result = activity.verify_chain()
     assert not result["ok"]
-    # the DIGEST break is reported, not just the count that used to mask it
+    # the DIGEST break is reported, not just the unchained count that can mask it
     assert result["broken_at"] == 2
     assert "does not match its digest" in result["reason"]
 
 
-# --- properties: the hash design holds for ALL content, not chosen examples --
+# properties: the hash design holds for ALL content, not chosen examples
 
 from hypothesis import HealthCheck, given, settings  # noqa: E402
 from hypothesis import strategies as st  # noqa: E402

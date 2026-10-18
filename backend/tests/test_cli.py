@@ -417,7 +417,7 @@ def test_a_capture_survives_a_dead_server_and_files_later(monkeypatch, capsys, t
     assert path == "/api/capture"
     assert body["text"] == "todo: fix it"
     # minted at cmd_capture, so the re-send carries the SAME key and the
-    # server files nothing twice (D5)
+    # server files nothing twice
     assert len(body["capture_key"]) == 32
     # the row leaves only after the server accepts it
     assert not (tmp_path / "outbox.jsonl").exists()
@@ -685,9 +685,9 @@ def test_outbox_mutations_share_one_cross_process_lock(monkeypatch, tmp_path):
 
 
 def test_a_poison_row_is_dropped_instead_of_blocking_the_queue(monkeypatch, capsys, tmp_path):
-    """A row the server permanently refuses used to be rewritten to the head
-    of the queue on every flush, so every later capture waited behind a row
-    that could never send."""
+    """A row the server permanently refuses is dropped. Rewritten to the head
+    of the queue on every flush, it makes every later capture wait behind a
+    row that can never send."""
     import urllib.error
 
     cli = _load_cli()
@@ -722,8 +722,8 @@ def test_a_corrupt_line_does_not_wedge_the_queue(monkeypatch, tmp_path):
 
 
 def test_a_capture_made_during_a_flush_is_not_destroyed(monkeypatch, tmp_path):
-    """The flush used to read the file and then truncate it. Anything a second
-    shell appended in between was gone - the opposite direction from the
+    """A flush that reads the file and then truncates it destroys anything a
+    second shell appended in between - the opposite direction from the
     duplication the at-least-once note calls safe."""
     cli = _load_cli()
     monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")

@@ -52,11 +52,8 @@ def test_a_lock_timeout_surfaces_as_load_not_as_a_rollback_failure(fresh_db):
     """A statement that gives up waiting for a row lock must raise the LOCK
     error, classified as load.
 
-    Under SQLite this was a BEGIN IMMEDIATE that timed out, where an
-    unguarded ROLLBACK in the cleanup raised "cannot rollback - no transaction
-    is active" and REPLACED the real "database is locked". The cleanup path is
-    different now, and the property it has to keep is the same: the error the
-    caller sees names the contention, and db.BUSY_ERRORS classes it as load so
+    The error the caller sees names the contention, and a failure in the
+    cleanup path must not REPLACE it. db.BUSY_ERRORS classes it as load so
     main.py answers 503 rather than 500."""
     import psycopg
 
@@ -349,7 +346,7 @@ def test_index_record_defers_embeds_to_commit(fresh_db, monkeypatch):
 
     with db.transaction():
         search.index_record("note", 1, "t", "b")
-        assert embedded == []  # deferred: the embed must not hold the write lock
+        assert embedded == []  # deferred: the embed must not hold the transaction open
     assert embedded == [("note", 1)]
 
     with pytest.raises(RuntimeError), db.transaction():
@@ -364,11 +361,9 @@ def test_index_record_defers_embeds_to_commit(fresh_db, monkeypatch):
 def test_the_helpers_return_their_connections_to_the_pool(fresh_db):
     """A helper that leaks its connection exhausts the pool.
 
-    Under SQLite the same bug leaked file descriptors - 84k open fds measured
-    over 30k queries - because the connection context manager scopes the
-    TRANSACTION and never closes. Here the ceiling is the pool: once max_size
-    connections are checked out and never returned, the next caller waits for
-    PoolTimeout instead of running."""
+    The ceiling is the pool: once max_size connections are checked out and
+    never returned, the next caller waits for PoolTimeout instead of
+    running."""
     from app import db
 
     pool = db.pool()
@@ -441,8 +436,8 @@ def test_numeric_aggregates_load_as_float_not_decimal(fresh_db):
     """SUM, ROUND(::numeric) and EXTRACT(epoch) must not reach a caller as
     Decimal.
 
-    Decimal is not JSON-serializable, and the services are written for the
-    float SQLite returned. The break lands only on the json.dumps callers:
+    Decimal is not JSON-serializable, and the services are written for a
+    float. The break lands only on the json.dumps callers:
     FastAPI routes survive on jsonable_encoder, so the REST surface stays
     green while every agent tool returning the same numbers raises
     TypeError. Without the numeric loader in db.py the findings job dies on

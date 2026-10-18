@@ -1,17 +1,16 @@
-"""Identity boundaries, each demonstrated open against a throwaway database
-before the fix. The theme is one rule with three holes in it: an identity may act only as
-itself, and a surface that writes on someone's behalf must prove which
-someone.
+"""Identity boundaries. One rule: an identity may act only as itself, and a
+surface that writes on someone's behalf must prove which someone.
 """
 
 import pytest
 
 
 def test_a_rename_by_someone_else_cannot_touch_the_private_journal(fresh_db):
-    """Every keyholder can rename any roster row - the trusted-network model makes
-    them all admins over TEAM data. Moving the private half too let anyone
-    merge another person's row into their own name and inherit their 1:1 notes
-    and fb: journal, the one dataset teammates are promised they cannot read.
+    """An administrator can rename any roster row (AdminUser on POST
+    /api/users/{name}/rename). If the private half moved too, that rename would
+    merge another person's row into the administrator's own name and hand over
+    their 1:1 notes and fb: journal, the one dataset teammates are promised
+    they cannot read.
 
     Refused rather than half-completed: rename DELETES the old roster row, so
     a third-party rename that skipped the private half would strand the notes
@@ -44,7 +43,7 @@ def test_an_author_with_no_private_notes_is_still_renameable_by_an_admin(fresh_d
 
 def test_a_rename_that_cannot_move_the_journal_keeps_the_old_name(fresh_db, monkeypatch):
     """The roster and the private journal move in one transaction. Committed
-    apart, a failure between them left the author's notes under a name no
+    apart, a failure between them leaves the author's notes under a name no
     roster row holds, readable by the next person to claim it."""
     from app import db
     from app.services import private_notes, users
@@ -76,8 +75,8 @@ def test_the_author_renaming_themselves_does_move_it(fresh_db):
 
 def test_a_self_directed_merge_onto_a_colleague_is_refused(fresh_db):
     """A merge moves the caller's API keys onto the target row. Self-directed,
-    that made any keyholder into any colleague: mallory's unchanged key then
-    authenticated as victim, with victim's private journal renamed along."""
+    that makes any keyholder into any colleague: mallory's unchanged key then
+    authenticates as victim, with victim's private journal renamed along."""
     from app.services import api_keys, private_notes, users
 
     users.ensure_user("mallory")
@@ -123,7 +122,7 @@ def test_ensure_user_refuses_to_flip_a_human_into_an_agent(fresh_db):
 
 def test_a_merge_cannot_carry_a_teammate_into_the_caller(fresh_db):
     """Merged into the caller's own account, a teammate's history, files and
-    chats became the caller's, and the teammate's key signed in as the caller."""
+    chats become the caller's, and the teammate's key signs in as the caller."""
     from app.services import users
 
     users.ensure_user("boss")
@@ -148,8 +147,8 @@ def test_a_merge_cannot_hand_single_owner_data_to_another_person(fresh_db):
 
 
 def test_a_merged_account_key_stops_signing_in(fresh_db):
-    """The merge moved the source's API keys to the target, so the source's
-    key authenticated as the target account."""
+    """If the merge moves the source's API keys to the target, the source's
+    key authenticates as the target account."""
     from app.services import api_keys, users
 
     users.ensure_user("dana")
@@ -160,8 +159,8 @@ def test_a_merged_account_key_stops_signing_in(fresh_db):
 
 
 def test_a_freed_name_cannot_be_claimed_by_a_new_person(client, fresh_db):
-    """The ledger is never renamed, so a new `ava` read the earlier ava's
-    ledger rows as her own history, and owned her private proposals."""
+    """The ledger is never renamed, so a new `ava` reads the earlier ava's
+    ledger rows as her own history, and owns her private proposals."""
     from app.services import review, scope, users
 
     users.ensure_user("ava")
@@ -237,8 +236,8 @@ def test_a_person_agent_record_is_its_owners(client, fresh_db, monkeypatch, admi
 
 
 def test_a_merge_leaves_no_sign_in_door_into_the_target(fresh_db):
-    """The merge moved the source's OIDC binding to the target, so whoever
-    holds the source's IdP subject signed in as the target."""
+    """If the merge moves the source's OIDC binding to the target, whoever
+    holds the source's IdP subject signs in as the target."""
     from app.services import oidc_identities, users
 
     x = oidc_identities.resolve("https://idp.example", "sub-x", "x")
@@ -249,9 +248,9 @@ def test_a_merge_leaves_no_sign_in_door_into_the_target(fresh_db):
 
 
 def test_a_freed_name_is_refused_to_agents_and_returned_to_its_holder(fresh_db):
-    """Claimed as an agent, a freed name put the earlier owner's ledger rows
-    in every teammate's feed. The owner renaming back was refused as if the
-    history were someone else's."""
+    """Claimed as an agent, a freed name puts the earlier owner's ledger rows
+    in every teammate's feed. The owner renaming back must not be refused as
+    if the history were someone else's."""
     from app.services import users
 
     users.ensure_user("ava")
@@ -263,8 +262,9 @@ def test_a_freed_name_is_refused_to_agents_and_returned_to_its_holder(fresh_db):
 
 
 def test_a_merge_cannot_carry_private_proposals_or_notifications(fresh_db):
-    """_holds_personal_data missed a proposal private to the source, which the
-    merge then handed to the target, and the source's notifications moved too."""
+    """A proposal private to the source blocks the merge (_holds_personal_data),
+    or the merge hands it to the target. The source's notifications do not
+    move to the target either."""
     from app.services import notifications, review, scope, users
 
     for name in ("alice", "bob", "dana", "dana-alt"):
@@ -288,8 +288,8 @@ def test_a_merge_cannot_carry_private_proposals_or_notifications(fresh_db):
 
 
 def test_a_person_agent_is_not_proposed_for_authority_or_listed_to_the_team(fresh_db, monkeypatch):
-    """The authority job filed a person agent's verdict streak as a
-    workspace proposal, and the team context pack listed it as an agent."""
+    """The authority job must not file a person agent's verdict streak as a
+    workspace proposal, and the team context pack must not list it as an agent."""
     from app.services import context_pack, delegation, users
 
     users.ensure_agent_identity("alice-mcp", owner="mcp")
@@ -308,9 +308,9 @@ def test_a_person_agent_is_not_proposed_for_authority_or_listed_to_the_team(fres
 
 
 def test_the_people_an_administrator_acts_on_hear_about_it(fresh_db):
-    """Rename, merge, deactivation, export and revoke-all were logged under
-    the administrator's name only, and the activity feed never shows one
-    person another's rows, so the people affected never learned of them."""
+    """Rename, merge, deactivation, export and revoke-all notify the people
+    affected. The activity feed never shows one person another's rows, so a
+    ledger row under the administrator's name alone never reaches them."""
     from app.services import admin, api_keys, users
 
     for name in ("ops", "alice", "bob", "dana", "dana-alt"):
@@ -359,7 +359,7 @@ def test_notices_about_an_account_reach_its_person_only(fresh_db, monkeypatch):
 @pytest.mark.parametrize("kind", ["document", "task"])
 def test_a_merge_cannot_hand_a_crew_row_to_somebody_outside_the_crew(fresh_db, kind):
     """A crew row's author reads it after leaving the crew (scope.visible_filter,
-    the author arm). Merged by somebody else, that reach moved to a target who
+    the author arm). Merged by somebody else, that reach moves to a target who
     was never a member, with every later revision of a crew document."""
     from app.services import crews, documents, users, work
 

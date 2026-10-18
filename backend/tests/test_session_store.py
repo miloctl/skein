@@ -1,6 +1,6 @@
-"""The SQLite session store: FileSessionManager's contract over db.py, the
-transaction that replaced the per-thread bridge locks, the one-time file
-import, and chat deletion taking the model-side sessions with it."""
+"""The database session store: FileSessionManager's contract over db.py, the
+LOCK_SESSION name lock that serializes appenders, the one-time file import,
+and chat deletion taking the model-side sessions with it."""
 
 import threading
 
@@ -74,10 +74,10 @@ def test_update_requires_a_row_and_keeps_created_at(fresh_db):
 
 
 def test_the_session_lock_serializes_appenders(fresh_db):
-    """What replaced session_log's per-thread lock dict: writers doing
-    read-last-id-then-append inside db.transaction() never lose a write -
-    and unlike the lock, the guarantee holds across processes, because
-    BEGIN IMMEDIATE serializes on the database, not the interpreter."""
+    """Writers doing read-last-id-then-append under
+    db.name_lock(LOCK_SESSION) never lose a write, and the guarantee holds
+    across processes, because the lock lives in the database, not the
+    interpreter."""
     repo = DatabaseSessionRepository()
     _seed_session(repo)
     _seed_agent(repo)
@@ -153,10 +153,10 @@ def test_deleting_a_thread_takes_its_persona_sessions(fresh_db):
 
 
 def test_create_agent_twice_keeps_the_thread_history(fresh_db):
-    """create_agent is last-writer-wins on the AGENT payload only. An OR
-    REPLACE here deletes the old row to resolve the conflict, and
-    session_messages CASCADEs off that PK - so the second concurrent first
-    turn on a thread wiped the whole conversation the first one saved."""
+    """create_agent is last-writer-wins on the AGENT payload only. A delete of
+    the old row to resolve the conflict CASCADEs session_messages off that PK
+    - so the second concurrent first turn on a thread wipes the whole
+    conversation the first one saved."""
     repo = DatabaseSessionRepository()
     _seed_session(repo)
     _seed_agent(repo)

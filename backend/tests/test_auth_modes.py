@@ -256,9 +256,9 @@ def test_an_agent_key_is_refused_at_the_perimeter(client, monkeypatch):
 
 
 def test_a_credential_is_verified_once_per_request(client, monkeypatch):
-    """The middleware and the dependency both used to verify. verify_key
-    writes last_used_at on every call, so a double check cost two SQLite
-    writes per request."""
+    """The middleware proves the key once and the dependency reuses it. A
+    second verify_key is a second key lookup per request, and can be a second
+    last_used_at write."""
     from app import config
     from app.routes import deps
 
@@ -434,8 +434,7 @@ def test_oidc_bound_identity_is_refused_when_content_claims_its_name(
 def test_established_oidc_read_is_not_blocked_by_a_concurrent_writer(client, monkeypatch, fresh_db):
     """The steady-state OIDC path is a reader, and a reader waits for nobody.
 
-    Under SQLite this was a claim about WAL versus the single global writer.
-    Under MVCC it is a claim about row locks: another transaction holding the
+    Under MVCC this is a claim about row locks: another transaction holding the
     caller's roster row must not delay a read that only needs to see it."""
     from app import db
     from app.services import oidc_identities

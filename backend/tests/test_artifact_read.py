@@ -435,7 +435,7 @@ def test_a_forced_rerun_reuses_its_row_instead_of_filing_a_second(client):
     """_write_artifact upserts on the path, so a same-day rerun overwrites the
     file. Returning a NEW id there would hand the reader an artifact that does
     not exist; returning a STALE one would point at the overwritten body."""
-    # ?force=true, because the route no longer forces by default: the weekly
+    # ?force=true, because the route does not force by default: the weekly
     # claim is what stops a second click re-notifying the whole roster
     first = client.post("/api/rituals/week-close?force=true").json()
     second = client.post("/api/rituals/week-close?force=true").json()
@@ -469,8 +469,8 @@ def test_absent_artifact_and_unreadable_artifact_read_alike(client):
 
 def test_a_path_outside_the_artifacts_dir_is_refused(client):
     """`path` is a stored string and this call turns one into a file read. A
-    crafted row must not reach the environment file or the private notes DB
-    that services/private_notes.py keeps out of every other surface."""
+    crafted row must not reach the environment file or any other file outside
+    the artifacts directory."""
     art = _readout(client)
     db.execute("UPDATE artifacts SET path = ? WHERE id = ?", ("/etc/hostname", art["id"]))
     assert client.get(f"/api/artifacts/{art['id']}").status_code == 404

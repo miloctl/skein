@@ -146,8 +146,9 @@ def test_log_message_never_cross_files_on_id_collision(client, fresh_db):
 
 
 def test_delete_removes_both_session_stores_precisely(client, fresh_db, tmp_path):
-    """The database rows AND the pre-045 leftover files, persona variants
-    included - and never a thread that merely shares the prefix."""
+    """The database rows AND the leftover session files from before sessions
+    became rows, persona variants included - and never a thread that merely
+    shares the prefix."""
     from strands.types.session import Session, SessionType
 
     from app import config
@@ -477,7 +478,7 @@ def test_a_persona_session_id_cannot_be_typed(client):
     assert not _THREAD_ID.fullmatch(minted)
     assert re.sub(r"[^A-Za-z0-9_-]", "", minted) != minted
 
-    # the old separator is now just characters: an intruder sending it gets a
+    # `--` is just characters in a thread id: an intruder sending it gets a
     # thread of their own by that literal name, reaching no session but theirs
     _read_chat(client, "/as growth-mentor plan my week", thread="th-p")
     resp = client.post(
@@ -523,16 +524,17 @@ def test_an_unnamed_thread_is_one_per_person(client):
     # together, so it cannot fail on a change to how the id is derived.
     assert len(mine) == 1 and len(theirs) == 1
     assert mine != theirs, "one shared row would restore one model session for everyone"
-    # and neither is the literal the bug produced - an omitted thread id used
-    # to land on 'default', which is a name any caller can also send
+    # and neither is 'default': an omitted thread id must not land on a name
+    # any caller can also send
     assert "default" not in (mine[0], theirs[0])
     # each caller's own id is stable across requests
     assert [c["id"] for c in client.get("/api/chats").json()] == mine
 
 
 def test_a_folder_differing_only_in_accent_case_is_the_same_folder(client):
-    """SQLite's lower() is ASCII-only, so this function stopped folding the
-    moment a name left ASCII - which is the duplicate it exists to stop."""
+    """_snap_folder folds with users.fold, so a non-ASCII name differing only
+    in case reuses the existing folder - that duplicate is what it exists to
+    stop."""
     from app.services import chat_threads
 
     chat_threads.create_folder("ava", "Été")

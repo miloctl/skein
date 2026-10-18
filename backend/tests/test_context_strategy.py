@@ -179,9 +179,6 @@ def test_health_reports_the_strategy(client):
     assert client.get("/api/health").json()["context_strategy"] == "sliding"
 
 
-# ---- the team toggle ---------------------------------------------------------
-
-
 def _key(name: str = "operator") -> dict:
     from app.services.api_keys import create_key
 
@@ -251,9 +248,6 @@ def test_the_change_is_logged_to_the_provenance_ledger(client, fresh_db):
     row = db.query_one("SELECT actor, detail FROM activity WHERE action = 'set_context_strategy'")
     assert row["actor"] == "operator"
     assert "summarize" in row["detail"]
-
-
-# ---- session survival across a strategy change -------------------------------
 
 
 def _seed_session(thread_id: str, manager_name: str) -> None:
@@ -332,8 +326,8 @@ def test_reconcile_never_raises_into_a_chat_turn(fresh_db, monkeypatch):
 
 
 def test_the_session_bridge_seeds_the_configured_manager(fresh_db, monkeypatch):
-    """A command-first thread on a summarize deployment used to be seeded with
-    sliding state, killing it the moment the agent first replied."""
+    """A command-first thread on a summarize deployment must not be seeded
+    with sliding state, which kills it the moment the agent first replies."""
     from app.agents import session_log
     from app.services import chat_threads
 
@@ -347,10 +341,10 @@ def test_the_session_bridge_seeds_the_configured_manager(fresh_db, monkeypatch):
 
 
 def test_concurrent_bridge_writes_keep_every_exchange(fresh_db, monkeypatch):
-    """next_id came from the LAST message on disk, with no lock - two commands
-    on one thread read the same id and wrote message_<n>.json over each other,
-    and both raced to create the session. Measured at 34 of 180 messages
-    surviving before the per-thread lock."""
+    """next_id comes from the LAST stored message. Without the session lock
+    (db.name_lock(LOCK_SESSION) in session_log.log_exchange), two commands on
+    one thread read the same id and write over each other, and both race to
+    create the session - exchanges are lost."""
     import threading
 
     from app.agents import session_log

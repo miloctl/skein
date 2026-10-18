@@ -60,9 +60,9 @@ def test_a_stuck_row_is_named_at_boot_and_moved_by_rename(fresh_db):
     from app import db
     from app.services import users
 
-    # migration 040 is deliberately a no-op: moving a person is rename_user's
-    # job, because it knows all 47 attribution columns and the private notes
-    # DB that SQL cannot reach. Boot names the row instead.
+    # no migration moves a person: that is rename_user's job, because it knows
+    # every attribution column (users._ATTRIBUTION) and the private notes.
+    # Boot names the row instead.
     db.execute(
         "INSERT INTO users (name, kind, active, created_at) VALUES ('team', 'human', 1, ?)",
         (db.now(),),
@@ -183,8 +183,8 @@ def test_identity_folding_agrees_with_the_resolver(fresh_db):
     from app import db
     from app.services import users
 
-    # sqlite's lower() is ASCII-only, so a SQL-folded wall reads these as two
-    # names while resolve_teammate reads them as one
+    # users.fold (NFKC plus zero-width stripping) has no SQL equivalent, so the
+    # wall folds in Python; this pins that the wall and resolve_teammate agree
     db.execute(
         "INSERT INTO users (name, kind, active, created_at) VALUES ('scoüt', 'agent', 1, ?)",
         (db.now(),),

@@ -940,12 +940,11 @@ def test_a_hanging_turn_is_abandoned_not_awaited_forever(fresh_db, monkeypatch):
 
     The hang is an Event this test RELEASES, never a bare sleep. run_one
     deliberately abandons the worker, so a sleep leaves a live thread running
-    for the rest of its duration - and db.DB_PATH is read per connection
-    (db.py::connect) while fresh_db repoints it per test, so a late write
-    lands in whichever test's database is installed at that moment. Nothing
-    in the CODE prevents that write: it is prevented only by this fake having
-    no event_loop_metrics, and the fake twelve tests below has them. That is
-    the shape of the reload(db) flake this suite already paid for once.
+    for the rest of its duration - and a late write from it lands in the
+    shared worker database after fresh_db truncates it for the next test.
+    Nothing in the CODE prevents that write: it is prevented only by this fake
+    having no event_loop_metrics, and the fake in
+    test_the_runs_own_spend_reaches_usage_log has them.
     """
     import threading
     import time
@@ -978,7 +977,8 @@ def test_a_hanging_turn_is_abandoned_not_awaited_forever(fresh_db, monkeypatch):
         )
         assert worker is not None and worker.is_alive()
     finally:
-        # hand the thread back before the next test installs its database
+        # release the thread before the next test truncates and reuses the
+        # worker database
         released.set()
         if worker := next(
             (t for t in threading.enumerate() if t.name == "agent-run-research-agent"),
@@ -1212,8 +1212,7 @@ def test_runner_sweep_serializes_policy_and_notification(fresh_db, monkeypatch):
             # once, at the top, and the run acts on those. (Not a read
             # snapshot - sweep() wraps _due in db.transaction(), and
             # read_transaction joins an ambient one rather than raising its
-            # isolation.) `swept == 1` at the bottom is that guarantee; a
-            # blocked writer was SQLite's mechanism for it, not the promise.
+            # isolation.) `swept == 1` at the bottom is that guarantee.
             sleep(0.05)
         return None
 

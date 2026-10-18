@@ -25,14 +25,14 @@ def test_an_unreadable_artifact_answers_json_not_plain_text(client):
 
 
 def test_an_unclassified_failure_is_json_and_says_nothing_about_itself():
-    """The JSON rule held for the handled classes and nothing else - a
-    KeyError or a bad-SQL OperationalError answered `Internal Server Error`
-    in text/plain, and lib/api.ts fell back to the status line.
+    """The JSON rule holds for every class, not only the handled ones -
+    without the catch-all, a KeyError or a bad-SQL error answers `Internal
+    Server Error` in text/plain, and lib/api.ts falls back to the status line.
 
     The handler is exercised directly: TestClient re-raises a server
     exception rather than returning the handler's response, and a second
-    client with that turned off starts its own lifespan on another thread and
-    collides with this one's SQLite connection.
+    client with that turned off starts its own lifespan on another thread, and
+    that lifespan's shutdown closes the process-wide db pool under this one.
     """
     import asyncio
     import json as jsonlib

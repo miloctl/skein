@@ -303,9 +303,9 @@ def test_the_nonregulated_branch_runs_the_action_and_checkpoints(fresh_db):
     )
     assert result.outputs == {"atlas.workplace.notify-manager": {"sent": True}}
     assert calls == ["delivery"]
-    # ORDERED, and the whole ledger: an unordered single-row SELECT returned
-    # the first-inserted row under SQLite and returns any row here. The run
-    # writes the attempt first and the outcome after it, and both matter.
+    # ORDERED, and the whole ledger: an unordered single-row SELECT returns
+    # any row. The run writes the attempt first and the outcome after it, and
+    # both matter.
     assert [r["action"] for r in fresh_db.query("SELECT action FROM activity ORDER BY seq")] == [
         "workflow_action_attempt",
         "workflow_action",

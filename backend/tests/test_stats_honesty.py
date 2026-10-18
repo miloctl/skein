@@ -2,7 +2,7 @@
 
 docs/INSIGHTS.md states the discipline these pin: medians over means, n
 printed everywhere, and person-level data that plans the future but never
-judges the past. Each case here was measured against the old code first.
+judges the past.
 """
 
 from app.services import stats

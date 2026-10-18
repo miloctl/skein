@@ -340,10 +340,10 @@ def _sql_text(node) -> str:
 def _statements(tree) -> list[tuple[str, str]]:
     """Every string in a module, paired with the function that owns it.
 
-    Module-level SQL is owned by `<module>`. A scan that only walked
-    FunctionDef bodies read `portfolio._WAIT_SATISFIED` - three SELECTs held
+    Module-level SQL is owned by `<module>`. A scan that only walks
+    FunctionDef bodies reads `portfolio._WAIT_SATISFIED` - four SELECTs held
     in a module constant and spliced into queries below - as zero SQL, so a
-    leak parked in a constant was invisible to both scans.
+    leak parked in a constant is invisible to both scans.
 
     A nested function is owned by its OUTERMOST enclosing function, because
     that is the name an exemption key has to spell. ast.walk is breadth-first,
@@ -393,17 +393,15 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
 
     listed = {label.split(".")[1] for label, _ in _mutations(dict.fromkeys(_KINDS, 1))}
     # ast, not a regex over the source: a regex has to guess where a function
-    # body ends, and it put create_engagement's name on update_engagement's
+    # body ends, and it can put create_engagement's name on update_engagement's
     # UPDATE. Every false positive here reads as a real unguarded write.
     # a bare {} too: `f"UPDATE {table} SET ..."` (the shape at users.py) names
     # no table here, and matching only literal names would wave it through
     names = "|".join(scope.CLASSIFIED)
-    # Three shapes, because SQLite writes a row three ways. UPDATE and DELETE
-    # were the only ones matched, so `INSERT OR REPLACE INTO tasks` (which
-    # deletes the row and re-inserts it) and `INSERT INTO tasks ... ON
-    # CONFLICT(id) DO UPDATE` both walked past. The upsert shape is already in
-    # this codebase - crews.add_member and search.index_record use it - so it
-    # is the one a next author reaches for by example.
+    # Two shapes write a row by id: UPDATE/DELETE, and `INSERT INTO tasks ...
+    # ON CONFLICT(id) DO UPDATE`. The upsert shape is already in this codebase
+    # - crews.add_member and search.index_record use it - so it is the one a
+    # next author reaches for by example.
     stmt = re.compile(rf"\b(?:UPDATE|DELETE FROM)(?:\s+OR\s+\w+)?\s+(?:{names}|\{{)", re.I)
     # An upsert carries no WHERE at all, so the id gate below cannot apply to
     # it - the row is addressed by the conflict target or by an explicit id
@@ -415,11 +413,11 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
         rf"|\bINSERT\s+INTO\s+(?:{names}|\{{)[\s\S]*?\bid\b[\s\S]*?\bON\s+CONFLICT\b",
         re.I,
     )
-    # "id-addressed" read off the SQL, not off the signature. The arg-name
-    # test (`endswith('_id')`) was a property of what the author called the
+    # "id-addressed" read off the SQL, not off the signature. An arg-name
+    # test (`endswith('_id')`) is a property of what the author called the
     # parameter: `def edit(row: int)` with `UPDATE tasks ... WHERE id = ?`
-    # took a caller-supplied id and matched nothing.
-    # `\bid`, and only after WHERE. Any `*_id` column matched create_engagement's
+    # takes a caller-supplied id and matches nothing.
+    # `\bid`, and only after WHERE. Any `*_id` column matches create_engagement's
     # `UPDATE milestones SET engagement_id = ? WHERE project = ?` - a write keyed
     # on a NAME, which is the one shape this test must not claim. A word
     # boundary before `id` cannot match inside `engagement_id`, because the
@@ -428,7 +426,7 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
     missing = []
     seen: set[str] = set()
     # anchored on this file, not the CWD: `pytest backend/tests/...` from the
-    # repo root made the glob empty and the test vacuously green
+    # repo root makes a CWD-relative glob empty and the test vacuously green
     services = pathlib.Path(__file__).resolve().parent.parent / "app" / "services"
     assert services.is_dir(), services
     for path in sorted(services.glob("*.py")):
@@ -440,8 +438,7 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
                 seen.add(f"{path.name}::{fn.name}")
         # _statements, not a walk of FunctionDef bodies: SQL held in a module
         # constant and spliced into a query below belongs to no function, and
-        # the body walk read it as zero SQL (portfolio._WAIT_SATISFIED is
-        # three real SELECTs that were invisible to both scans).
+        # a body walk reads it as zero SQL (portfolio._WAIT_SATISFIED).
         for fname, sql in _statements(tree):
             if not (stmt.search(sql) and addressed.search(sql)) and not upsert.search(sql):
                 continue
@@ -454,8 +451,8 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
         " _EXEMPT_FUNCTIONS with the reason."
     )
     # the other direction. An exemption that names no live function is a
-    # carve-out nobody can audit - "submit_for_acceptance" named nothing at
-    # all, and a bare "delete_note" exempted private_notes.delete_note too
+    # carve-out nobody can audit, and a bare "delete_note" would exempt
+    # private_notes.delete_note too
     assert not set(_EXEMPT_FUNCTIONS) - seen, (
         f"exemptions naming no function: {sorted(set(_EXEMPT_FUNCTIONS) - seen)}."
         " Delete the entry, or fix the file::function key."
@@ -628,7 +625,7 @@ def test_recall_answers_one_person_out_of_their_own_memories(fresh_db):
     memory.remember("bo likes go", user="bo", actor="bo")
     memory.remember("the standup is at 9", user="", actor="ava")
 
-    # the query branch used to apply neither filter
+    # the query branch applies both filters
     got = {m["content"] for m in memory.recall("likes", user="ava")}
     assert got == {"ava likes rust"}
     # the list branch keeps the team-wide memory
@@ -638,8 +635,8 @@ def test_recall_answers_one_person_out_of_their_own_memories(fresh_db):
 
 def test_recall_with_no_person_returns_only_team_wide_memories(fresh_db):
     """The unattended runner and a tool call with no requester recall with
-    `user=""`. The owner predicate used to vanish there, so a turn nobody
-    asked for read every person's targeted memories into its prompt."""
+    `user=""`. The owner predicate must not vanish there, or a turn nobody
+    asked for reads every person's targeted memories into its prompt."""
     users.ensure_user("ava")
     users.ensure_user("bo")
     memory.remember("ava likes rust", user="ava", actor="ava")
@@ -739,14 +736,9 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
     assert theirs == {scoped["id"]}
 
 
-# ---------------------------------------------------------------------------
-# The read side. test_every_id_addressed_mutation_is_listed covers mutations,
-# and it found almost nothing - the reads are where the leaks were: nine of
-# them in one review round, every one a place somebody had to remember.
-#
+# The read side. test_every_id_addressed_mutation_is_listed covers mutations.
 # A read of a CLASSIFIED table has to do one of three things: take a `viewer`,
 # splice scope.WORKSPACE_ONLY, or appear below with a written reason.
-# ---------------------------------------------------------------------------
 
 # file::function -> why this read needs no tier filter.
 _UNFILTERED_READS = {
@@ -1136,10 +1128,10 @@ _UNFILTERED_READS = {
 def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
     """The mirror of test_every_id_addressed_mutation_is_listed, for reads.
 
-    Nine leaks in one review round were all this shape: a SELECT on a scoped
-    table in a function with no viewer and no WORKSPACE_ONLY. Four of them sat
-    under a comment claiming the table carried no settable tier - true when
-    written, false by the time it shipped. A comment cannot hold this; CI can.
+    The leak shape is a SELECT on a scoped table in a function with no viewer
+    and no WORKSPACE_ONLY. A comment claiming the table carries no settable
+    tier cannot hold this - it can be true when written and false by the time
+    it ships. CI can.
     """
     import pathlib
     import re
@@ -1248,8 +1240,7 @@ def test_every_read_of_a_scoped_table_is_filtered_or_excused(fresh_db):
     )
     # An excuse for a read that IS filtered now is the same rot this test
     # exists to catch, one level up: it reads as a live carve-out and the next
-    # author trusts it. list_artifacts and generate_handoff both sat here until
-    # they took a viewer.
+    # author trusts it.
     assert not set(_UNFILTERED_READS) - still_needed, (
         f"excuses no longer needed: {sorted(set(_UNFILTERED_READS) - still_needed)}."
         " The function is filtered now, or it is gone. Delete the entry."

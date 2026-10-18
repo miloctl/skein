@@ -123,9 +123,6 @@ def test_gitea_conflicting_aliases_or_signatures_are_refused(signed, fresh_db, o
     assert not fresh_db.query("SELECT * FROM forge_receipts")
 
 
-# --- matching ---------------------------------------------------------------
-
-
 def test_branch_forms_that_name_a_task(fresh_db):
     from app.services import forge
 
@@ -219,9 +216,6 @@ def test_branch_name_beats_the_title(fresh_db):
     from app.services import forge
 
     assert forge.match_task(branch="task/7-x", title="closes task 99") == 7
-
-
-# --- transitions ------------------------------------------------------------
 
 
 def test_push_starts_the_task(signed, fresh_db):
@@ -422,9 +416,6 @@ def test_unknown_task_and_unknown_branch_are_ignored(signed, fresh_db):
 def test_tag_push_is_not_a_branch(signed, fresh_db):
     out = signed("push", {"ref": "refs/tags/v1", "sender": {"login": "mira"}}).json()
     assert out["ignored"] == "only push and pull_request events move work"
-
-
-# --- identity and attribution ----------------------------------------------
 
 
 def test_the_ledger_never_reads_as_the_teammates_own_edit(signed, fresh_db):
@@ -691,10 +682,10 @@ def test_an_agent_login_never_acts_through_the_webhook(signed, fresh_db):
 
 
 def test_a_human_named_like_an_agent_cannot_disarm_the_refusal(signed, fresh_db):
-    # ensure_user refuses to CREATE this collision now, so plant it the way a
+    # ensure_user refuses to CREATE this collision, so plant it the way a
     # database written before that guard carries it. `users.name` is
-    # case-sensitively unique, so both rows coexist, and a lookup that returns
-    # "the first row" gets the human - BINARY order sorts `Scout` first.
+    # case-sensitively unique, so both rows coexist, and a lookup that takes an
+    # arbitrary first row can get the human.
     from app import db
     from app.services import forge, users, work
 
@@ -742,7 +733,7 @@ def test_a_moving_repository_url_does_not_append_rows(signed, fresh_db):
     assert len(db.query("SELECT id FROM activity WHERE action = 'update_task'")) == 1
 
 
-# --- the signature is the door ---------------------------------------------
+# the signature is the door
 
 
 def test_a_wrong_signature_is_refused(signed, fresh_db):
@@ -833,9 +824,9 @@ def test_a_task_someone_else_closed_keeps_its_branch_link(signed, fresh_db):
 
 
 def test_workplace_policy_denies_a_forge_transition_in_the_write_transaction(fresh_db, monkeypatch):
-    """The forge decision and mutation share one BEGIN IMMEDIATE. This pins
-    the deny half: a workplace rule on the matched task refuses the move and
-    nothing lands."""
+    """The forge decision and mutation share one transaction that holds the
+    task (hold_resource in forge.apply_delivery). This pins the deny half: a
+    workplace rule on the matched task refuses the move and nothing lands."""
     from fastapi.testclient import TestClient
 
     from app import config

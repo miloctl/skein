@@ -102,11 +102,11 @@ def test_stall_rule_windows_on_disposition_time_not_creation(fresh_db):
 
 
 def test_accept_degrades_when_the_engagement_name_collides_in_a_race(fresh_db, monkeypatch):
-    """create_engagement pre-checks the name NOCASE, so the normal
-    collision is a ValueError. Two accepts landing together both pass that
-    read and the loser hits ux_engagements_name_nocase instead - uncaught
-    that is a 500 for a caller-supplied name. Accept must degrade the same
-    way either route."""
+    """create_engagement holds the name lock (engagements._hold_name) across
+    its lower(name) pre-check, so the normal collision is a ValueError. A
+    writer that bypasses the lock can still make the insert hit
+    ux_engagements_name_nocase - uncaught that is a 500 for a caller-supplied
+    name. Accept must degrade the same way either route."""
     from app import db
     from app.services import engagements, intake
 

@@ -54,9 +54,9 @@ def test_a_dash_inside_a_sentence_is_not_a_party(client):
 
 
 def test_a_promise_the_team_made_is_still_the_default(client):
-    """Every row that existed before migration 007 means what it meant. The
-    default is 'given', so the exec readout and the findings rules read the
-    same set they always did."""
+    """The direction default is 'given', so a promise that names no direction
+    is one the team made, and the exec readout and the findings rules count
+    it."""
     got = client.post("/api/capture", json={"text": "promised: ship the summary"}).json()
     row = db.query_one("SELECT * FROM promises WHERE id = ?", (got["id"],))
     assert row["direction"] == "given"

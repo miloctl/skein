@@ -28,16 +28,19 @@ def test_the_creator_becomes_the_first_steward(fresh_db):
 
 
 def test_a_crew_name_is_unique_case_insensitively(fresh_db):
-    """The service pre-checks then inserts in two statements, so the NOCASE
-    index in migration 003 is what stops two concurrent creates from both
-    landing and showing one crew twice in the picker."""
+    """_clean_name holds a name lock across its check and the insert, so two
+    concurrent creates through the service cannot both land. The unique
+    lower(name) index (ux_crews_name_nocase, 001_baseline.sql) backs that up
+    for a writer that bypasses the service, so one crew never shows twice in
+    the picker."""
     users.ensure_user("ava")
     crews.create_crew("Platform", actor="ava")
     with pytest.raises(ValueError, match="already exists"):
         crews.create_crew("platform", actor="ava")
     with pytest.raises(Exception, match=r"UNIQUE|already exists"):
         db.execute("INSERT INTO crews (name, created_at, updated_at) VALUES ('PLATFORM', 'x', 'x')")
-    # and the fold guard, which the ASCII-only NOCASE index does not catch
+    # and the fold guard, which catches this pair whatever the database ctype,
+    # and the NFKC and zero-width variants that lower() never folds
     crews.create_crew("Café", actor="ava")
     with pytest.raises(ValueError, match="already exists"):
         crews.create_crew("CAFÉ", actor="ava")
@@ -212,8 +215,9 @@ def test_a_sole_steward_cannot_demote_themselves(fresh_db):
 
 
 def test_the_last_steward_guard_holds_under_concurrency(fresh_db):
-    """The count ran before BEGIN IMMEDIATE, so two concurrent removals both
-    saw two stewards, both passed, and the crew ended with none."""
+    """Without the crew row held FOR UPDATE (crews._row(hold=True)), two
+    concurrent removals both count two stewards, both pass, and the crew ends
+    with none."""
     import threading
 
     users.ensure_user("ava")
@@ -419,11 +423,11 @@ def test_a_rename_merge_folds_crew_membership(fresh_db):
 
 def test_a_crew_edit_is_refused_in_the_service_not_only_the_route(fresh_db):
     """Crew membership decides what every person reads, so the guard belongs
-    to the data and not to one door. All three mutators used to be authorized
-    only by routes/api.py::_crew_admin_override, which meant a caller that was
-    not that route - a future tool, a CLI command, a job - wrote with no check
-    at all, and a steward demoted between the route's check and the service's
-    transaction still landed the write."""
+    to the data and not to one door. If the three mutators were authorized
+    only by routes/api.py::_crew_admin_override, a caller that is not that
+    route - a future tool, a CLI command, a job - would write with no check at
+    all, and a steward demoted between the route's check and the service's
+    transaction would still land the write."""
     users.ensure_user("ava")
     users.ensure_user("bo")
     users.ensure_user("mallory")

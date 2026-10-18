@@ -22,8 +22,8 @@ def _crew(owner="ava", name="Platform"):
 
 
 def test_a_write_defaults_to_workspace(fresh_db):
-    """Migration 004 defaults every column, so a caller that says nothing
-    behaves exactly as it did before the tier existed."""
+    """The schema defaults every tier column, so a caller that says nothing
+    writes a workspace row."""
     users.ensure_user("ava")
     tid = work.create_task(title="unscoped", actor="ava")["id"]
     row = fresh_db.query_one("SELECT visibility, crew_id FROM tasks WHERE id = ?", (tid,))
@@ -475,12 +475,11 @@ def _seed_every_scoped_kind(cid):
     )
     # ALLOCATED, or capacity and allocation_conflicts read as empty and every
     # assertion below passes whatever their tier lock does. The engagement NAME
-    # travels through GROUP_CONCAT on four REST surfaces, the exec readout file
-    # and the team_capacity tool, and this seed not allocating is the reason
-    # that shipped.
+    # travels through string_agg on those surfaces, the exec readout file and
+    # the team_capacity tool (scope.visible_name lists them).
     # OVER 100 in total, because allocation_conflicts only reports a person
     # above that line - at 60% the surface is empty and the assertion passes
-    # whatever the tier lock does. This is the shape that hid the leak.
+    # whatever the tier lock does.
     open_eng = engagements.create_engagement("open work", actor="ava")
     engagements.allocate("ava", scoped_eng["id"], 80, actor="ava")
     engagements.allocate("ava", open_eng["id"], 80, actor="ava")

@@ -15,8 +15,8 @@ from app import identity_audit
 
 
 def _legacy_agent(fresh_db, name):
-    # the exact state migration 018 leaves a pre-018 agent row in: kind
-    # 'agent', identity_owner 'generic-agent', no modern ensure_* involved
+    # the state a legacy agent row is in: kind 'agent', identity_owner
+    # 'generic-agent', written with no modern ensure_* involved
     fresh_db.execute(
         "INSERT INTO users (name, kind, identity_owner, created_at)"
         " VALUES (?, 'agent', 'generic-agent', ?)",

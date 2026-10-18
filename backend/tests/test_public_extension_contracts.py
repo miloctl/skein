@@ -1838,11 +1838,10 @@ def test_extension_store_schema_collisions_are_refused_before_migration(fresh_db
 
 
 def test_an_extension_stores_unqualified_names_stay_in_its_own_schema(fresh_db):
-    """search_path is what the SQLite ATTACH authorizer used to be: an
-    extension writing `users` gets ITS OWN users table, never the roster. It
-    is the same guarantee and the same limit - SQL that spells out
-    `public.users` still reaches core, exactly as an in-process module could
-    always open any file the process could."""
+    """search_path keeps an extension's unqualified names in its own schema:
+    an extension writing `users` gets ITS OWN users table, never the roster.
+    The limit: SQL that spells out `public.users` still reaches core, exactly
+    as an in-process module can open any file the process can."""
     import psycopg
 
     store = ExtensionStore("atlas")

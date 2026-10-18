@@ -2085,8 +2085,7 @@ def test_blocker_routes_conceal_a_hidden_legacy_task_project(fresh_db, project_c
         # A current write cannot create this row because the foreign key is
         # strict. Preserve an upgraded legacy dangling link for parity tests.
         # The constraint is dropped and restored around the setup: PostgreSQL
-        # enforces foreign keys inside the transaction, so there is no
-        # equivalent of SQLite's "PRAGMA foreign_keys = OFF" to slip under.
+        # enforces foreign keys inside the transaction.
         constraint = fresh_db.query_row(
             "SELECT conname FROM pg_constraint WHERE conrelid = 'blockers'::regclass"
             " AND contype = 'f' AND pg_get_constraintdef(oid) LIKE '%REFERENCES tasks%'"
@@ -3115,9 +3114,9 @@ def test_a_closed_mcp_session_is_dropped_and_reported_as_not_run(fresh_db, monke
 def test_a_tool_from_a_replaced_connection_neither_runs_nor_drops_the_new_one(
     fresh_db, monkeypatch
 ):
-    """A turn can hold a tool after its connection was replaced. Its closed
-    session dropped the healthy replacement cached under the same id, and
-    the next calls said the server changed although nothing had."""
+    """A turn can hold a tool after its connection was replaced. If its closed
+    session drops the healthy replacement cached under the same id, the next
+    calls say the server changed although nothing has."""
     from strands.types.exceptions import MCPClientInitializationError
 
     from app.agents import mcp_tools as mcp_module
@@ -5222,8 +5221,7 @@ def test_rejection_serializes_current_policy_with_the_verdict(fresh_db):
             # the policy input SAVED with the proposal, not a fresh read of
             # the task, so a concurrent relink cannot change it - that is what
             # "serializes current policy with the verdict" means, and the
-            # rejected status below is the assertion of it. A blocked writer
-            # was the old mechanism for the same outcome, not the promise.
+            # rejected status below is the assertion of it.
             sleep(0.05)
         return PolicyDecision(
             PolicyEffect.REVIEW,
@@ -7387,8 +7385,8 @@ def test_a_personal_call_stops_once_another_pod_deleted_the_server(fresh_db, mon
 
 def test_a_server_deleted_and_added_again_in_one_second_is_a_new_server(fresh_db, monkeypatch):
     """updated_at has one-second resolution, so a delete and re-add of one
-    name within a second kept the stamp, and a pod that missed the delete
-    kept the old connection and its credential."""
+    name within a second keeps the stamp. Keyed on the stamp alone, a pod that
+    missed the delete keeps the old connection and its credential."""
     from app.agents.mcp_tools import GovernedMCPTool
     from app.services import mcp_servers
 

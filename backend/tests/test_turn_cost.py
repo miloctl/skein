@@ -115,9 +115,6 @@ def test_month_to_date_reports_budget_and_blind_spots(fresh_db, monkeypatch, pin
     assert month["budget_usd"] == 50.0
 
 
-# ---- the budget findings rule ------------------------------------------------
-
-
 def test_budget_rule_is_off_without_a_budget(fresh_db, monkeypatch):
     from app.services import insights
 
@@ -168,9 +165,6 @@ def test_budget_rule_states_its_blind_spot_when_partially_priced(
     fired = insights._r_budget()
     assert len(fired) == 1
     assert "unpriced" in fired[0]["message"]
-
-
-# ---- the route and the mistyped-field lesson ---------------------------------
 
 
 def test_patch_link_via_route_and_reject_typos(client, fresh_db):
@@ -290,10 +284,10 @@ def test_engagement_names_dedupe_case_insensitively(fresh_db):
 
 
 def test_rename_cannot_reopen_the_case_variant_fork(fresh_db):
-    """The create check went NOCASE; the rename path kept the
-    BINARY check, so update_engagement(name="APOLLO") beside "Apollo" forked
-    rollups exactly the way the create fix prevents. Re-casing an
-    engagement's OWN name stays legal."""
+    """A rename must not create a case variant of another engagement:
+    update_engagement(name="APOLLO") beside "Apollo" forks rollups exactly the
+    way the create check prevents. Re-casing an engagement's OWN name stays
+    legal."""
     engagements.create_engagement("Apollo", actor="ava")
     engagements.create_engagement("Beta", actor="ava")
     with pytest.raises(ValueError, match="already exists"):
@@ -351,11 +345,10 @@ def test_record_chat_usage(fresh_db):
 
 
 def test_a_flock_turn_logs_spend_per_member_via_the_close(client, fresh_db, monkeypatch):
-    """Member spend used to INSERT inline in each member's finally - on the
-    event loop, once per member, against SQLite's single write lock, so one
-    lost lock race froze every open SSE stream in the process for up to
-    busy_timeout. The rows now ride the member queues into _close_turn, which
-    runs in a threadpool on the success path. Same rows, off the loop."""
+    """Member spend rides the member queues into _close_turn, which runs in a
+    threadpool on the success path. An inline INSERT in each member's finally
+    runs on the event loop, once per member, and one slow write there stalls
+    every open SSE stream in the process. Same rows, off the loop."""
     monkeypatch.setattr("app.routes.chat.build_agent", lambda *a, **k: _MeteredAgent("m"))
     with client.stream(
         "POST", "/api/chat", json={"thread_id": "fm", "message": "/flock engineering hello"}

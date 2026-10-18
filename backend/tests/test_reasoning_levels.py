@@ -81,9 +81,6 @@ async def _none():
     return None
 
 
-# ---- the team level ----
-
-
 def test_the_team_level_offers_what_the_team_model_declares(client, fresh_db, menu):
     got = client.get("/api/settings/reasoning").json()
     assert got == {
@@ -165,9 +162,6 @@ def test_the_model_summary_names_the_team_level_and_its_source(fresh_db, menu):
     }
 
 
-# ---- the level for one chat ----
-
-
 def test_reasoning_command_lists_picks_and_clears_per_chat(client, fresh_db, menu):
     settings.set_reasoning_level("low", actor="operator")
     out = _read_chat(client, "/reasoning")
@@ -215,9 +209,6 @@ def test_reasoning_command_needs_a_chat(fresh_db):
         return ""
 
     assert "inside a chat" in asyncio.run(first())
-
-
-# ---- which level a turn runs with ----
 
 
 def test_the_chat_level_outranks_the_team_level_on_the_turn(client, fresh_db, menu, builds):

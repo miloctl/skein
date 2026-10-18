@@ -103,7 +103,7 @@ def test_dates_are_validated_and_ics_survives_bad_legacy_rows(client, fresh_db):
     assert "soon" not in feed and feed.rstrip().endswith("END:VCALENDAR")
 
 
-# ---- the team zone: input is team wall time, storage is UTC, output is local ----
+# the team zone: input is team wall time, storage is UTC, output is local
 
 
 def _team_zone(monkeypatch, name):

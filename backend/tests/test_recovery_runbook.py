@@ -50,7 +50,7 @@ def _apply_fence():
     assert conninfo_to_dict(config.DATABASE_URL)["dbname"].startswith(
         ("skein_test_", "skein_scratch_", "skein_role_")
     )
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(  # noqa: S603 - the runbook's psql flags, no shell
         [_tool("psql"), "--dbname", config.DATABASE_URL, *argv[1:]],
         input=statement,
         text=True,
@@ -182,7 +182,7 @@ def _restricted_restore_drill(db, tmp_path, monkeypatch):
         snapshot = tmp_path / "storage-snapshot"
         shutil.copytree(data, snapshot)
         env = admin._pg_env()
-        listing = subprocess.run(  # noqa: S603
+        listing = subprocess.run(  # noqa: S603 - fixed argv, no shell
             [_tool("pg_restore"), "--list", str(archive)],
             env=env,
             check=True,
@@ -198,7 +198,7 @@ def _restricted_restore_drill(db, tmp_path, monkeypatch):
         browser_sessions.revoke(issued.cookie)
         shutil.rmtree(data)
         db.close_pool()
-        loaded = subprocess.run(  # noqa: S603
+        loaded = subprocess.run(  # noqa: S603 - fixed argv, no shell
             [
                 _tool("pg_restore"),
                 "--dbname",
@@ -264,7 +264,7 @@ def test_preboot_fence_invalidates_restored_revoked_oidc_authority(
     key = api_keys.create_key("restore-owner")
     env = admin._pg_env()
     archive = tmp_path / "external-full.dump"
-    subprocess.run(  # noqa: S603
+    subprocess.run(  # noqa: S603 - fixed argv, no shell
         [_tool("pg_dump"), "--format=custom", "--file", str(archive)],
         env=env,
         check=True,
@@ -273,7 +273,7 @@ def test_preboot_fence_invalidates_restored_revoked_oidc_authority(
     browser_sessions.revoke(issued.cookie)
     with pytest.raises(browser_sessions.SessionInvalid):
         browser_sessions.authenticate(issued.cookie, mode="oidc")
-    subprocess.run(  # noqa: S603
+    subprocess.run(  # noqa: S603 - fixed argv, no shell
         [
             _tool("pg_restore"),
             "--dbname",
@@ -362,14 +362,14 @@ def test_preboot_fence_removes_restored_personal_mcp_servers(scratch_db, tmp_pat
     )
     env = admin._pg_env()
     archive = tmp_path / "before-delete.dump"
-    subprocess.run(  # noqa: S603
+    subprocess.run(  # noqa: S603 - fixed argv, no shell
         [_tool("pg_dump"), "--format=custom", "--file", str(archive)],
         env=env,
         check=True,
         capture_output=True,
     )
     mcp_servers.delete(server["id"], "restore-owner", actor="restore-owner")
-    subprocess.run(  # noqa: S603
+    subprocess.run(  # noqa: S603 - fixed argv, no shell
         [
             _tool("pg_restore"),
             "--dbname",
@@ -476,8 +476,9 @@ def test_manual_backup_command_excludes_session_data(fresh_db, tmp_path, monkeyp
     env = admin._pg_env()
     archive = tmp_path / "manual.dump"
     argv = [str(archive) if arg == "$backup_file" else arg for arg in argv]
+    # S603: argv is the README's own pg_dump command, run with no shell
     subprocess.run(argv, env=env, check=True, capture_output=True)  # noqa: S603
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [_tool("pg_restore"), "--list", str(archive)],
         env=env,
         check=True,
@@ -494,7 +495,7 @@ def test_manual_backup_command_excludes_session_data(fresh_db, tmp_path, monkeyp
 @pytest.mark.parametrize("flag", ["--allow-faults", "--probe-storage"])
 def test_cluster_guard_requires_exact_opt_in_before_client(flag, tmp_path):
     script = ROOT / "scripts/openshift-durability-check.py"
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [
             sys.executable,
             str(script),
@@ -548,7 +549,7 @@ def test_upgrade_card_changes_tags_and_matching_digests(tmp_path, environment):
     original = path.read_text()
 
     def render():
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(  # noqa: S603 - fixed argv, no shell
             [kubectl, "kustomize", str(overlay)], check=True, capture_output=True, text=True
         )
         return [line.strip() for line in result.stdout.splitlines() if "image:" in line]

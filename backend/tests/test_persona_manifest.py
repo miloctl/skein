@@ -110,9 +110,6 @@ def test_known_tool_names_come_from_the_registry():
     assert "plan_project" in names
 
 
-# ---- wiring into the agent ---------------------------------------------------
-
-
 class _FakeModel:
     stateful = False
 

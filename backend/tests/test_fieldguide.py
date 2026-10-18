@@ -638,8 +638,7 @@ def test_unadopted_is_nameless_and_respects_grace(fresh_db):
     _mint(fresh_db, "ava")
     # The grace window is measured from each card's own `since`, so a fixed
     # assertion about the DEFAULT grace decays into a failure as the registry
-    # ages past it - the oldest cards crossed 30 days on 2026-08-31 and took
-    # this test with them. Compute the span from the oldest card instead: the
+    # ages past it. Compute the span from the oldest card instead: the
     # property worth pinning is that a card inside its window is not reported,
     # not that every shipped card happens to be young.
     from datetime import date

@@ -100,9 +100,9 @@ def test_a_list_of_deactivated_administrators_names_nobody(client, fresh_db, mon
 
 
 def test_a_renamed_only_administrator_names_nobody(client, fresh_db, monkeypatch):
-    """A rename frees the old name, and nobody can claim it again. Named in
-    SKEIN_ADMINS, it still counted as an administrator who could sign in, so
-    authority changes waited for a verdict nobody could give."""
+    """A rename frees the old name, and nobody can claim it again. If a name
+    in SKEIN_ADMINS still counts as an administrator who can sign in, authority
+    changes wait for a verdict nobody can give."""
     from app import config
     from app.routes.deps import administrator_possible
     from app.services import api_keys, review, users
@@ -378,7 +378,7 @@ def test_trust_scores_streak_suggestion(client, fresh_db):
     assert row["approved"] == 5 and row["recent_streak"] == 5
     assert row["last_verified_verdict"] == "approved"
     # `notify`, because that is the rung review_authority files - a promotion
-    # climbs one, and this line said `autonomous` for as long as it existed
+    # climbs one rung, never straight to `autonomous`
     assert "notify" in row["suggestion"]
 
 
@@ -443,7 +443,7 @@ def test_authority_stale_null_review_by_falls_back(fresh_db):
         " VALUES ('old-agent', 'task', 'autonomous', 'm', '2020-01-01T00:00:00')"
     )
     hits = [f for f in run_findings(actor="t")["findings"] if f["rule_id"] == "authority_stale"]
-    assert len(hits) == 1  # pre-017-style row (NULL review_by) still expires
+    assert len(hits) == 1  # a legacy row with NULL review_by still expires
     grant = delegation.authority_status("old-agent", "task")
     assert grant["review_by"] == "2020-03-31"
     assert grant["effective_level"] == "review" and grant["review_expired"] is True

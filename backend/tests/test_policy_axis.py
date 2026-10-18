@@ -298,8 +298,8 @@ def test_week_plan_decides_for_a_weak_owners_private_task(fresh_db, pinned_clock
             ).status_code
             == 403
         )
-        # the weak owner's own private regulated task used to skip decide() and
-        # still be written; it is judged on the write path now
+        # the weak owner's own private regulated task does not skip decide():
+        # it is judged on the write path, or it is written unchecked
         assert (
             c.post(
                 "/api/week/plan", json={"task_ids": [reg_task, std_task]}, headers=weak

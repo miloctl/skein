@@ -55,8 +55,7 @@ def _origin_rows(tables: list[str]) -> dict[tuple[str, str], str]:
 
     The key is built from the primary key rather than an `id` column, because
     not every origin-bearing table has one (crew_members is keyed on
-    (crew_id, person)). sqlite's implicit rowid covered all of them; here the
-    catalog has to say what identifies a row."""
+    (crew_id, person)), so the catalog has to say what identifies a row."""
     rows = {}
     for t in tables:
         key_cols = [

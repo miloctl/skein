@@ -333,8 +333,7 @@ def test_a_renamed_migration_reruns_and_bricks_the_boot(scratch_db, tmp_path, mo
 def test_a_migration_that_breaks_a_foreign_key_is_refused(scratch_db, tmp_path, monkeypatch):
     """PostgreSQL enforces foreign keys inside the migration's own
     transaction, so a buggy migration rolls itself back instead of committing
-    orphans. SQLite had to run migrations with enforcement OFF (the 12-step
-    table rebuild fires ON DELETE actions otherwise) and check afterwards."""
+    orphans."""
     staged = _staged(tmp_path, monkeypatch)
     (staged / "999_orphan.sql").write_text(
         "INSERT INTO tasks (title, milestone_id, created_at, updated_at)"
@@ -362,8 +361,8 @@ def test_the_baseline_contains_no_data_statements():
 
 
 def test_seed_builds_its_demo_team_on_a_fresh_database(fresh_db, capsys):
-    """seed.py calls the same services the API does; a signature change that
-    breaks the demo path used to have no CI signal at all."""
+    """seed.py calls the same services the API does; without this test a
+    signature change that breaks the demo path has no CI signal at all."""
     import importlib.util
 
     # backend/ is not a package on the test path; load the script by file

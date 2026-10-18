@@ -258,8 +258,8 @@ def test_event_subscriptions_outside_the_catalog_are_refused():
             ),
         )
 
-    # "skein.task.update" is the typo this pin exists for: before composition
-    # validation, the subscription matched nothing and every event was marked
+    # "skein.task.update" is the typo this pin exists for: without composition
+    # validation, the subscription matches nothing and every event is marked
     # delivered with the handler never invoked.
     with pytest.raises(ExtensionValidationError, match="unknown event types"):
         ExtensionRegistry.build((_event_module(event_types=("skein.task.update",)),))
@@ -530,7 +530,8 @@ def test_machine_identity_reservation_refuses_a_concurrent_human_request(
         if current_thread().name == "machine-reservation":
             machine_checked.set()
             assert human_attempted.wait(timeout=2)
-            # BEGIN IMMEDIATE keeps the competing insert blocked until the
+            # users.ensure_agent_identity holds name_lock(LOCK_IDENTITY, fold(name)),
+            # so the competing human claim blocks on the same key until the
             # machine reservation commits.
             sleep(0.05)
             assert not human_finished.is_set()
@@ -900,10 +901,8 @@ def test_identity_repair_can_be_repeated_after_core_step_failure(fresh_db, monke
 
     with pytest.raises(RuntimeError, match="core step failed"):
         users.repair_identity_ownership("LEGACY", "person-legacy")
-    # ATOMIC: the private move and the core rename share one transaction now
-    # (one database), so a failed core step leaves NEITHER applied. The old
-    # two-file layout committed the private half first and left the halves
-    # disagreeing until an operator repeated the command.
+    # ATOMIC: the private move and the core rename share one transaction, so
+    # a failed core step leaves NEITHER applied and the halves never disagree.
     #
     # Read through SQL, not list_notes: every list_notes call WRITES an audit
     # row for the author it is called with, and an audit row under the target

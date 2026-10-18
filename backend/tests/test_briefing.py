@@ -193,13 +193,12 @@ def test_your_work_lists_are_capped(fresh_db):
 
 
 def test_due_soon_reads_the_assignee_index(fresh_db):
-    """Migration 044 exists for this query shape; without the index the plan
-    is SCAN tasks, measured live. The SQL here
-    mirrors briefing.my_day's due_soon - if that query drifts, this still
-    holds the index to its purpose."""
+    """idx_tasks_assignee_due (001_baseline.sql) exists for this query shape;
+    without it the plan is a sequential scan of tasks. The SQL here mirrors
+    briefing.my_day's due_soon - if that query drifts, this still holds the
+    index to its purpose."""
     plan = " ".join(
-        # EXPLAIN returns one text column named "QUERY PLAN"; sqlite's
-        # EXPLAIN QUERY PLAN called it "detail"
+        # EXPLAIN returns one text column named "QUERY PLAN"
         r["QUERY PLAN"]
         for r in fresh_db.query(
             "EXPLAIN SELECT * FROM tasks WHERE status != 'done'"
@@ -214,8 +213,8 @@ def test_due_soon_reads_the_assignee_index(fresh_db):
 
 def test_an_owned_blockers_escalation_is_said_once(client, fresh_db):
     """A blocker the reader owns is already an attention row carrying the
-    resolve control. Before the dedupe its escalation notice restated that row
-    one section down and Team today restated it again - the same blocker
+    resolve control. Without the dedupe its escalation notice restates that
+    row one section down and Team today restates it again - the same blocker
     rendered three times on one page."""
     from app import db
     from app.services import notifications

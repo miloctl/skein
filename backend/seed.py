@@ -127,7 +127,7 @@ def main() -> None:
         actor="seed",
     )
 
-    # ---- flagship flows the demo must show: promise, absence, delegation ----
+    # flagship flows the demo must show: promise, absence, delegation
     from app.services import absences, delegation, promises
 
     promises.add_promise(

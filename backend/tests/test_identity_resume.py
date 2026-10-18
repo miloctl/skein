@@ -33,7 +33,7 @@ from app.extensions.tools import ToolCallContext, execute_tool
 from app.main import create_app
 from app.services import scope
 
-# ---- review resume: a weak requester keeps an empty group set -------------
+# review resume: a weak requester keeps an empty group set
 
 
 def _directory_module(*, rule):
@@ -147,7 +147,7 @@ def test_weak_requester_cannot_lift_a_manager_gated_review_at_resume(fresh_db):
     assert calls == []
 
 
-# ---- workflow resume re-decides playbook.create ---------------------------
+# workflow resume re-decides playbook.create
 
 GOVERNED = """\
 schema_version: 1
@@ -282,9 +282,6 @@ def test_workflow_resume_refuses_a_requester_the_create_rule_now_denies(
     assert calls == []
 
 
-# ---- the party door in a human-driven turn --------------------------------
-
-
 def _crew_delegation(fresh_db):
     from app.services import crews, delegation, users, work
 
@@ -338,7 +335,7 @@ def test_persona_tools_take_the_requesters_own_read_first(fresh_db, monkeypatch)
         identity.reset_agent_identity(token)
 
 
-# ---- minting an agent identity needs a proven credential ------------------
+# minting an agent identity needs a proven credential
 
 
 def test_delegation_mints_an_agent_only_for_a_strong_principal(fresh_db, monkeypatch):
@@ -384,9 +381,6 @@ def test_a_weak_verdict_does_not_mint_the_agent(fresh_db, monkeypatch):
         strong = c.post(f"/api/review/{change['id']}/approve", json={}, headers=_strong(c, "mira"))
         assert strong.status_code == 200, strong.text
     assert fresh_db.query_one("SELECT kind FROM users WHERE name = 'dana'")["kind"] == "agent"
-
-
-# ---- the `<person>-mcp` door ----------------------------------------------
 
 
 def test_the_mcp_suffix_is_reserved_on_the_folded_name(fresh_db):

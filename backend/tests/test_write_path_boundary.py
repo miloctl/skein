@@ -2,10 +2,8 @@
 
 Humans mutate via REST, agents via Strands tools, and both must call the shared
 functions in app/services/ - a route or tool that writes its own SQL bypasses
-provenance and the activity ledger with nothing to notice. One breach shipped
-(a SELECT inside tools/schedule.py, added because no service exposed a single
-event) with no test to catch the next, so this pins the rule rather than that
-instance.
+provenance and the activity ledger with nothing to notice. This pins the rule
+for every file in routes/ and tools/, not one instance.
 """
 
 import re
@@ -16,7 +14,7 @@ import pytest
 APP = Path(__file__).resolve().parents[1] / "app"
 
 # `db.execute("DELETE FROM ...")` and friends. Matches the statement inside a
-# string literal, which is how SQL reaches sqlite3 here.
+# string literal, which is how SQL reaches db.execute here.
 SQL = re.compile(
     r"""["'(\s](?:SELECT\s+.+?\s+FROM|INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE\s+\w+\s+SET"""
     r"""|DELETE\s+FROM)\s""",

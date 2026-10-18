@@ -17,8 +17,8 @@ os.environ["SKEIN_AUTH_MODE"] = "trusted-header"
 os.environ["SKEIN_MODEL_PROVIDER"] = "mock"
 # The SHIPPED default is gate ON (fail closed, like the auth mode above) -
 # test_gate_coverage.py pins that by booting a fresh process. The suite pins
-# it off because most direct-write tests predate the flip and exercise the
-# opt-out branch; gate-on paths monkeypatch config.AGENT_REVIEW to True.
+# it off because most direct-write tests exercise the opt-out branch;
+# gate-on paths monkeypatch config.AGENT_REVIEW to True.
 os.environ["SKEIN_AGENT_REVIEW"] = "0"
 os.environ["SKEIN_EMBEDDINGS"] = "0"
 # "" and not pop: config's load_dotenv() re-fills an ABSENT var from
@@ -59,8 +59,8 @@ import pytest
 from psycopg import sql as pgsql
 from psycopg.conninfo import make_conninfo
 
-# one directory per process (xdist makes nine), and nothing else removes
-# them: 414 sat in /tmp after a week of runs
+# one directory per process (each xdist worker and the controller), and
+# nothing else removes them: without this, every run leaves them in /tmp
 atexit.register(shutil.rmtree, os.environ["SKEIN_DATA_DIR"], ignore_errors=True)
 
 _POSTGRES_MISSING = (
@@ -272,11 +272,10 @@ def _worker_db(worker_id, testrun_uid):
     """One migrated database per xdist worker, reused by every test in it.
 
     A database PER TEST would be correct and far too slow: CREATE DATABASE ...
-    TEMPLATE costs ~100 ms against the ~0.3 ms file copy the SQLite fixture
-    used, and 2000 of them is minutes. Per worker, migrations run once and
-    fresh_db truncates between tests instead - which keeps real COMMIT
-    semantics, unlike wrapping each test in a transaction that never commits
-    (db.on_commit callbacks would then never fire).
+    TEMPLATE costs ~100 ms, and 2000 of them is minutes. Per worker,
+    migrations run once and fresh_db truncates between tests instead - which
+    keeps real COMMIT semantics, unlike wrapping each test in a transaction
+    that never commits (db.on_commit callbacks would then never fire).
     """
     from app import config, db
 
@@ -302,8 +301,7 @@ def _worker_db(worker_id, testrun_uid):
         db.init_db()
         # The exact shape init_db produces. fresh_db drops anything a test adds on
         # top, so a test that creates a table (scope's `probe`) cannot collide with
-        # the next test in the same worker - under SQLite each test had its own
-        # file and could not.
+        # the next test in the same worker.
         _BASELINE_TABLES.clear()
         _BASELINE_TABLES.update(
             r["t"]
@@ -396,8 +394,7 @@ def scratch_db(worker_id, testrun_uid, _worker_db):
 
     fresh_db shares one database per worker and only truncates rows, so a test
     that deletes a schema_version row or applies a staged migration corrupts
-    every test that follows it in that worker. Under SQLite each test had its
-    own file and this class of test was free.
+    every test that follows it in that worker.
     """
     from app import config, db
 
