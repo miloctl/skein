@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 
+import { ChatSearch } from "@/components/chat-search";
 import { MenuPanel } from "@/components/menu-panel";
 import { SharedChatList } from "@/components/shared-chat-list";
 import { actionError, api, getUser, loadError as describeLoadError } from "@/lib/api";
@@ -65,7 +66,7 @@ export function ChatSidebar({
   onMobileClose?: () => void;
   threadId: string;
   threadKind?: "solo" | "shared";
-  onOpen: (id: string, kind?: "solo" | "shared") => void;
+  onOpen: (id: string, kind?: "solo" | "shared", messageId?: number) => void;
   onNew: () => void;
 }) {
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -78,6 +79,7 @@ export function ChatSidebar({
   const [menu, setMenu] = useState<Menu>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [selChats, setSelChats] = useState<Set<string>>(new Set());
   const [selFolders, setSelFolders] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState("");
@@ -486,20 +488,25 @@ export function ChatSidebar({
           </div>
           {menu?.kind === "sidebar" && (
             <MenuPanel label="Chat list options" onClose={() => setMenu(null)}>
-              <MenuItem
-                icon="📁"
-                label="New folder"
-                onClick={() => {
-                  setMenu(null);
-                  setCreatingFolder(true);
-                }}
-              />
+              {/* the folder list is hidden while search results show, so a
+                  folder made then appears nowhere */}
+              {!searching && (
+                <MenuItem
+                  icon="📁"
+                  label="New folder"
+                  onClick={() => {
+                    setMenu(null);
+                    setCreatingFolder(true);
+                  }}
+                />
+              )}
               <MenuItem icon="☑️" label="Select…" onClick={() => enterSelect()} />
             </MenuPanel>
           )}
         </div>
       )}
-      {!selectMode ? (
+      {!selectMode && <ChatSearch onOpen={onOpen} onActiveChange={setSearching} />}
+      {!selectMode && !searching ? (
         <SharedChatList
           activeId={threadId}
           onOpen={(id) => onOpen(id, "shared")}
@@ -533,6 +540,7 @@ export function ChatSidebar({
         <p className="px-1 text-xs text-danger">{foldersError}</p>
       )}
       {!selectMode &&
+        !searching &&
         threadKind === "solo" &&
         !threads.some((t) => t.id === threadId) && (
         <div className="mb-2 truncate rounded-lg bg-thread/10 px-2 py-1.5 text-sm font-medium text-ink">
@@ -542,13 +550,13 @@ export function ChatSidebar({
           </span>
         </div>
       )}
-      {threads.length === 0 && !loadError && (
+      {!searching && threads.length === 0 && !loadError && (
         <p className="px-1 text-xs text-ink-3">
           Your chats appear here after the first message - rename them or file
           them into folders to keep threads you return to.
         </p>
       )}
-      {groups.map((folder) => (
+      {!searching && groups.map((folder) => (
         <div
           key={folder || "(none)"}
           onDragOver={

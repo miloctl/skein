@@ -30,7 +30,7 @@ def test_registry_is_valid_and_complete():
     from app.services import fieldguide
 
     cards = fieldguide.registry()
-    assert len(cards) == 75
+    assert len(cards) == 76
     ids = {k["id"] for k in cards}
     assert ids == set(fieldguide.PREDICATES)
     for k in cards:
@@ -198,7 +198,7 @@ def test_hint_and_guide_use_the_same_tieable_total(fresh_db):
     from app.services import fieldguide
 
     _mint(fresh_db, "ava")
-    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 74
+    assert fieldguide.hint("ava")["total"] == fieldguide.guide("ava")["total"] == 75
 
 
 def test_first_detection_seeds_silently(fresh_db):

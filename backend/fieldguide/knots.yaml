@@ -272,6 +272,16 @@ knots:
     link: /chat
     since: 2026-09-06
 
+  - id: chat_search
+    feature: Search your chats
+    knot: Icicle Hitch
+    set: loops
+    ties: mark
+    pitch: Every conversation stays on the line, and this hitch grips the one you need.
+    how: "Open Chat. Type words or parts of words in Search your chats, then press Enter. Select a result to open the chat at that message."
+    link: /chat
+    since: 2026-10-17
+
   - id: shared_chat
     feature: Private shared chats
     knot: Triple Bowline

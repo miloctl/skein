@@ -140,4 +140,4 @@ export function useHashTarget(
  *  selector costs no stray outlines. scroll-mt keeps the landed row clear of
  *  the sticky top bar when the browser scrolls it into view. */
 export const HASH_TARGET =
-  "outline-none focus:rounded focus:ring-2 focus:ring-thread-solid scroll-mt-20";
+  "outline-none focus:rounded focus:ring-2 focus:ring-thread scroll-mt-20";

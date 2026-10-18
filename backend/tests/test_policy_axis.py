@@ -550,6 +550,70 @@ def test_body_engagement_id_cannot_pick_the_project_the_gate_judges(fresh_db):
     assert fresh_db.query_one("SELECT id FROM memories WHERE id = ?", (note,)) is not None
 
 
+def _deny_shared_reads(request: PolicyInput):
+    if request.action.startswith("skein.rest.get.shared-chats"):
+        return PolicyDecision(PolicyEffect.DENY, ("closed",))
+    return None
+
+
+def test_chat_search_honors_a_rule_on_shared_chat_reads(fresh_db):
+    """The generic gate judges search as `chats`. A rule written for the
+    shared-chat read routes, on every room or on one, must close the same
+    rooms in search."""
+    from app.services import chat_threads, users
+
+    users.ensure_user("alice")
+    closed: dict[str, str] = {}
+
+    def deny_one_room(request: PolicyInput):
+        if request.resource.type == "shared-chats" and request.resource.id == closed.get("id"):
+            return PolicyDecision(PolicyEffect.DENY, ("closed",))
+        return None
+
+    chat_threads.log_message("solo-zanzibar", "alice", "user", "zanzibar notes")
+    with TestClient(create_app()) as c:
+        alice = _strong(c, "alice")
+        rooms = {}
+        for title in ("Ops", "Open"):
+            room = c.post("/api/shared-chats", json={"title": title}, headers=alice).json()["id"]
+            sent = c.post(
+                f"/api/shared-chats/{room}/messages",
+                json={"message": f"zanzibar in {title}", "client_key": title.lower()},
+                headers=alice,
+            )
+            assert sent.status_code == 200
+            rooms[title] = room
+        found = c.get("/api/chats/search", params={"q": "zanzib"}, headers=alice).json()
+        assert {r["thread_id"] for r in found["results"]} == {"solo-zanzibar", *rooms.values()}
+    closed["id"] = rooms["Ops"]
+
+    for rule, open_rooms in ((_deny_shared_reads, set()), (deny_one_room, {rooms["Open"]})):
+        with TestClient(_app(rule)) as c:
+            alice = _strong(c, "alice")
+            denied = c.get(f"/api/shared-chats/{rooms['Ops']}/messages", headers=alice)
+            assert denied.status_code == 403  # the sibling route already honors it
+            found = c.get("/api/chats/search", params={"q": "zanzib"}, headers=alice).json()
+            assert {r["thread_id"] for r in found["results"]} == {"solo-zanzibar", *open_rooms}
+
+
+def test_a_closed_room_takes_no_chat_search_slot(fresh_db):
+    """Rooms a rule closes leave the query itself. Filtered after it, 31
+    newer room hits filled every result slot and the solo hit was lost."""
+    from app.services import chat_threads, users
+
+    users.ensure_user("alice")
+    chat_threads.log_message("solo-zanzibar", "alice", "user", "zanzibar notes")
+    with db.transaction():
+        for n in range(chat_threads.SEARCH_LIMIT + 1):
+            room = chat_threads.create_shared_chat(f"Room {n}", "alice")["id"]
+            chat_threads.post_shared_message(room, "alice", "zanzibar again", f"k{n}")
+
+    with TestClient(_app(_deny_shared_reads)) as c:
+        found = c.get("/api/chats/search", params={"q": "zanzib"}, headers=_strong(c, "alice"))
+
+    assert [r["thread_id"] for r in found.json()["results"]] == ["solo-zanzibar"]
+
+
 def test_every_bare_route_literal_is_accounted_for():
     """A route whose first literal is not a policy entity is judged on an empty
     resource by the generic gate (extensions/fastapi.py). Each such route either
@@ -630,6 +694,7 @@ def test_every_bare_route_literal_is_accounted_for():
         ("POST", "/api/review/seen"),
         ("POST", "/api/notifications/read"),
         ("GET", "/api/chats"),
+        ("GET", "/api/chats/search"),
         ("GET", "/api/chats/folders"),
         ("POST", "/api/chats/folders"),
         ("DELETE", "/api/chats/folders/{name}"),

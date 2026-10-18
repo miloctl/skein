@@ -83,6 +83,9 @@ LIMITS = {
     # must not spend the budget for writing 1:1 notes
     "brief": 60,
     "chat": 20,
+    # a read, but unindexed: each search scans the caller's chats
+    # (chat_threads.search_chats) under a statement timeout
+    "chat_search": 30,
     # every MCP tool call, reads included: bodies share the thread pool with
     # the sync REST handlers, and a client looping on list_tasks starves them
     "mcp": 120,
@@ -153,6 +156,7 @@ NAMED = {
     "artifact": "digests and readouts",
     "ritual": "rituals",
     "absence": "absences",
+    "chat_search": "chat searches",
 }
 
 

@@ -128,6 +128,9 @@ PREDICATES: dict[str, Callable[[str], bool] | None] = {
     # A saved thread proves no older-page use. routes/chat.py marks only a
     # successful nonempty page with a before cursor, never an initial read.
     "chat_history": None,
+    # A search is a read that leaves no row. routes/chat.py marks it only when
+    # a search returned a result.
+    "chat_search": None,
     "shared_chat": lambda u: _has(
         "SELECT 1 FROM chat_members member JOIN chat_threads thread"
         " ON thread.id = member.thread_id"

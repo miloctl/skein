@@ -7,7 +7,7 @@ import { RuntimeProvider } from "../runtime-provider";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { SharedChat } from "@/components/shared-chat";
 import { ThreadTitle } from "@/components/thread-title";
-import { Thread } from "@/components/thread";
+import { Thread, TARGET_EVENT } from "@/components/thread";
 import { setActivePersona } from "@/lib/persona";
 import {
   getSidebarCollapsed,
@@ -29,7 +29,8 @@ function newId() {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-type ChatSelection = { id: string; kind: "solo" | "shared" };
+// target: the message a chat search hit opens at (components/chat-search.tsx)
+type ChatSelection = { id: string; kind: "solo" | "shared"; target?: number };
 type MissingCause = "" | "send" | "access";
 
 function initialThread(): ChatSelection {
@@ -70,7 +71,8 @@ export default function ChatPage() {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(LAST_KEY, JSON.stringify(selection));
+      // without the target: a reload reopens the chat, not an old search hit
+      sessionStorage.setItem(LAST_KEY, JSON.stringify({ id: selection.id, kind: selection.kind }));
     } catch {}
     if (selection.kind === "shared") {
       const current = new URLSearchParams(window.location.search).get("shared");
@@ -115,17 +117,38 @@ export default function ChatPage() {
     if (missing) recoveryRef.current?.focus();
   }, [missing]);
 
-  const open = (id: string, kind: "solo" | "shared" = "solo") => {
+  const open = (id: string, kind: "solo" | "shared" = "solo", target?: number) => {
     setMissing("");
     window.history.replaceState(
       {},
       "",
-      kind === "shared" ? `/chat?shared=${encodeURIComponent(id)}` : "/chat",
+      kind === "shared"
+        ? `/chat?shared=${encodeURIComponent(id)}${target ? `#shared-message-${target}` : ""}`
+        : "/chat",
     );
-    if (id === selection.id && kind === selection.kind) return;
-    setActivePersona(null); // persona mode is per-conversation
-    if (kind === "shared") setSharedTitle("Private shared chat");
-    setSelection({ id, kind });
+    if (id === selection.id && kind === selection.kind) {
+      if (!target) return;
+      // The chat on screen is never remounted for a hit: that drops the
+      // unsent draft, every older page loaded, and a reply still streaming
+      // (the runtime aborts its run on unmount). Thread lands, or pages back
+      // to the message first.
+      if (kind === "solo") {
+        window.dispatchEvent(new CustomEvent(TARGET_EVENT, { detail: target }));
+        return;
+      }
+      // a loaded room message re-lands in place (lib/hash-target.ts). Not
+      // loaded, the room remounts at it below: its draft is in sessionStorage
+      if (document.getElementById(`shared-message-${target}`)) {
+        window.dispatchEvent(
+          new CustomEvent("skein-hash", { detail: { anchor: `shared-message-${target}` } }),
+        );
+        return;
+      }
+    } else {
+      setActivePersona(null); // persona mode is per-conversation
+      if (kind === "shared") setSharedTitle("Private shared chat");
+    }
+    setSelection({ id, kind, target });
     document.getElementById(`chat-${id}`)?.scrollIntoView({ block: "nearest" });
   };
 
@@ -186,9 +209,9 @@ export default function ChatPage() {
           onMobileClose={closeChats}
           threadId={threadId}
           threadKind={selection.kind}
-          onOpen={(id, kind = "solo") => {
+          onOpen={(id, kind = "solo", messageId) => {
             setMobileChats(false);
-            open(id, kind);
+            open(id, kind, messageId);
           }}
           onNew={() => {
             setMobileChats(false);
@@ -265,14 +288,14 @@ export default function ChatPage() {
           </div>
         ) : selection.kind === "shared" ? (
           <SharedChat
-            key={threadId}
+            key={`${threadId}:${selection.target ?? ""}`}
             threadId={threadId}
             onTitle={setSharedTitle}
             onUnavailable={sharedUnavailable}
             onLeave={startNew}
           />
         ) : (
-          <RuntimeProvider key={threadId} threadId={threadId}>
+          <RuntimeProvider key={threadId} threadId={threadId} target={selection.target}>
             <Thread />
           </RuntimeProvider>
         )}

@@ -18,6 +18,8 @@ import re
 import secrets
 import shutil
 
+import psycopg
+
 from .. import config, db
 from . import leases, scope
 from .users import fold
@@ -349,15 +351,32 @@ def get_messages(thread_id: str, owner: str) -> list[dict]:
 
 
 def get_message_page(
-    thread_id: str, owner: str, *, before: int | None = None, limit: int = 50
+    thread_id: str,
+    owner: str,
+    *,
+    before: int | None = None,
+    through: int | None = None,
+    limit: int = 50,
 ) -> dict:
+    """`through` is a search hit's message: the newest page, extended back to
+    hold it, so the chat opens with that message loaded. Past MESSAGE_LIMIT
+    the window stops short of it and the client says so."""
     _own(thread_id, owner)
+    if before is not None and through is not None:
+        raise ValueError("The request names two message cursors. Send before or through, not both.")
     limit = max(1, min(limit, 200))
-    if before is not None and not db.query_one(
-        "SELECT 1 FROM chat_messages WHERE thread_id = ? AND id = ?", (thread_id, before)
+    cursor = before if before is not None else through
+    if cursor is not None and not db.query_one(
+        "SELECT 1 FROM chat_messages WHERE thread_id = ? AND id = ?", (thread_id, cursor)
     ):
         # A global ID probe distinguishes another owner's cursor from an absent one.
         raise db.NotFound("No chat message was found.")
+    if through is not None:
+        newer = db.query_row(
+            "SELECT COUNT(*) AS n FROM chat_messages WHERE thread_id = ? AND id >= ?",
+            (thread_id, through),
+        )["n"]
+        limit = max(limit, min(newer, MESSAGE_LIMIT))
     rows = db.query(
         "SELECT id, role, content, created_at FROM chat_messages WHERE thread_id = ?"  # noqa: S608 - fixed fragments, bound cursor
         + (" AND id < ?" if before is not None else "")
@@ -368,6 +387,113 @@ def get_message_page(
     return {
         "messages": messages,
         "next_before": messages[0]["id"] if len(rows) > limit else None,
+    }
+
+
+SEARCH_LIMIT = 30
+SEARCH_WORDS = 8
+SEARCH_TIMEOUT_MS = 3000
+_SNIPPET_SIDE = 60
+
+
+def _like(word: str) -> str:
+    """A word as an ILIKE pattern that matches only itself. Unescaped, a
+    search for `%` matches every message and `_` matches any character."""
+    return "%" + re.sub(r"([\\%_])", r"\\\1", word) + "%"
+
+
+def _snippet(text: str, words: list[str]) -> str:
+    """About 120 characters around the first match, every match in <b>. The
+    client renders the tags as text runs, never as HTML
+    (components/snippet.tsx), so a literal <b> in a message is cosmetic only."""
+    # collapsed before the window is cut: an indented code block spent the
+    # 60 characters on spaces, and the snippet showed the match alone
+    text = " ".join(text.split())
+    # longest first: alternation takes the first branch that fits, so `cert`
+    # ahead of `certificate` bolds only the start of the longer word
+    ordered = sorted(words, key=len, reverse=True)
+    found = re.compile("|".join(re.escape(w) for w in ordered), re.IGNORECASE)
+    # None if the database collation matched a case form re.IGNORECASE does
+    # not: the snippet then shows the top of the message
+    first = found.search(text)
+    start = max(0, first.start() - _SNIPPET_SIDE) if first else 0
+    end = (first.end() if first else 0) + _SNIPPET_SIDE
+    window = found.sub(lambda m: f"<b>{m.group(0)}</b>", text[start:end].strip())
+    return ("…" if start else "") + window + ("…" if end < len(text) else "")
+
+
+def search_chats(owner: str, member: str, q: str) -> dict:
+    """The chats where every word of `q` appears, as part of a word, in one
+    message or in the title. One result per chat, newest match first.
+
+    `member` is the caller's name only when the caller may read shared rooms
+    (routes/chat.py decides): blank for a weak identity, which the shared-chat
+    routes refuse (StrongUser), or under a workplace rule that denies those
+    routes. A blank binds as NULL, which no membership row equals. The rest is
+    _require_member's own test, an active membership."""
+    words = q.split()
+    if not words:
+        raise ValueError("The search has no words. Type a word to search your chats.")
+    if len(words) > SEARCH_WORDS:
+        raise ValueError(
+            f"The search has more than {SEARCH_WORDS} words. Use {SEARCH_WORDS} words or fewer."
+        )
+    patterns = tuple(_like(w) for w in words)
+
+    def every(column: str) -> str:
+        return " AND ".join([f"{column} ILIKE ? ESCAPE '\\'"] * len(words))
+
+    # Per thread, newest message first on idx_chat_messages_thread: the scan
+    # reads only the messages in the caller's own chats. A plain join lets
+    # the planner filter the whole table, every person's chats.
+    # ponytail: no text index, so a search costs one pass over those
+    # messages. If that gets slow, the database owner installs pg_trgm (the
+    # app role cannot: deploy/postgres-init/10-app-role.sh) and a migration
+    # adds a gin_trgm_ops index on content.
+    # The solo branch keeps the sidebar's THREAD_LIMIT: runtime-provider.tsx
+    # loads a solo transcript only for a thread in GET /api/chats, so a hit
+    # past that cap would open an empty chat. A shared hit opens through its
+    # own route, whatever the list shows.
+    with db.read_transaction():
+        # ILIKE costs text length times pattern length, and the caller picks
+        # both: long runs of one letter in their own chats, searched with a
+        # crafted 8-word pattern, took 6 to 9 seconds, and 8 at once held
+        # every worker in the sync thread pool (SKEIN_THREAD_POOL).
+        db.query_one("SELECT set_config('statement_timeout', ?, true)", (str(SEARCH_TIMEOUT_MS),))
+        try:
+            rows = db.query(
+                "WITH mine AS ("  # noqa: S608 - fixed fragments; every word is a bound mark
+                " (SELECT id, kind, title, updated_at FROM chat_threads"
+                "  WHERE owner = ? AND kind = 'solo' ORDER BY updated_at DESC, id DESC LIMIT ?)"
+                " UNION ALL"
+                " SELECT t.id, t.kind, t.title, t.updated_at FROM chat_threads t"
+                "  JOIN chat_members m ON m.thread_id = t.id"
+                "  WHERE t.kind = 'shared' AND m.person = ? AND m.left_at IS NULL)"
+                " SELECT mine.id AS thread_id, mine.kind, mine.title, hit.id AS message_id,"
+                " COALESCE(hit.created_at, mine.updated_at) AS matched_at, hit.content"
+                " FROM mine LEFT JOIN LATERAL ("
+                "  SELECT id, created_at, content FROM chat_messages"
+                f"  WHERE thread_id = mine.id AND deleted_at IS NULL AND {every('content')}"
+                "  ORDER BY id DESC LIMIT 1) hit ON TRUE"
+                f" WHERE hit.id IS NOT NULL OR ({every('mine.title')})"
+                # db.now() keeps whole seconds, so the message id orders a tie
+                " ORDER BY matched_at DESC, hit.id DESC NULLS LAST, mine.id LIMIT ?",
+                (owner, THREAD_LIMIT, member or None, *patterns, *patterns, SEARCH_LIMIT + 1),
+            )
+        except psycopg.errors.QueryCanceled:
+            raise ValueError(
+                f"The search stopped after {SEARCH_TIMEOUT_MS // 1000} seconds."
+                " Search with fewer or shorter words."
+            ) from None
+    return {
+        "results": [
+            {
+                **{key: row[key] for key in row if key != "content"},
+                "snippet": _snippet(row["content"], words) if row["content"] else "",
+            }
+            for row in rows[:SEARCH_LIMIT]
+        ],
+        "truncated": len(rows) > SEARCH_LIMIT,
     }
 
 

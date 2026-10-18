@@ -41,8 +41,9 @@ from ..agents.team_agent import (
     reset_team_model_snapshot,
     set_team_model_snapshot,
 )
-from ..extensions.fastapi import PolicyAPIRoute, PolicySubjectDep, subject_for
+from ..extensions.fastapi import PolicyAPIRoute, PolicySubjectDep, decide, subject_for
 from ..extensions.policy import (
+    PolicyEffect,
     PolicyEngine,
     PolicySubject,
     policy_subject_data,
@@ -271,6 +272,43 @@ class ChatPatch(BaseModel):
 @router.get("/api/chats")
 def get_chats(user: CurrentUser):
     return chat_threads.list_threads(user)
+
+
+# The action GET /api/shared-chats/{thread_id}/messages is judged under. The
+# generic gate judges search as `chats`, so a workplace rule on shared-chat
+# reads is asked here, or a denied room's text comes back through search.
+_SHARED_READ = "skein.rest.get.shared-chats.messages"
+
+
+@router.get("/api/chats/search")
+def get_chat_search(
+    user: CurrentUser,
+    viewer: ViewerDep,
+    request: Request,
+    subject: PolicySubjectDep,
+    q: str = Query(min_length=1, max_length=200),
+):
+    # a read, but an unindexed scan of the caller's chats: a client looping
+    # on it holds sync thread-pool workers from every other request
+    ratelimit.check("chat_search", user)
+
+    def readable(thread_id: str = "") -> bool:
+        decision = decide(request, subject, _SHARED_READ, "shared-chats", resource_id=thread_id)
+        return decision.effect == PolicyEffect.PERMIT
+
+    # viewer.name, never `user`: it is blank for a weak identity, and a
+    # rewritten X-User must not read a shared room by search when it cannot
+    # open one (the shared-chat routes take StrongUser). A rule that closes
+    # every room drops them in the query, so they take no result slot.
+    member = viewer.name if viewer.name and readable() else ""
+    found = chat_threads.search_chats(user, member, q)
+    # a rule on one room is judged on that room's id, as its own route is
+    found["results"] = [
+        hit for hit in found["results"] if hit["kind"] == "solo" or readable(hit["thread_id"])
+    ]
+    if found["results"]:
+        fieldguide.mark(user, "chat_search")
+    return found
 
 
 class FolderIn(BaseModel):
@@ -621,9 +659,15 @@ def get_chat_message_page(
     thread_id: str,
     user: CurrentUser,
     before: int | None = Query(default=None, ge=1, le=9223372036854775807),
+    through: int | None = Query(default=None, ge=1, le=9223372036854775807),
     limit: int = Query(default=50, ge=1, le=200),
 ):
-    page = chat_threads.get_message_page(thread_id, user, before=before, limit=limit)
+    # one snapshot: `through` counts the newer messages, then reads them, and
+    # a reply committed between the two pushed the target out of the window
+    with db.read_transaction():
+        page = chat_threads.get_message_page(
+            thread_id, user, before=before, through=through, limit=limit
+        )
     if before is not None and page["messages"]:
         fieldguide.mark(user, "chat_history")
     return page

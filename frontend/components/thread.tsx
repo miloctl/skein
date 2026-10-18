@@ -27,6 +27,7 @@ import { MermaidDiagram } from "@/components/mermaid-diagram";
 import { useTranscriptHistory } from "@/app/runtime-provider";
 import { api, getUser } from "@/lib/api";
 import { argQuery, mentionQuery, reasoningRoster, type ArgItem } from "@/lib/slash";
+import { HASH_TARGET } from "@/lib/hash-target";
 import { reportStatus } from "@/lib/status";
 import {
   findPersona,
@@ -131,8 +132,10 @@ const SentAttachmentChip = () => (
   </AttachmentPrimitive.Root>
 );
 
+// Named for who wrote it: a search hit moves focus onto one message, and
+// alignment and bubble colour were the only signs of the author.
 const UserMessage = () => (
-  <MessagePrimitive.Root className="flex flex-col items-end py-2">
+  <MessagePrimitive.Root role="article" aria-label="Your message" className="flex flex-col items-end py-2">
     <MessagePrimitive.Attachments components={{ Attachment: SentAttachmentChip }} />
     <div className="max-w-[80%] rounded-2xl bg-thread-solid px-4 py-2.5 text-sm text-white">
       <MessagePrimitive.Parts />
@@ -222,7 +225,7 @@ export const WorkingIndicator = ({
 };
 
 const AssistantMessage = () => (
-  <MessagePrimitive.Root className="flex justify-start py-2">
+  <MessagePrimitive.Root role="article" aria-label="Reply" className="flex justify-start py-2">
     <div className="max-w-[85%] rounded-2xl bg-raised px-4 py-2.5 text-sm text-ink">
       <MessagePrimitive.Parts
         components={{ Text: MarkdownText, Empty: WorkingIndicator }}
@@ -974,12 +977,45 @@ const Composer = () => {
 
 const MESSAGE_COMPONENTS = { UserMessage, AssistantMessage };
 
+/** What app/chat/page.tsx dispatches for a search hit in the chat already on
+ *  screen, with the message id as detail. That chat is never remounted. */
+export const TARGET_EVENT = "skein-chat-target";
+
+/** Focus a stored message, with HASH_TARGET's ring while it holds focus.
+ *  False when the message is not on screen. */
+function landOnMessage(element: Element | null): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  // focus() on an element with no tabindex does nothing (lib/hash-target.ts)
+  element.tabIndex = -1;
+  element.classList.add(...HASH_TARGET.split(" "));
+  element.focus({ preventScroll: true });
+  element.scrollIntoView({ block: "center" });
+  return true;
+}
+
 export function Thread() {
   const history = useTranscriptHistory();
   const messageIds = unstable_useThreadMessageIds();
   const viewport = useRef<HTMLDivElement>(null);
   const anchor = useRef<{ element: HTMLElement; top: number; firstId: string | undefined } | null>(null);
   const initializedScroll = useRef(false);
+  // A search hit to land on: the one the chat opened at, then any hit in this
+  // chat while it stays on screen. An object, so the same hit selected twice
+  // lands twice.
+  const [target, setTarget] = useState(
+    history?.target !== undefined ? { id: history.target } : null,
+  );
+  // The message can render after the first pass here: the IDs arrive a
+  // commit later, or with an older page. Land once, when it shows.
+  const landed = useRef(false);
+  useEffect(() => {
+    const retarget = (event: Event) => {
+      landed.current = false;
+      setTarget({ id: (event as CustomEvent<number>).detail });
+    };
+    window.addEventListener(TARGET_EVENT, retarget);
+    return () => window.removeEventListener(TARGET_EVENT, retarget);
+  }, []);
   const previousRun = useRef(false);
   const isRunning = useAuiState((s) => s.thread.isRunning);
   const replyStatus = useAuiState((s) => {
@@ -987,6 +1023,11 @@ export function Thread() {
     return last?.role === "assistant" ? last.status.type : undefined;
   });
   const wasRunning = useRef(false);
+  // With autoScroll on, assistant-ui follows the bottom on every content
+  // resize (fonts, markdown), and a landed search hit scrolls out of view.
+  // Off until the reader sends, where following the reply matters again.
+  const [holdLanding, setHoldLanding] = useState(history?.target !== undefined);
+  if (holdLanding && isRunning) setHoldLanding(false);
   useLayoutEffect(() => {
     const scroller = viewport.current;
     if (!scroller) return;
@@ -994,7 +1035,15 @@ export function Thread() {
     // The fetch state can commit before assistant-ui publishes its new IDs.
     // Consuming the anchor then measures the old DOM and loses the offset.
     if (held && messageIds[0] === held.firstId) return;
-    if (held) {
+    const hit = !landed.current && target
+      ? scroller.querySelector(`[data-message-id="saved-${target.id}"]`)
+      : null;
+    // The landing before a held anchor: restored instead, the anchor left the
+    // hit for whatever ran this next, which was the reader's own send.
+    if (landOnMessage(hit)) {
+      landed.current = true;
+      anchor.current = null;
+    } else if (held) {
       scroller.scrollTop += held.element.getBoundingClientRect().top - scroller.getBoundingClientRect().top - held.top;
       anchor.current = null;
     } else if (!initializedScroll.current || (isRunning && !previousRun.current && !history?.loading)) {
@@ -1005,7 +1054,15 @@ export function Thread() {
     // Without this update assistant-ui's resize observer can scroll the
     // restored history to the bottom instead of keeping the reader's anchor.
     scroller.dispatchEvent(new Event("scroll"));
-  }, [messageIds, isRunning, history?.loading]);
+  }, [messageIds, isRunning, history?.loading, target]);
+  useEffect(() => {
+    // Page back to a hit older than every loaded message. A message sent in
+    // this session has a local id, never saved-N, and is newer than the
+    // oldest saved one, so it stops here: it is near the bottom, on screen.
+    if (!target || landed.current || !history || history.loading || history.before === null) return;
+    const oldest = messageIds.find((id) => id.startsWith("saved-"));
+    if (oldest && target.id < Number(oldest.slice("saved-".length))) void history.loadOlder(() => {});
+  }, [target, messageIds, history]);
   function captureAnchor() {
     const scroller = viewport.current;
     if (!scroller) return;
@@ -1042,7 +1099,7 @@ export function Thread() {
         <p role="status" className="text-xs text-ink-3">{history.loading ? "Loading older messages…" : history.before === null ? "Oldest message reached." : ""}</p>
         {history.error && <p role="alert" className="text-sm text-danger">{history.error}</p>}
       </div>}
-      <ThreadPrimitive.Viewport ref={viewport} autoScroll={!history?.loading}
+      <ThreadPrimitive.Viewport ref={viewport} autoScroll={!history?.loading && !holdLanding}
         scrollToBottomOnInitialize={false} scrollToBottomOnRunStart={false} scrollToBottomOnThreadSwitch={false}
         style={{ overflowAnchor: "none" }} className="flex flex-1 flex-col overflow-y-auto px-4 pt-4 lg:px-8">
         <ThreadPrimitive.Empty>

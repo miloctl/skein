@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { actionError, api } from "@/lib/api";
 import { matchCommands } from "@/lib/commands";
 import { PeekLink } from "@/components/task-peek";
+import { Snippet } from "@/components/snippet";
 import { Shortcut } from "@/components/shortcut";
 import { reportStatus } from "@/lib/status";
 import { isGated } from "@/lib/gated";
@@ -44,31 +45,6 @@ type Answer = { question: string; citations: Citation[]; note: string };
 function announceSearchResult(entity: string, id: number) {
   window.dispatchEvent(
     new CustomEvent("skein-search-result", { detail: { entity, id } }),
-  );
-}
-
-/** FTS5 wraps matches in <b>. Rendered as HTML that would be an injection
- *  sink for every indexed row, so the tags are parsed into text runs and the
- *  emphasis is applied by React. Anything that is not a tag stays literal. */
-function Snippet({ text }: { text: string }) {
-  // A capturing split alternates plain, marked, plain, marked… so the
-  // emphasis is derived from the index rather than carried in a flag the
-  // render mutates. An unclosed <b> matches nothing and stays literal text,
-  // which is the safe direction to fail. [\s\S] rather than the /s flag:
-  // the tsconfig target predates it, and a snippet can carry a newline.
-  const parts = String(text ?? "").split(/<b>([\s\S]*?)<\/b>/);
-  return (
-    <>
-      {parts.map((part, i) =>
-        i % 2 ? (
-          <mark key={i} className="bg-thread/20 text-ink">
-            {part}
-          </mark>
-        ) : (
-          <span key={i}>{part}</span>
-        ),
-      )}
-    </>
   );
 }
 

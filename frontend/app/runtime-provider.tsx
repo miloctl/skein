@@ -277,12 +277,13 @@ const HistoryContext = createContext<{
   loading: boolean;
   error: string;
   loadOlder: (beforePrepend: () => void) => Promise<void>;
+  target?: number;
 } | null>(null);
 export const useTranscriptHistory = () => useContext(HistoryContext);
 
 /** The keyed runtime owns both its messages and its cursor. No history request
  *  can reset a different thread or identity, including a late cached list. */
-function ThreadHydrator({ threadId, children }: { threadId: string; children: ReactNode }) {
+function ThreadHydrator({ threadId, target, children }: { threadId: string; target?: number; children: ReactNode }) {
   const thread = useAui().thread;
   const [ready, setReady] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -304,7 +305,7 @@ function ThreadHydrator({ threadId, children }: { threadId: string; children: Re
       if (controller.signal.aborted) return;
       const exists = rows.some((t) => t.id === threadId);
       const page = exists
-        ? await api<MessagePage>(`/api/chats/${threadId}/messages/page`, { cache: "no-store", signal: controller.signal })
+        ? await api<MessagePage>(`/api/chats/${threadId}/messages/page${target ? `?through=${target}` : ""}`, { cache: "no-store", signal: controller.signal })
         : { messages: [], next_before: null };
       // api() checks its own response binding too. The list can outlive this
       // component or its identity before a request even starts.
@@ -328,7 +329,7 @@ function ThreadHydrator({ threadId, children }: { threadId: string; children: Re
       request.current?.abort();
       request.current = null;
     };
-  }, [thread, threadId, owner, retry]);
+  }, [thread, threadId, target, owner, retry]);
 
   async function loadOlder(beforePrepend: () => void) {
     if (before === null || request.current || owner !== sessionRevision()) return;
@@ -377,7 +378,7 @@ function ThreadHydrator({ threadId, children }: { threadId: string; children: Re
         : <p>Unrolling the transcript…</p>}
     </div>
   );
-  return <HistoryContext.Provider value={{ saved, before, loading, error, loadOlder }}>{children}</HistoryContext.Provider>;
+  return <HistoryContext.Provider value={{ saved, before, loading, error, loadOlder, target }}>{children}</HistoryContext.Provider>;
 }
 
 /** A write receipt states what actually happened to your data - the gate
@@ -414,18 +415,18 @@ export function receiptLine(e: {
   return `\n\n> ${head}${tail}${link}\n\n`;
 }
 
-export function RuntimeProvider({ threadId, children }: { threadId: string; children: ReactNode }) {
+export function RuntimeProvider({ threadId, target, children }: { threadId: string; target?: number; children: ReactNode }) {
   const identity = useSyncExternalStore(subscribeSession, sessionRevision, () => "");
-  return <BoundRuntime key={JSON.stringify([threadId, identity])} threadId={threadId}>{children}</BoundRuntime>;
+  return <BoundRuntime key={JSON.stringify([threadId, identity])} threadId={threadId} target={target}>{children}</BoundRuntime>;
 }
 
-function BoundRuntime({ threadId, children }: { threadId: string; children: ReactNode }) {
+function BoundRuntime({ threadId, target, children }: { threadId: string; target?: number; children: ReactNode }) {
   const adapter = useMemo(() => makeAdapter(threadId), [threadId]);
   const attachments = useMemo(() => makeAttachmentAdapter(), []);
   const runtime = useLocalRuntime(adapter, { adapters: { attachments } });
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadHydrator threadId={threadId}>{children}</ThreadHydrator>
+      <ThreadHydrator threadId={threadId} target={target}>{children}</ThreadHydrator>
     </AssistantRuntimeProvider>
   );
 }

@@ -18,9 +18,17 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- No extension API or data-format changes. Extension API 1.0 remains compatible. The REST additions (`GET /api/chats/search`, `through=` on `GET /api/chats/{thread_id}/messages/page`) are new and optional, and no migration ships.
+
 ### Behavior
 
+- Search inside chats: a "Search your chats" field under + New chat finds the chats where every word appears, as part of a word and in any case, in one message or in the chat title. It reads the person's own solo chats and, for a signed-in identity, the shared chats they are still a member of. One result per chat, newest match first, at most 30, with a snippet around the match. Selecting a result opens the chat at that message and focuses it; a hit in the chat already on screen lands in place and keeps the unsent draft and a streaming reply. Chat text never enters the workspace search index, `/ask`, MCP or embeddings. A workplace rule on shared-chat reads closes the same rooms in search.
+- `GET /api/chats/{thread_id}/messages/page` takes `through=<message id>`: the newest page extended back to hold that message, at most 1,000 messages, read in one snapshot.
+- Each solo chat message is named for its author for assistive technology ("Your message", "Reply"), a matched word in a search snippet is semibold, and the focus ring on a deep-linked row uses the theme's text-grade accent, which holds 3:1 in every pack and colorway.
+
 ### Operations
+
+- Chat search has no text index: it scans the messages in the caller's own chats (measured 40 to 270 ms for 12,000 messages) under a 3-second statement timeout, and has its own rate cap, `chat_search`, 30 a minute per person. If ordinary searches reach the timeout, the upgrade is a `pg_trgm` index, which the database owner installs first: the application role cannot create extensions.
 
 ## 0.6.16 - 2026-10-09
 

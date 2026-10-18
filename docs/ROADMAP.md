@@ -633,6 +633,13 @@ review. Each names the condition that reopens it.
 | `skein comment` in the CLI, and MCP `read_comments` and `post_comment` | A terminal user without MCP asks, or an MCP-connected agent holds a delegation and its sponsor asks for the reply in the thread (about 20 lines, `docs/intent/task-threads.md` open question 1). |
 | Comment pagination past 200 | A thread reaches 200 comments. |
 | Reactions on comments | Refused: no workflow asks for them. |
+| Indexed chat search (`pg_trgm` with a `gin_trgm_ops` index on `chat_messages.content`) | Chat search gets slow for a heavy user (40 to 270 ms for 12,000 messages today), or its 3-second statement timeout stops ordinary searches. The database owner installs the extension first: the app role cannot (`deploy/postgres-init/10-app-role.sh`). |
+| Exact phrases and word forms in chat search (`deploying` finds `deployed`) | Somebody asks. Part-of-a-word matching covers most of it: `deploy` finds both. |
+| Chat results in the nav search box | Somebody looks for a chat from the nav box. Chat text stays out of `search_index` whatever the answer. |
+| More than 30 chat search results, or every matching message in one chat | Somebody needs a match the 30 hide. |
+| Date and author filters in chat search | Somebody asks. |
+| Agent tool, MCP and CLI access to chat history | Refused for now. An agent tool sends old chat text to the model provider, and MCP or the CLI sends it to an outside client. Each needs its own privacy decision. |
+| Semantic search over chats | Refused. Chat text must not reach the embeddings endpoint (`search._embeddable`). |
 | Captured GitLab webhook fixtures (`backend/tests/gitlab_payloads.py` is built from GitLab's documented shapes) | The first webhook on the internal instance. Capture push, branch deletion, merge request open, close, reopen and merge, one failed and one passed default-branch pipeline, a merge request pipeline, a child pipeline and one stopped at a manual gate from Recent events, and record the GitLab version. Check the facts `docs/intent/gitlab-forge.md` D14 lists. |
 
 ## Deferred by the agent-discovery adoption (2026-08-30)
