@@ -430,11 +430,7 @@ def _gated_write_locked(
     # proposal payload hands that text to every teammate before anyone
     # approved sharing it, so only the requester's own review may follow.
     if not private_review and read_scoped_this_turn():
-        detail = (
-            "This turn read notes that only you or your crew can read, and the team"
-            " reviews agent changes here. An agent cannot write a record in the same"
-            " turn. Ask for the change in a new message."
-        )
+        detail = wording.scoped_read_team_review()
         receipts.record("refused", entity, detail, actor=actor)
         return json.dumps({"error": detail})
     review_owner = (review_owner or requester_identity()) if private_review else ""

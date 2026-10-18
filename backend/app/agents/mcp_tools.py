@@ -256,6 +256,7 @@ class GovernedMCPTool(AgentTool):
         approved_decision: PolicyDecision | None = None,
         **kwargs: Any,
     ):
+        from .identity import read_scoped_this_turn
         from .receipts import record
 
         if self.metadata.allowed_agents and actor not in self.metadata.allowed_agents:
@@ -319,18 +320,51 @@ class GovernedMCPTool(AgentTool):
         # The database calls run on a worker thread (asyncio.to_thread copies
         # the context): on the event loop, a pool wait freezes every chat
         # stream in the process.
-        needs_review = decision.effect == PolicyEffect.REVIEW or (
-            self.tier == PERSONAL
-            and (
-                self.metadata.effect == "write"
-                or not await asyncio.to_thread(
-                    _first_use_approved, self.server_id, self.tool_name, self.metadata.version
+        # A turn that read a row only the requester or their crew can read
+        # holds that text, and these arguments are model-chosen: a read sends
+        # them to the server as surely as a write does, so every effect waits
+        # for review (identity.read_scoped_this_turn, as in tools/_gate.py).
+        scoped = decision.effect != PolicyEffect.DENY and read_scoped_this_turn()
+        needs_review = (
+            scoped
+            or decision.effect == PolicyEffect.REVIEW
+            or (
+                self.tier == PERSONAL
+                and (
+                    self.metadata.effect == "write"
+                    or not await asyncio.to_thread(
+                        _first_use_approved, self.server_id, self.tool_name, self.metadata.version
+                    )
                 )
             )
         )
         if needs_review and approved_fingerprint != fingerprint:
             from ..services import review
 
+            # a personal server runs on its owner's credential and returns
+            # their data: reviewed at the workspace tier, any teammate could
+            # approve the call and read the result. It stays private under
+            # separated duties too (review._check_separation). Policy-named
+            # approvers keep the workspace review, or nobody qualified could
+            # read it.
+            private_review = review.requester_judges(
+                subject.name if subject.kind == "human" and subject.strong else "",
+                decision.approver_groups,
+                decision.approver_capabilities,
+            ) or (
+                self.tier == PERSONAL
+                and not decision.approver_groups
+                and not decision.approver_capabilities
+            )
+            if scoped and not private_review:
+                # the proposal payload quotes the arguments to every teammate
+                # before anyone chose to share the text they may carry
+                detail = wording.scoped_read_team_review()
+                record("refused", self.tool_name, detail, actor=actor)
+                if self.metadata.effect == "write":
+                    _audit_mcp(actor, self.tool_name, "refused", "scoped_read")
+                yield _refusal(tool_use, detail)
+                return
             try:
                 invocation = {
                     "tool": self.tool_name,
@@ -358,26 +392,7 @@ class GovernedMCPTool(AgentTool):
                     policy_obligations=decision.obligations,
                     approver_groups=decision.approver_groups,
                     approver_capabilities=decision.approver_capabilities,
-                    # a personal server runs on its owner's credential and
-                    # returns their data: reviewed at the workspace tier, any
-                    # teammate could approve the call and read the result.
-                    # It stays private under separated duties too
-                    # (review._check_separation). Policy-named approvers keep
-                    # the workspace review, or nobody qualified could read it.
-                    review_visibility=(
-                        scope.PRIVATE
-                        if review.requester_judges(
-                            subject.name if subject.kind == "human" and subject.strong else "",
-                            decision.approver_groups,
-                            decision.approver_capabilities,
-                        )
-                        or (
-                            self.tier == PERSONAL
-                            and not decision.approver_groups
-                            and not decision.approver_capabilities
-                        )
-                        else scope.WORKSPACE
-                    ),
+                    review_visibility=scope.PRIVATE if private_review else scope.WORKSPACE,
                     review_owner=subject.name,
                     policy_input=policy_input,
                 )

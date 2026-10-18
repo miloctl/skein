@@ -45,6 +45,16 @@ def policy_review_unsupported() -> str:
     )
 
 
+def scoped_read_team_review() -> str:
+    # tools/_gate.py and agents/mcp_tools.py refuse the same condition, so they
+    # share these words
+    return (
+        "This turn read notes that only you or your crew can read, and the team"
+        " reviews agent changes here. An agent cannot write a record in the same"
+        " turn. Ask for the change in a new message."
+    )
+
+
 def write_policy_denied() -> str:
     return (
         "Policy denied this write. Use an allowed action or ask an administrator to"
