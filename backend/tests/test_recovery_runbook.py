@@ -375,6 +375,47 @@ def test_preboot_fence_removes_restored_personal_mcp_servers(scratch_db, tmp_pat
     assert mcp_servers.list_for("restore-owner") == []
 
 
+def test_a_copy_from_before_048_passes_the_fence_and_boot_drops_its_flows(scratch_db):
+    """Step 7 and step 9 of deploy/k8s/README.md on a copy taken before
+    048_retire_mcp_oauth.sql: the fence deletes the personal servers, their
+    open sign-in flows go with them, and boot drops the flow table and the
+    OAuth columns."""
+    migrations = ROOT / "backend/app/core_migrations"
+    # the schema as it stood before 048 (tests/test_migrations.py rebuilds it
+    # the same way)
+    for name in (
+        "020_mcp_oauth.sql",
+        "024_process_memory_rows.sql",
+        "027_oauth_flow_ownership.sql",
+        "034_mcp_oauth_browser_binding.sql",
+    ):
+        scratch_db.execute((migrations / name).read_text())
+    scratch_db.execute("DELETE FROM schema_version WHERE version = '048_retire_mcp_oauth.sql'")
+    now = scratch_db.now()
+    sid = scratch_db.execute(
+        "INSERT INTO mcp_servers (scope, owner, name, url, auth, oauth_tokens_sealed,"
+        " created_at, updated_at) VALUES ('personal', 'restore-owner', 'jira',"
+        " 'https://jira.example/mcp', 'oauth', ?, ?, ?) RETURNING id",
+        (b"sealed-grant", now, now),
+    )
+    scratch_db.execute(
+        "INSERT INTO mcp_oauth_flows (claim_id, server_id, owner, created_at, expires_at)"
+        " VALUES ('claim', ?, 'restore-owner', ?, ?)",
+        (sid, now, now),
+    )
+    _apply_fence()
+    assert scratch_db.query("SELECT id FROM mcp_servers") == []
+    scratch_db.init_db()
+    assert scratch_db.query_one("SELECT to_regclass('public.mcp_oauth_flows') AS t")["t"] is None
+    columns = {
+        row["column_name"]
+        for row in scratch_db.query(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'mcp_servers'"
+        )
+    }
+    assert not {c for c in columns if "oauth" in c or c == "auth"}, columns
+
+
 def test_preboot_fence_cancels_restored_pending_merge_requests(scratch_db):
     """A merge request withdrawn after the backup point came back pending,
     and the target's confirm moved everything only the source could read to
