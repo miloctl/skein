@@ -930,16 +930,7 @@ def _authority_recently_judged(agent: str, entity: str) -> bool:
     """A pending authority proposal, or one a human declined inside 28 days.
     Refiling either is nagging, so `review_authority` stays silent - and the
     queue must not advertise what the job will decline to file."""
-    cutoff = (datetime.now(UTC) - timedelta(days=28)).isoformat(timespec="seconds")
-    for p in db.query(
-        "SELECT payload FROM pending_changes WHERE entity = 'authority'"
-        " AND (status = 'pending' OR (status = 'rejected' AND reviewed_at > ?))",
-        (cutoff,),
-    ):
-        row = json.loads(p["payload"])
-        if row.get("agent") == agent and row.get("entity") == entity:
-            return True
-    return False
+    return (agent, entity) in _judged_pairs(_authority_cutoff())
 
 
 def review_authority(*, actor: str = "scheduler", auth_mode: str = "") -> dict:
