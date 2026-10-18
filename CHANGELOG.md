@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.18 - 2026-10-18
+
+### Contracts
+
 - Extension API 1.0.0 is unchanged, and a package needs no new `minimum_core`. When `WorkItems.create_task` or `WorkItems.update_task` sets or moves a task's milestone or engagement, it now holds that milestone and engagement until it commits, so the call can wait on a concurrent milestone adoption or engagement edit, and a create whose milestone moved to another engagement is then refused. A crew-tier `WorkItems.create_task` checks the crew before it reads the links, so a caller outside the crew gets `TASK_CREATE_REJECTED` before a policy decision. `ExtensionStore.transaction()` behaves as before: its docstring now states that blocks on one extension serialize.
 - The REST and data contracts for personal MCP servers change, and the change is not backward compatible. `POST /api/mcp/servers/{server_id}/sign-in` and `GET /api/mcp/oauth/callback` are removed. `GET /api/mcp/servers` no longer returns `auth`, `signed_in` or `sign_in_required`, and `POST /api/mcp/servers` accepts only `auth: "token"`. Migration `048_retire_mcp_oauth.sql` drops the `mcp_oauth_flows` table and the `auth`, `oauth_tokens_sealed`, `oauth_client_sealed`, `oauth_redirect_uri` and `oauth_signin_required` columns of `mcp_servers`. `POST /api/agents/authority` and `GET /api/agents/entities` accept and list the entity `mcp-tool`.
 
