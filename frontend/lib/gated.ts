@@ -6,9 +6,13 @@
  *  the gate on z-index. Without this store, `?task=12` in a digest link opens
  *  an aria-modal dialog on top of the gate, and the Capture button opens a box
  *  that can only ever answer 401. Each of them reads the store through
- *  useSyncExternalStore and stands down. Each sets inert only on nodes it owns
- *  (components/nav.tsx on its own header and sidebar): an attribute set on a
- *  node another component owns is lost whenever that component re-creates it.
+ *  useSyncExternalStore and stands down. An open overlay sets inert on every
+ *  body sibling except its own and the status regions
+ *  (components/task-peek.tsx, components/capture-palette.tsx), and removes it
+ *  on cleanup. components/nav.tsx sets it on its own header and sidebar while
+ *  gated. All three set it from an effect, never a rendered prop: React does
+ *  not re-apply an attribute it believes is already set, so one removal by
+ *  another owner's cleanup would be permanent.
  */
 
 let gated = false;

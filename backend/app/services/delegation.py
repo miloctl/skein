@@ -419,10 +419,11 @@ def accept_completion(
     # acceptance must be for work the proposer still owns
     if actor and task["delegated_agent"] != actor:
         raise db.TerminalReject(f"task #{task_id} is no longer delegated to '{actor}'")
-    # completed_at, not just status: flow metrics filter on it. Every accepted
-    # delegation closes here (the review registry's task_completion; forge.py
-    # ignores a delegated close), so without it delegated work counts zero in
-    # cycle time AND in throughput.
+    # completed_at, not just status: flow metrics filter on it. An accepted
+    # task_completion proposal closes here (the review registry; forge.py
+    # ignores a delegated close), so without it that delegated work counts zero
+    # in cycle time AND in throughput. The sponsor's direct close does not come
+    # here: work.update_task sets completed_at on its own path.
     event_actor = actor or "agent"
     event_origin = origin or "agent_verified"
     with db.transaction():

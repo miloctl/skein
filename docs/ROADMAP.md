@@ -778,6 +778,16 @@ larger than its finding.
   relink between the decision and `raise_blocker` applies a rule chosen for
   the old project. Hold the task there with `policy_context.hold_resource`.
 
+## Found by the pre-release review (2026-10-18)
+
+- **The agent write gate decides policy on unlocked reads** -
+  `tools/_gate.py::gated_write` resolves the task context with plain
+  SELECTs (`work.task_update_policy_context`, `policy_context.for_change`),
+  so a concurrent relink can move the row between the decision and the
+  write. REST and MCP hold the row first (`policy_context.hold_resource`);
+  chat's core write tools do not. Hold the resource row first in
+  `gated_write`, before the ledger lock, and race it in a test.
+
 ## Found by the review of routines (2026-09-29)
 
 - **The evidence-gap rule counts a routine's weekly acceptances** -

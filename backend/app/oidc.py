@@ -200,9 +200,11 @@ _key_refreshing = False
 _last_refresh = float("-inf")
 
 # The shared wording for a refusal that does not fetch (another fetch in
-# flight, a recent failure inside its cooldown) and for a userinfo fetch that
-# fails in transit, so the caller cannot tell which fetch failed (and does not
-# need to). A failed discovery or key fetch names its own cause in its message.
+# flight, a recent key-set failure inside its cooldown) and for a userinfo
+# fetch that fails in transit, so the caller cannot tell which fetch failed
+# (and does not need to). A failed discovery or key fetch names its own cause
+# in its message, and a discovery refusal inside its cooldown repeats that
+# saved message (_discovery_failure).
 IDP_UNREACHABLE = "the identity provider cannot be reached. Try again in a minute."
 
 

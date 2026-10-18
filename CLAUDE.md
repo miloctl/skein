@@ -214,8 +214,9 @@ npm run build   # verify compile (run before committing frontend changes)
 ./scripts/skein.sh start|stop|restart|status|logs   # detached; survives the terminal
 ./scripts/skein.sh dev                              # both in the foreground, Ctrl-C stops
 ./scripts/lint.sh   # all lint gates CI runs: ruff (check + format) + mypy +
-                    # vulture + persona and flock validators + theme contrast
-                    # + STE self-test and knot how: check + tsc + eslint + knip
+                    # vulture + comment references + persona and flock
+                    # validators + theme contrast + STE self-test and knot
+                    # how: check + tsc + eslint + knip
 ```
 
 Run `./scripts/lint.sh` before every commit - it is the exact gate CI runs; a commit

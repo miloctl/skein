@@ -232,8 +232,8 @@ def _edit_blocker_locked(
     if not fields:
         raise ValueError("nothing to update")
     # the escalation clock follows the impact UNLESS the creator set a custom
-    # deadline. Frozen at creation, a web-filed blocker escalates at medium's
-    # speed whatever impact it is edited to
+    # deadline. Without this, a blocker keeps the clock of the impact it was
+    # filed with, whatever impact it is edited to
     if (
         impact
         and impact != row["impact"]

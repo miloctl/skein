@@ -1,13 +1,16 @@
 """Out-of-band first-key bootstrap: `python -m app.bootstrap_key <name>`.
 
-Minting via POST /api/keys requires an existing key (StrongUser) - otherwise
-anyone who can reach the API could mint a key for any identity with one
-X-User header and walk through the private-record boundary. The first key
-per person is
-therefore issued here, by someone with shell access to the box (the trusted
-root of the deployment). In oidc mode a browser sign-in is strong identity,
-so a person mints their own keys through POST /api/keys and never needs this
-command. In api-key mode this is the only path to a person's first key."""
+Minting via POST /api/keys requires strong identity (StrongUser), an existing
+key or a validated OIDC sign-in - otherwise anyone who can reach the API could
+mint a key for any identity with one X-User header and walk through the
+private-record boundary. Without one, the first key per person is issued
+here, by someone with shell access to the box (the trusted root of the
+deployment). In oidc mode a browser session cannot mint a key:
+POST /api/keys answers it 403 (routes/api.py::post_key). Settings sends
+POST /api/keys/request instead, which files a notification that carries
+this command. An identity-provider token sent as a bearer token is strong
+identity, so its holder can mint a key through POST /api/keys. In api-key
+mode this is the only path to a person's first key."""
 
 import sys
 

@@ -295,8 +295,8 @@ describe("Settings when it explains what a connected agent can do", () => {
   });
 });
 
-/** ALWAYS_REVIEW entities always wait for a human
- *  (extensions/policy.py::CorePolicy), whatever level is stored, and
+/** ALWAYS_REVIEW entities wait for a human whatever level is stored, except
+ *  forbidden, which refuses first (extensions/policy.py::CorePolicy), and
  *  services/delegation.py::set_authority refuses autonomous and notify on
  *  them. A row stored before that guard can still hold "autonomous" on
  *  note_delete, and the page must not render "acts alone" over a write that

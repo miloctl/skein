@@ -83,10 +83,14 @@ def resource_row(entity: str, entity_id: int) -> dict | None:
     and its provenance snapshot - and its consistency comes from the caller's
     transaction, which has already written (and so already holds) the row it
     is describing. Locking here as well inverts the lock order against a
-    concurrent update of the same task and deadlocks. The read that AUTHORIZES
-    a write is _task_context, which takes no lock either: its callers hold the
-    row first with hold_resource (for_route_scoped,
-    review._approve_change_locked).
+    concurrent update of the same task and deadlocks. The reads that AUTHORIZE
+    a write take no lock either, so their callers hold the row first with
+    hold_resource: for_route_scoped (REST), review._approve_change_locked, and
+    the two that reach _task_context through existing("task") -
+    mcp_server._policy_refusal and agents/core_tools.py::_resource. The agent
+    write gate holds nothing: tools/_gate.py::gated_write decides on plain
+    SELECTs (work.task_update_policy_context, for_change), and its own comment
+    records that gap.
     """
     if entity_id <= 0:
         return None

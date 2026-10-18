@@ -241,9 +241,12 @@ def check(surface: str, user: str, cost: int = 1) -> None:
             window.popleft()
         if len(window) + cost > limit:
             # _hits is a defaultdict, so the line above MATERIALIZED this key.
-            # An empty window is unreachable for cost=1 (len 0 never exceeds a
-            # limit of 1 or more) but reachable the moment cost > limit, and it
-            # is permanent: the shed loop skips empty windows, it counts toward
+            # No path reaches here with an empty window today: 0 + cost exceeds
+            # the limit only when cost does, and the `cost > limit` refusal at
+            # the top already raised for that. If that refusal moves below
+            # this point, this branch still drops the key before
+            # window[need - 1] raises on the empty deque. A key left empty is
+            # permanent: the shed loop skips empty windows, it counts toward
             # MAX_KEYS, and the eviction above reads _hits[k][-1] on every
             # surface's key - which is an IndexError on an empty one, surfacing
             # as a 500 somewhere unrelated.

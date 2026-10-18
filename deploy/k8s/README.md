@@ -572,13 +572,15 @@ Local success does not replace the target-cluster role and storage handoff.
    If this command fails, stop. Do not start any application process.
    It skips tables absent from older backups, but an unexpected schema error stops recovery.
    Run it for every recovery source, including external full copies and mirror-only dumps.
-   External copies can contain sessions revoked after the backup and unfinished MCP
-   sign-in flows. Older copies can hold unsealed authorization codes. Delete all flow
-   rows before startup, including rows that have not expired. These deletions require
-   new sign-ins without changing the credential-sealing key. Personal MCP server
-   rows are deleted: a server its owner removed after the backup must not come
-   back, and its tool list must not reach a model before the owner registers
-   it again. Pending account merge requests are cancelled: a request withdrawn
+   External copies can contain sessions revoked after the backup. The command
+   deletes every browser session and deactivates every API key, so every person
+   signs in again and gets a replacement key (step 11). The credential-sealing key
+   does not change. Personal MCP server rows are deleted: a server its owner
+   removed after the backup must not come back, and its tool list must not reach
+   a model before the owner registers it again. Any MCP server row that remains
+   loses its saved token. A copy taken before `048_retire_mcp_oauth.sql` still holds
+   the removed MCP sign-in flow table, and boot in step 9 drops it.
+   Pending account merge requests are cancelled: a request withdrawn
    after the backup must not be confirmable from the restored copy.
 
    `completion_unknown` means the outcome needs operator reconciliation.
