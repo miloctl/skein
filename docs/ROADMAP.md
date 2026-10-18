@@ -780,13 +780,6 @@ larger than its finding.
 
 ## Found by the comment audit (2026-10-18)
 
-- **A weak identity's remembered crew widens to the roster** - the
-  visibility picker narrows a remembered crew the person has left to "only
-  you", and `useRememberedAudience`'s check refuses private for a weak
-  identity, so the form starts at "everyone on the roster". The picker
-  shows it before submit. Trigger: a weak-identity deployment that uses
-  crews. Then start such a form at the crew-less narrowest tier the
-  identity can read, or ask.
 - **The write-boundary scan misses two SQL shapes** - the regex in
   `tests/test_write_path_boundary.py` does not match `UPDATE {table} SET`
   (an f-string table name) or `MERGE`. Neither appears in `routes/` or
