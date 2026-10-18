@@ -119,7 +119,7 @@ def create_engagement(
         viewer = scope.Viewer.for_actor(actor)
         # FOR UPDATE before the task read below: the check reads each
         # milestone's tasks, and a task create that held nothing could land
-        # between that read and the UPDATE (work.hold_task_parents).
+        # between that read and the UPDATE (work.hold_task_milestone).
         for milestone in db.query(
             "SELECT * FROM milestones WHERE project = ? AND engagement_id IS NULL"
             " ORDER BY id FOR UPDATE",

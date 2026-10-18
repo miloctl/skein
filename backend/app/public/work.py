@@ -797,7 +797,6 @@ class WorkItems:
         child_crew_id: int | None = None,
     ) -> dict[str, Any]:
         """Resolve all task links without exposing an unreadable parent."""
-        work.hold_task_parents(engagement_id, milestone_id)
         engagement = None
         milestone = None
         if engagement_id:
@@ -938,8 +937,8 @@ class WorkItems:
     def create_task(self, command: CreateTaskCommand, context: CommandContext) -> TaskView:
         # One transaction for link resolution, policy, the idempotency receipt
         # and the insert: they commit together or not at all.
-        # _relationship_context holds the linked engagement and milestone
-        # (work.hold_task_parents), so the parents the decision read stay put
+        # _create_task_locked holds the linked milestone
+        # (work.hold_task_milestone), so the parent the decision read stays put
         # until the insert commits. Retries of one idempotency key serialize
         # on _prior_result's receipt lock.
         try:
@@ -957,6 +956,7 @@ class WorkItems:
     ) -> TaskView:
         self._require_issued_context(context)
         viewer = self._viewer(context)
+        work.hold_task_milestone(command.milestone_id)
         link_attributes = self._relationship_context(
             command.engagement_id,
             command.milestone_id,
@@ -1483,6 +1483,7 @@ class WorkItems:
                     engagement_id = max(int(changes["engagement_id"]), 0)
                 if changes.get("milestone_id"):
                     milestone_id = max(int(changes["milestone_id"]), 0)
+                work.hold_task_milestone(milestone_id)
                 attributes = self._relationship_context(
                     engagement_id,
                     milestone_id,

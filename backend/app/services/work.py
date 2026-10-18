@@ -531,26 +531,29 @@ def _visible_link(table: str, row_id: int, actor: str) -> dict:
     return row
 
 
-def hold_task_parents(engagement_id: int, milestone_id: int) -> None:
-    """Hold the engagement and milestone a task's link decision reads.
+def hold_task_milestone(milestone_id: int) -> None:
+    """Hold the milestone a task's link decision reads, until the write commits.
 
-    FOR SHARE: concurrent task creates under one parent do not wait for each
-    other, but the parent cannot move or go away under the decision.
-    create_engagement adopts an orphan milestone (its engagement_id goes from
-    NULL to the new engagement), and a create inside that adoption would be
-    decided for a milestone with no project type
-    (tests/test_task_parent_holds.py). Engagements first, then the milestone:
-    update_engagement locks its row and then its milestones.
+    FOR SHARE: task writes under one milestone do not wait for each other, but
+    the milestone cannot change parent under the decision. create_engagement
+    adopts an orphan milestone (engagement_id goes from NULL to the new
+    engagement) after it reads the milestone's tasks, and a create inside that
+    window was decided for a milestone with no project type
+    (tests/test_task_parent_holds.py). The engagement is not held: no writer
+    changes the project type or crew a decision reads, and sharing only widens
+    its tier.
+
+    Write paths only. A read that took this lock under REPEATABLE READ would
+    wait on every milestone writer and then fail on serialization
+    (tests/test_public_extension_contracts.py).
+
+    rename_user writes milestones before tasks and crews (users._ATTRIBUTION),
+    while a task write holds its task row (an update) or its crew row (a
+    crew-tier create) before this one. A rename that crosses such a write on
+    the renamed person's rows can deadlock: PostgreSQL aborts one side, which
+    answers 503 (db.BUSY_ERRORS).
     """
-    if not db.in_transaction():
-        return
-    parent = 0
-    if milestone_id > 0:
-        row = db.query_one("SELECT engagement_id FROM milestones WHERE id = ?", (milestone_id,))
-        parent = int((row or {}).get("engagement_id") or 0)
-    for held in sorted({e for e in (engagement_id, parent) if e > 0}):
-        db.query("SELECT 1 FROM engagements WHERE id = ? FOR SHARE", (held,))
-    if milestone_id > 0:
+    if milestone_id > 0 and db.in_transaction():
         db.query("SELECT 1 FROM milestones WHERE id = ? FOR SHARE", (milestone_id,))
 
 
@@ -563,7 +566,7 @@ def _assert_task_relationships(
     task_crew_id: int | None,
 ) -> dict[str, str]:
     """Validate link visibility without turning hidden ids into an oracle."""
-    hold_task_parents(engagement_id, milestone_id)
+    hold_task_milestone(milestone_id)
     project_type = ""
     direct_engagement = None
     if engagement_id:

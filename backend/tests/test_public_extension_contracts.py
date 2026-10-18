@@ -2707,22 +2707,21 @@ def test_the_review_queue_shows_what_it_is_approving(fresh_db):
     assert preview["assignee"] == "marcus"
 
 
-def test_a_public_task_create_holds_its_parents_before_it_decides(fresh_db, monkeypatch):
-    """The core create and this one share work.hold_task_parents, which
+def test_a_public_task_create_holds_its_milestone_before_it_decides(fresh_db, monkeypatch):
+    """The core create and this one share work.hold_task_milestone, which
     tests/test_task_parent_holds.py races against a milestone adoption. This
     pins that the public door takes it too, before any policy decision."""
-    from app.services import engagements
     from app.services import work as core_work
 
     registry = ExtensionRegistry.build(())
     work_items = WorkItems(registry.policy_engine)
-    engagement = engagements.create_engagement("Atlas", project_class="regulated")["id"]
+    milestone = core_work.create_milestone("Orphan gate", project="Atlas")["id"]
     events = []
-    real_hold, real_authorize = core_work.hold_task_parents, work_items._authorize
+    real_hold, real_authorize = core_work.hold_task_milestone, work_items._authorize
     monkeypatch.setattr(
         core_work,
-        "hold_task_parents",
-        lambda e, m: events.append(("hold", e, m)) or real_hold(e, m),
+        "hold_task_milestone",
+        lambda m: events.append(("hold", m)) or real_hold(m),
     )
     monkeypatch.setattr(
         work_items,
@@ -2730,7 +2729,48 @@ def test_a_public_task_create_holds_its_parents_before_it_decides(fresh_db, monk
         lambda *a, **k: events.append(("decide",)) or real_authorize(*a, **k),
     )
     work_items.create_task(
-        CreateTaskCommand(title="Linked", engagement_id=engagement), _context(work_items)
+        CreateTaskCommand(title="Linked", milestone_id=milestone), _context(work_items)
     )
-    assert events[0] == ("hold", engagement, 0), events
+    assert events[0] == ("hold", milestone), events
     assert ("decide",) in events
+
+
+def test_a_public_task_read_waits_on_no_row_lock(fresh_db):
+    """get_task reads under REPEATABLE READ. A read that takes a row lock
+    blocks behind every writer of that row, then fails with a serialization
+    error once the writer commits - a read must not lock."""
+    import threading
+
+    from app import db
+    from app.services import work as core_work
+
+    registry = ExtensionRegistry.build(())
+    work_items = WorkItems(registry.policy_engine)
+    milestone = core_work.create_milestone("Held gate", project="Atlas")["id"]
+    created = work_items.create_task(
+        CreateTaskCommand(title="Readable", milestone_id=milestone), _context(work_items)
+    )
+    held, release = threading.Event(), threading.Event()
+
+    def writer():
+        with db.transaction():
+            db.query("SELECT 1 FROM milestones WHERE id = ? FOR UPDATE", (milestone,))
+            held.set()
+            release.wait(10)
+
+    holder = threading.Thread(target=writer)
+    holder.start()
+    try:
+        assert held.wait(10)
+        done = threading.Event()
+        reader = threading.Thread(
+            target=lambda: (work_items.get_task(created.id, _context(work_items)), done.set())
+        )
+        reader.start()
+        reader.join(2)
+        read_finished = done.is_set()
+    finally:
+        release.set()
+        holder.join(10)
+        reader.join(10)
+    assert read_finished, "get_task waited on a row another transaction held"
