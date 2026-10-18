@@ -778,15 +778,6 @@ larger than its finding.
   relink between the decision and `raise_blocker` applies a rule chosen for
   the old project. Hold the task there with `policy_context.hold_resource`.
 
-## Found by the comment audit (2026-10-18)
-
-- **The write-boundary scan misses two SQL shapes** - the regex in
-  `tests/test_write_path_boundary.py` does not match `UPDATE {table} SET`
-  (an f-string table name) or `MERGE`. Neither appears in `routes/` or
-  `tools/` today. Extend it the day one does. Its `private_notes.delete_note`
-  exemption in `tests/test_visibility_authz.py` is never exercised (a
-  schema-qualified table escapes the scanner) - drop it with that change.
-
 ## Found by the review of routines (2026-09-29)
 
 - **The evidence-gap rule counts a routine's weekly acceptances** -

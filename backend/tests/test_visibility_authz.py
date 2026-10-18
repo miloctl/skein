@@ -423,7 +423,7 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
     # preceding underscore is a word character.
     addressed = re.compile(r"\bWHERE\b[\s\S]*?\bid\s*(?:=\s*\?|IN\s*\()", re.I)
     missing = []
-    seen: set[str] = set()
+    flagged: set[str] = set()
     # anchored on this file, not the CWD: `pytest backend/tests/...` from the
     # repo root makes a CWD-relative glob empty and the test vacuously green
     services = pathlib.Path(__file__).resolve().parent.parent / "app" / "services"
@@ -432,9 +432,6 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
         if path.name in _EXEMPT_FILES:
             continue
         tree = ast.parse(path.read_text())
-        for fn in ast.walk(tree):
-            if isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
-                seen.add(f"{path.name}::{fn.name}")
         # _statements, not a walk of FunctionDef bodies: SQL held in a module
         # constant and spliced into a query below belongs to no function, and
         # a body walk reads it as zero SQL (portfolio._WAIT_SATISFIED).
@@ -442,18 +439,21 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
             if not (stmt.search(sql) and addressed.search(sql)) and not upsert.search(sql):
                 continue
             key = f"{path.name}::{fname}"
-            if fname not in listed and key not in _EXEMPT_FUNCTIONS:
-                missing.append(key)
+            if fname not in listed:
+                flagged.add(key)
+                if key not in _EXEMPT_FUNCTIONS:
+                    missing.append(key)
     assert not missing, (
         f"unlisted id-addressed mutations on a scoped table: {missing}."
         " Add scope.assert_editable and an entry in _mutations, or name it in"
         " _EXEMPT_FUNCTIONS with the reason."
     )
-    # the other direction. An exemption that names no live function is a
-    # carve-out nobody can audit, and a bare "delete_note" would exempt
-    # private_notes.delete_note too
-    assert not set(_EXEMPT_FUNCTIONS) - seen, (
-        f"exemptions naming no function: {sorted(set(_EXEMPT_FUNCTIONS) - seen)}."
+    # the other direction, as the read scanner below holds _UNFILTERED_READS:
+    # an exemption this scan would not flag guards nothing. It reads as
+    # coverage, and it pre-approves an unguarded write added to that function
+    # later. A key naming no live function is never flagged either.
+    assert not set(_EXEMPT_FUNCTIONS) - flagged, (
+        f"exemptions no longer needed: {sorted(set(_EXEMPT_FUNCTIONS) - flagged)}."
         " Delete the entry, or fix the file::function key."
     )
 
@@ -561,14 +561,11 @@ _EXEMPT_FUNCTIONS = {
     ),
     # the id is the row this call just created, not a row the caller named
     "insights.py::convert_finding": "sets source_finding_id on the row it just inserted",
-    "blockers.py::raise_blocker": "flips the task it was given to blocked",
     # the delegated-agent identity is the gate, and it is stricter than the tier
     "delegation.py::claim_task": "refuses any actor that is not the task's delegated_agent",
     "delegation.py::accept_completion": "same check, on the sponsor's verdict path",
     "delegation.py::report_progress": "same delegated_agent check",
     # keyed on something other than a row id
-    "ci.py::ci_event": "resolves the blocker from its own SELECT over a webhook payload",
-    "weekly.py::apply_plan": "task_ids come from the caller, each routed through update_task",
     "blockers.py::_sweep_escalations_locked": (
         "the public sweep owns one transaction over every open blocker;"
         " this private implementation updates only rows selected by that job"
@@ -596,17 +593,11 @@ _EXEMPT_FUNCTIONS = {
         "the public update_engagement wrapper owns the transaction and inventory"
         " entry; this private implementation performs its guarded SQL inside that boundary"
     ),
-    "engagements.py::_ship_it_locked": "keyed on the engagement update_engagement just closed",
     "engagements.py::create_engagement": (
         "adopts milestones that match the new engagement name; each updated id"
         " comes from the actor-visible candidate query in the same transaction"
     ),
-    "engagements.py::_experiment_lesson": "same",
     "intake.py::_disposition": "the public disposition_request guards, then calls this",
-    "private_notes.py::delete_note": (
-        "the author-private journal, a table in the `private` schema of the same"
-        " database; the DELETE matches only the author's own row (`AND author = ?`)"
-    ),
     "handoff.py::generate_handoff": (
         "the engagement is filtered through the caller's viewer before anything"
         " runs, and the artifact row updated is the one this call resolved by"
