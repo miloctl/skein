@@ -134,7 +134,7 @@ def test_no_promotion_is_promised_where_none_can_be_filed(client):
     assert row["record"]["promotes_at"] == 0
 
 
-def test_the_queue_pays_only_for_the_pairs_it_shows(client):
+def test_the_queue_pays_only_for_the_pairs_it_shows(client, monkeypatch):
     """`trust_scores` runs a per-pair lookup for every pair in the settled
     history. Unfiltered, rendering a queue holding one proposer cost a lookup
     per pair the deployment had ever settled - a cost that grew with its age
@@ -158,11 +158,8 @@ def test_the_queue_pays_only_for_the_pairs_it_shows(client):
             calls["n"] += 1
         return real(sql, *a, **kw)
 
-    review.db.query = counting  # type: ignore[assignment]
-    try:
-        client.get("/api/review?status=pending")
-    finally:
-        review.db.query = real  # type: ignore[assignment]
+    monkeypatch.setattr(review.db, "query", counting)
+    client.get("/api/review?status=pending")
     # one pair on the page, four pairs with history
     assert calls["n"] <= 1, f"per-pair lookups: {calls['n']} (expected at most 1)"
 

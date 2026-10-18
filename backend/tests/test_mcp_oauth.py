@@ -980,7 +980,7 @@ def test_the_callback_is_open_on_the_perimeter_in_api_key_mode(client, sealed, m
     assert client.get("/api/mcp/servers").status_code in (401, 403)
 
 
-def test_a_sign_in_thread_is_the_only_opener(fresh_db, sealed):
+def test_a_sign_in_thread_is_the_only_opener(fresh_db, sealed, monkeypatch):
     from app.agents import mcp_tools
 
     opened = threading.Event()
@@ -991,9 +991,7 @@ def test_a_sign_in_thread_is_the_only_opener(fresh_db, sealed):
             time.sleep(0.3)
             return super().__enter__()
 
-    import strands.tools.mcp as strands_mcp
-
-    strands_mcp.MCPClient = Slow  # type: ignore[attr-defined]
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", Slow)
     from app.services import mcp_servers
 
     row = mcp_servers.add("ava", "jira", "https://jira.example/mcp", auth="oauth", actor="ava")
@@ -1021,9 +1019,7 @@ def test_a_start_against_a_dead_server_returns_when_the_connect_gives_up(
             # a refused port, as the transport raises it
             raise ConnectionRefusedError(111, "Connection refused")
 
-    import strands.tools.mcp as strands_mcp
-
-    strands_mcp.MCPClient = Dead  # type: ignore[attr-defined]
+    monkeypatch.setattr("strands.tools.mcp.MCPClient", Dead)
     monkeypatch.setattr(mcp_oauth, "_URL_WAIT_SECONDS", 10.0)
     row = mcp_servers.add("ava", "dead", "https://dead.example/mcp", auth="oauth", actor="ava")
     _, server = mcp_servers.entry_for(row["id"], "ava")

@@ -37,7 +37,7 @@ def test_a_crew_name_is_unique_case_insensitively(fresh_db):
     crews.create_crew("Platform", actor="ava")
     with pytest.raises(ValueError, match="already exists"):
         crews.create_crew("platform", actor="ava")
-    with pytest.raises(Exception, match=r"UNIQUE|already exists"):
+    with pytest.raises(Exception, match="ux_crews_name_nocase"):
         db.execute("INSERT INTO crews (name, created_at, updated_at) VALUES ('PLATFORM', 'x', 'x')")
     # and the fold guard, which catches this pair whatever the database ctype,
     # and the NFKC and zero-width variants that lower() never folds

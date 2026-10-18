@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from argparse import Namespace
+from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -621,7 +622,7 @@ def test_a_refused_capture_is_not_queued_as_if_the_server_were_down(monkeypatch,
     cli = _load_cli()
     monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
     monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
-    refusal = urllib.error.HTTPError("u", 422, "Unprocessable", {}, None)  # type: ignore[arg-type]
+    refusal = urllib.error.HTTPError("u", 422, "Unprocessable", Message(), None)
     monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: refusal)
 
     def loud(*a, **k):
@@ -640,7 +641,7 @@ def test_a_retryable_capture_is_queued(status, monkeypatch, capsys, tmp_path):
     cli = _load_cli()
     monkeypatch.setattr(cli, "CONFIG_PATH", tmp_path / "config.json")
     monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
-    retryable = urllib.error.HTTPError("u", status, "retry", {}, None)  # type: ignore[arg-type]
+    retryable = urllib.error.HTTPError("u", status, "retry", Message(), None)
     monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: retryable)
     monkeypatch.setattr(
         cli,
@@ -665,7 +666,7 @@ def test_a_retryable_flush_keeps_the_current_row_and_tail(status, monkeypatch, t
     monkeypatch.setattr(cli, "OUTBOX", tmp_path / "outbox.jsonl")
     for i in range(3):
         cli._queue("/api/capture", {"text": f"note {i}", "capture_key": f"k{i}"})
-    retryable = urllib.error.HTTPError("u", status, "retry", {}, None)  # type: ignore[arg-type]
+    retryable = urllib.error.HTTPError("u", status, "retry", Message(), None)
     monkeypatch.setattr(cli, "api_quiet", lambda *a, **k: retryable)
 
     assert cli.flush_outbox() == 0
@@ -707,7 +708,7 @@ def test_a_poison_row_is_dropped_instead_of_blocking_the_queue(monkeypatch, caps
     cli._queue("/api/capture", {"text": "poison"})
     cli._queue("/api/capture", {"text": "good"})
 
-    refusal = urllib.error.HTTPError("u", 422, "Unprocessable", {}, None)  # type: ignore[arg-type]
+    refusal = urllib.error.HTTPError("u", 422, "Unprocessable", Message(), None)
     monkeypatch.setattr(
         cli, "api_quiet", lambda m, p, b=None, **k: refusal if b["text"] == "poison" else {"ok": 1}
     )

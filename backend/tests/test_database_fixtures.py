@@ -10,6 +10,7 @@ from pathlib import Path
 import conftest as fixtures
 import psycopg
 import pytest
+import yaml
 from psycopg import sql as pgsql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
@@ -470,6 +471,26 @@ def test_old_orphan_detector_names_only_owned_inactive_new_format(
                 control.execute(
                     pgsql.SQL("DROP DATABASE IF EXISTS {}").format(pgsql.Identifier(name))
                 )
+
+
+def _code_lines(text: str) -> list[str]:
+    return [
+        s for line in text.splitlines() if (s := line.strip()) and not s.startswith(("#", "--"))
+    ]
+
+
+def test_the_compose_and_kubernetes_bootstraps_are_one_script():
+    """deploy/postgres-init/10-app-role.sh and the skein-db-init ConfigMap copy
+    may differ in comments only. A drifted statement means dev stops
+    rehearsing the deployment it is supposed to match."""
+    root = Path(__file__).parents[2]
+    configmap = next(
+        doc
+        for doc in yaml.safe_load_all((root / "deploy/k8s/base/postgres.yaml").read_text())
+        if doc and doc["kind"] == "ConfigMap" and doc["metadata"]["name"] == "skein-db-init"
+    )
+    compose = (root / "deploy/postgres-init/10-app-role.sh").read_text()
+    assert _code_lines(configmap["data"]["10-app-role.sh"]) == _code_lines(compose)
 
 
 def test_every_bootstrap_heredoc_pins_name_resolution_to_pg_catalog():

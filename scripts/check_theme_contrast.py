@@ -81,18 +81,19 @@ THEME_TS = Path(__file__).resolve().parents[1] / "frontend" / "lib" / "theme.ts"
 # White, for the solid fills that carry white text (bg-thread-solid).
 WHITE_LUM = 1.0
 
+# Every pack id, colorway id and token name this script reads. A narrower class
+# at one site is not a stricter check - an id it cannot match drops out of BOTH
+# `declared` and `styled`, so the pack ships unswept and invariant (e) reports
+# nothing.
+_NAME = r"[a-z0-9-]+"
 _CUSTOM_BLOCK = re.compile(r"export const CUSTOM_LC = \{(.*?)\n\} as const;", re.S)
 _CUSTOM_ROW = re.compile(
-    r'"(--[a-z0-9-]+)":\s*\{\s*hue:\s*"\w+",\s*on:\s*"(\w+)",\s*'
+    r'"(--' + _NAME + r')":\s*\{\s*hue:\s*"\w+",\s*on:\s*"(\w+)",\s*'
     r"light:\s*\[\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\],\s*"
     r"dark:\s*\[\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\]"
 )
 _LIST_BLOCK = "export const {} = \\[(.*?)\\n\\] as const;"
-# [a-z0-9-]+, matching the CSS selectors below and the token regex above. A
-# narrower class here is not a stricter check - an id it cannot match drops out
-# of BOTH `declared` and `styled`, so the pack ships unswept and invariant (e)
-# reports nothing. Widen these four together or not at all.
-_ID = re.compile(r'\{\s*id:\s*"([a-z0-9-]+)"')
+_ID = re.compile(r'\{\s*id:\s*"(' + _NAME + ')"')
 
 
 def parse_custom(ts: str) -> dict[str, dict]:
@@ -128,7 +129,7 @@ def parse_custom(ts: str) -> dict[str, dict]:
 def parse_default(ts: str, name: str) -> str:
     """DEFAULT_PACK / DEFAULT_COLORWAY: the id globals.css carries on :root, so
     it has no [data-*] selector of its own and cannot be found by parsing CSS."""
-    found = re.search(rf'export const DEFAULT_{name} = "([a-z0-9-]+)";', ts)
+    found = re.search(rf'export const DEFAULT_{name} = "({_NAME})";', ts)
     if not found:
         raise SystemExit(f"cannot find `export const DEFAULT_{name}` in {THEME_TS}.")
     return found.group(1)
@@ -146,7 +147,7 @@ def parse_ids(ts: str, name: str) -> set[str]:
 
 _BLOCK = re.compile(r"([^{}]*)\{([^{}]*)\}", re.S)
 _LIGHT_DARK = re.compile(
-    r"--([a-z0-9-]+):\s*light-dark\(\s*(#[0-9a-fA-F]{6})\s*,\s*(#[0-9a-fA-F]{6})\s*\)"
+    r"--(" + _NAME + r"):\s*light-dark\(\s*(#[0-9a-fA-F]{6})\s*,\s*(#[0-9a-fA-F]{6})\s*\)"
 )
 
 
@@ -201,8 +202,8 @@ def parse(css: str) -> tuple[dict, dict]:
         tokens = {m[0]: (m[1], m[2]) for m in _LIGHT_DARK.findall(body)}
         if not tokens:
             continue
-        pack_names = re.findall(r'\[data-pack="([a-z0-9-]+)"\]', selector)
-        way_names = re.findall(r'\[data-theme="([a-z0-9-]+)"\]', selector)
+        pack_names = re.findall(r'\[data-pack="(' + _NAME + r')"\]', selector)
+        way_names = re.findall(r'\[data-theme="(' + _NAME + r')"\]', selector)
         # ":root," with no [data-pack] is Loom itself.
         if re.search(r"(^|,)\s*:root\s*(,|$)", selector) and not way_names:
             pack_names.append(BASE_PACK)

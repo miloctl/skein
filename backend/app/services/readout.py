@@ -14,11 +14,6 @@ from .scope import WORKSPACE_ONLY
 from .wording import count
 
 
-def _today() -> date:
-    """The team's day (config.TZ_NAME), not the UTC day - see db.today()."""
-    return db.today()
-
-
 def _wip_summary(tasks: int, people: int) -> str:
     """Team totals for a forwardable artifact - see the call site for why the
     names do not travel. Takes the COUNTS, not the per-person list: this
@@ -54,14 +49,14 @@ def exec_readout(*, actor: str = "system") -> dict:
         f"SELECT * FROM promises WHERE status = 'open' AND audience = 'external'"  # noqa: S608 - scope filters emit only bound marks
         f" AND direction = 'given' AND {WORKSPACE_ONLY}"
         " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date",
-        ((_today() + timedelta(days=14)).isoformat(),),
+        ((db.today() + timedelta(days=14)).isoformat(),),
     )
     escalated = db.query(
         f"SELECT * FROM blockers WHERE status = 'escalated' AND {WORKSPACE_ONLY}"  # noqa: S608 - scope.WORKSPACE_ONLY is a module constant
     )
 
     dot = {"red": "🔴", "yellow": "🟡", "green": "🟢"}
-    lines = [f"# Exec readout - {_today().isoformat()} ({s['label']})", ""]
+    lines = [f"# Exec readout - {db.today().isoformat()} ({s['label']})", ""]
     lines.append("## Engagements")
     for h in health:
         lines.append(
@@ -92,8 +87,8 @@ def exec_readout(*, actor: str = "system") -> dict:
     # error.
     since = date.fromisoformat(db.local_day(prior["created_at"])) if prior else None
     # filtered BEFORE the heading: a first-ever observation is not a change,
-    # and on the first run after health snapshots shipped every engagement had
-    # one - the section printed a verdict heading with nothing under it, in a
+    # and when every engagement has only its first one, a heading tested on
+    # the unfiltered list prints a verdict with nothing under it, in a
     # document built to be forwarded
     moved = [m for m in health_changes(health, since) if m["from"]]
     if moved:
@@ -155,7 +150,7 @@ def exec_readout(*, actor: str = "system") -> dict:
     ]
     markdown = "\n".join(lines)
 
-    day = _today().isoformat()
+    day = db.today().isoformat()
     title = f"Exec readout {day}"
     logical = Path(config.DATA_DIR) / "artifacts" / "portfolio" / f"{day}-exec-readout.md"
     with db.transaction():

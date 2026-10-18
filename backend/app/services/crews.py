@@ -71,8 +71,8 @@ def _clean_name(name: str, crew_id: int = 0) -> str:
     folded = users.fold(name)
     # The scan below decides whether the caller may write this name, and no
     # index can back it up: the unique index is on lower(name), and folding is
-    # users.fold - NFKC plus zero-width stripping - which no collation
-    # reproduces. Without this lock, concurrent creates of the NFC and NFD
+    # users.fold - NFKC, format-character stripping and casefold - which no
+    # collation reproduces. Without this lock, concurrent creates of the NFC and NFD
     # spellings of one name both read "no collision" and both insert, leaving
     # two crews whose names render identically in the picker that decides who
     # can read a row. users.ensure_user closes the same hole the same way.

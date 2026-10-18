@@ -16,7 +16,7 @@ APP = Path(__file__).resolve().parents[1] / "app"
 # `db.execute("DELETE FROM ...")` and friends. Matches the statement inside a
 # string literal, which is how SQL reaches db.execute here.
 SQL = re.compile(
-    r"""["'(\s](?:SELECT\s+.+?\s+FROM|INSERT\s+(?:OR\s+\w+\s+)?INTO|UPDATE\s+\w+\s+SET"""
+    r"""["'(\s](?:SELECT\s+.+?\s+FROM|INSERT\s+INTO|UPDATE\s+\w+\s+SET"""
     r"""|DELETE\s+FROM)\s""",
     re.I | re.S,
 )

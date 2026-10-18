@@ -36,7 +36,8 @@ def validate_version(value: str) -> tuple[int, int, int]:
     match = VERSION_RE.fullmatch(value)
     if not match:
         raise ReleaseError("The release version must use canonical X.Y.Z syntax.")
-    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+    major, minor, patch = match.groups()
+    return int(major), int(minor), int(patch)
 
 
 def replace_expected(

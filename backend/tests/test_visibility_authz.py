@@ -402,14 +402,13 @@ def test_every_id_addressed_mutation_is_listed(fresh_db):
     # ON CONFLICT(id) DO UPDATE`. The upsert shape is already in this codebase
     # - crews.add_member and search.index_record use it - so it is the one a
     # next author reaches for by example.
-    stmt = re.compile(rf"\b(?:UPDATE|DELETE FROM)(?:\s+OR\s+\w+)?\s+(?:{names}|\{{)", re.I)
+    stmt = re.compile(rf"\b(?:UPDATE|DELETE FROM)\s+(?:{names}|\{{)", re.I)
     # An upsert carries no WHERE at all, so the id gate below cannot apply to
     # it - the row is addressed by the conflict target or by an explicit id
     # column. Gated on `id` appearing somewhere in the statement, so an
     # `ON CONFLICT(name)` upsert is not claimed as id-addressed.
     upsert = re.compile(
-        rf"\bINSERT\s+OR\s+REPLACE\s+INTO\s+(?:{names}|\{{)[\s\S]*?\bid\b"
-        rf"|\bINSERT\s+INTO\s+(?:{names}|\{{)[\s\S]*?\bON\s+CONFLICT\b[\s\S]*?\bid\b"
+        rf"\bINSERT\s+INTO\s+(?:{names}|\{{)[\s\S]*?\bON\s+CONFLICT\b[\s\S]*?\bid\b"
         rf"|\bINSERT\s+INTO\s+(?:{names}|\{{)[\s\S]*?\bid\b[\s\S]*?\bON\s+CONFLICT\b",
         re.I,
     )
@@ -604,7 +603,10 @@ _EXEMPT_FUNCTIONS = {
     ),
     "engagements.py::_experiment_lesson": "same",
     "intake.py::_disposition": "the public disposition_request guards, then calls this",
-    "private_notes.py::delete_note": "the author-private journal in its own private.db file",
+    "private_notes.py::delete_note": (
+        "the author-private journal, a table in the `private` schema of the same"
+        " database; the DELETE matches only the author's own row (`AND author = ?`)"
+    ),
     "handoff.py::generate_handoff": (
         "the engagement is filtered through the caller's viewer before anything"
         " runs, and the artifact row updated is the one this call resolved by"

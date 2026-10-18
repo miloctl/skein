@@ -45,7 +45,7 @@ TRAILING_COND = re.compile(r"\w[^.!?\n]{3,}\s\b(if|when)\b\s", re.I)
 ROTATION_SETS = [
     # check = user action, verify = provenance, reconfirm = charter;
     # validate/ensure are the drift words that erode all three
-    ("check-verify", re.compile(r"\b(check|verify|confirm|validate|ensure)\w*\b", re.I)),
+    ("check-verify", re.compile(r"\b(check|verify|reconfirm|confirm|validate|ensure)\w*\b", re.I)),
     # delete = destruction, forget = memories
     ("delete-forget", re.compile(r"\b(delete|forget|remove|erase)\w*\b", re.I)),
     ("config-settings", re.compile(r"\b(config|configuration|settings)\b", re.I)),
@@ -149,8 +149,8 @@ SLOP_FIXTURE = (
     "Leveraging our robust retry mechanism, failed uploads are automatically\n"
     "reattempted, ensuring data integrity is maintained throughout the entire process which has\n"
     "been designed from the ground up to gracefully handle even the most challenging network\n"
-    "interruptions. You should verify your credentials; it's also worth checking the settings,\n"
-    "e.g. the timeout config. Contact support if the problem persists."
+    "interruptions. You should verify your credentials and reconfirm them; it's also worth\n"
+    "checking the settings, e.g. the timeout config. Contact support if the problem persists."
 )
 
 CLEAN_FIXTURE = (
@@ -177,7 +177,7 @@ def self_test():
         ("latin_abbrev", 1),
         ("slop_word", 2),
         ("trailing_condition", 1),
-        ("synonym_rotation", 2),  # check-verify AND config-settings
+        ("synonym_rotation", 3),  # check-verify-reconfirm AND config-settings
     ]:
         _expect(slop[kind] >= floor, (kind, slop))
     _expect(slop["semicolon"] == 1, slop)

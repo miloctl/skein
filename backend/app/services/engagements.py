@@ -240,7 +240,7 @@ def _update_engagement_locked(
             f"closing needs a conclusion - one of {CONCLUSIONS}."
             " 'invalidated' is a fine outcome for an experiment. 'unmeasured' is honest too."
         )
-    fields = {
+    fields: dict[str, str | None] = {
         k: v
         for k, v in [
             ("status", status),
@@ -273,7 +273,7 @@ def _update_engagement_locked(
         ("outcome", ""),
     ):
         if fields.get(clearable) == "-":
-            fields[clearable] = empty  # type: ignore[assignment]
+            fields[clearable] = empty
     if freshly_closed:
         fields["closed_at"] = db.now()  # re-closing must not re-fire ship-it
     sets = ", ".join(f"{k} = ?" for k in fields)

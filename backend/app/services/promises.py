@@ -191,13 +191,13 @@ def _edit_promise_locked(
     scope.assert_editable("promises", row, actor, verb="edit")
     if row["status"] != "open":
         raise ValueError(f"promise #{promise_id} is {row['status']} - history stays put")
-    fields = {
+    fields: dict[str, str | None] = {
         k: v for k, v in [("promise", promise), ("due_date", due_date), ("to_whom", to_whom)] if v
     }
     if not fields:
         raise ValueError("nothing to update")
     if fields.get("due_date") == "-":
-        fields["due_date"] = None  # type: ignore[assignment]
+        fields["due_date"] = None
     if fields.get("to_whom") == "-":
         fields["to_whom"] = ""
     sets = ", ".join(f"{k} = ?" for k in fields)
@@ -328,10 +328,10 @@ def _chase_received_locked(*, actor: str) -> dict:
             target = "team"
         # "team" is EVERY viewer (notifications.py, `user IN (?, 'team')`), so
         # that fallback turns a personal nudge into a broadcast. A scoped row's
-        # body must not take it: an agent-authored PRIVATE promise reached the
-        # whole roster through this line. No team-safe wording exists for a
-        # body nobody else may read, so the row is skipped and counted rather
-        # than the job going quiet about it.
+        # body must not take it, or an agent-authored PRIVATE promise reaches
+        # the whole roster. No team-safe wording exists for a body nobody else
+        # may read, so the row is skipped and counted rather than the job going
+        # quiet about it.
         if target == "team" and row["visibility"] != scope.WORKSPACE:
             unroutable.append(row["id"])
             continue

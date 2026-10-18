@@ -208,7 +208,7 @@ def test_due_soon_reads_the_assignee_index(fresh_db):
         )
     )
     assert "idx_tasks_assignee_due" in plan
-    assert "SCAN tasks" not in plan
+    assert "Seq Scan on tasks" not in plan
 
 
 def test_an_owned_blockers_escalation_is_said_once(client, fresh_db):

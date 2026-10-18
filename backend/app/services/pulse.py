@@ -11,13 +11,8 @@ SEASON_EPOCH = date(2026, 1, 5)  # a Monday; seasons are 6-week buckets from her
 SEASON_DAYS = 42
 
 
-def _today() -> date:
-    """The team's day (config.TZ_NAME), not the UTC day - see db.today()."""
-    return db.today()
-
-
 def season() -> dict:
-    days = (_today() - SEASON_EPOCH).days
+    days = (db.today() - SEASON_EPOCH).days
     n = days // SEASON_DAYS
     start = SEASON_EPOCH + timedelta(days=n * SEASON_DAYS)
     end = start + timedelta(days=SEASON_DAYS - 1)
@@ -31,7 +26,7 @@ def season() -> dict:
         # on. Bound to the date, those windows begin at UTC midnight - so work
         # finished in the last evening of a season counts into the next one.
         "start_ts": db.local_midnight_utc(start),
-        "days_left": (end - _today()).days,
+        "days_left": (end - db.today()).days,
     }
 
 
@@ -42,7 +37,7 @@ def standup_chain() -> dict:
     Roster = active humans who posted at least one standup in the last 30 days.
     This keeps 'anonymous' rows, typo'd X-User names, and service accounts from
     zeroing the chain forever - you join the chain by playing."""
-    cutoff = db.local_midnight_utc(_today() - timedelta(days=30))
+    cutoff = db.local_midnight_utc(db.today() - timedelta(days=30))
     humans = [
         u["name"]
         for u in db.query(
@@ -60,7 +55,7 @@ def standup_chain() -> dict:
     # loop step - up to 90 scans per call. 130 days covers the 90 loop steps
     # plus the weekend rewind below; the range predicate rides
     # idx_standups_created.
-    lookback = db.local_midnight_utc(_today() - timedelta(days=130))
+    lookback = db.local_midnight_utc(db.today() - timedelta(days=130))
     by_day: dict[str, set[str]] = {}
     # Bucketed in Python by TEAM day, not by substr(created_at) - that is the
     # UTC day, and the loop below walks local dates. Mixed, a standup posted
@@ -75,7 +70,7 @@ def standup_chain() -> dict:
     ):
         by_day.setdefault(db.local_day(r["created_at"]), set()).add(r["author"])
     chain = 0
-    day = _today()
+    day = db.today()
     if day.weekday() >= 5:
         day -= timedelta(days=day.weekday() - 4)
     for _ in range(90):
@@ -83,7 +78,7 @@ def standup_chain() -> dict:
             authors = by_day.get(day.isoformat(), set())
             if not set(humans) <= authors:
                 # today doesn't break the chain until it's over
-                if day == _today():
+                if day == db.today():
                     day -= timedelta(days=1)
                     continue
                 break

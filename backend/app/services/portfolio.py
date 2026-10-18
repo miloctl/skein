@@ -12,12 +12,6 @@ from .scope import WORKSPACE_ONLY
 from .slas import SILENCE_DAYS, STALE_WIP_DAYS, VERDICT_FLOOR_N
 from .stats import median as _median
 
-
-def _today() -> date:
-    """The team's day (config.TZ_NAME), not the UTC day - see db.today()."""
-    return db.today()
-
-
 # a wait on a resolved/done/kept target is satisfied - it must stop yellowing
 # the engagement the moment the dependency clears, without a manual unset.
 # Keys mirror work.WAITING_ON_TYPES (the write path's whitelist): a type
@@ -53,7 +47,7 @@ def health_changes(health: list[dict], since: date | None = None) -> list[dict]:
     comparison and is reported as such rather than as a change from green -
     it never was green, and inventing a previous state is inventing a trend.
     """
-    since = since or (_today() - timedelta(days=1))
+    since = since or (db.today() - timedelta(days=1))
     if not health:
         return []
     ids = [h["id"] for h in health]
@@ -170,7 +164,7 @@ def engagement_health(
     name_assignees=False drops the one receipt that carries a person's name.
     Callers that EGRESS their output pass it - see the stale-WIP receipt below.
     """
-    as_of = as_of or _today()
+    as_of = as_of or db.today()
     today = as_of.isoformat()
     # stale_cutoff and silence_cutoff bound updated_at, a timestamp column, so
     # they are instants. Bound to a bare local date they begin at UTC midnight
@@ -345,7 +339,7 @@ def allocation_conflicts(viewer: scope.Viewer = scope.NOBODY) -> list[dict]:
     """People allocated >100% across non-closed engagements whose windows
     cover today (open-ended allocations always count). Sums every tier and
     masks the names the viewer may not read (scope.visible_name)."""
-    today = _today().isoformat()
+    today = db.today().isoformat()
     name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     return db.query(
         "SELECT a.person, SUM(a.percent) AS total_percent,"  # noqa: S608 - scope.visible_name emits only bound marks
@@ -381,7 +375,7 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
     column.
     """
     weeks = max(1, min(weeks, 26))
-    monday = _today() - timedelta(days=_today().weekday())
+    monday = db.today() - timedelta(days=db.today().weekday())
     name, np = scope.visible_name(viewer, "engagements", "e.name", alias="e")
     out = []
     for i in range(weeks):
@@ -443,7 +437,7 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
     agent's reply is text a manager pastes somewhere, and this function is
     judging the past. `team_capacity` is the planning-shaped read an agent
     should reach for when the question is who has room."""
-    cutoff = db.local_midnight_utc(_today() - timedelta(weeks=weeks))
+    cutoff = db.local_midnight_utc(db.today() - timedelta(weeks=weeks))
     # WORKSPACE_ONLY, like the `stale` read below and like every rule in
     # services/insights.py. This function has no viewer - every caller is
     # team-wide or egressing (the exec readout, the interrupt_load finding,
@@ -524,7 +518,7 @@ def flow_metrics(weeks: int = 8, *, name_people: bool = True) -> dict:
         f" COUNT(*) AS in_progress FROM tasks WHERE status = 'in_progress' AND {WORKSPACE_ONLY}"
         " GROUP BY person ORDER BY in_progress DESC"
     )
-    stale_cutoff = db.local_midnight_utc(_today() - timedelta(days=STALE_WIP_DAYS))
+    stale_cutoff = db.local_midnight_utc(db.today() - timedelta(days=STALE_WIP_DAYS))
     stale = db.query(
         # this list carries TITLES on top of the tier the counts above
         # share, and nudge_stale_wip notifies each assignee by name from it
@@ -566,7 +560,7 @@ def _nudge_stale_wip_locked() -> dict:
             by_person.setdefault(t["assignee"], []).append(t)
     if not by_person:
         return {"nudged": 0}
-    iso = _today().isocalendar()
+    iso = db.today().isocalendar()
     if not db.claim_job("stale-wip-nudge", f"{iso.year}-W{iso.week:02d}"):
         return {"status": "noop", "nudged": 0, "skipped": "already nudged this week"}
     from .notifications import notify
@@ -662,7 +656,8 @@ def slip_forecast() -> dict:
                 "project": m["project"],
                 "due_date": m["due_date"],
                 "forecast_date": forecast,
-                "at_risk": forecast < _today().isoformat() or m["due_date"] < _today().isoformat(),
+                "at_risk": forecast < db.today().isoformat()
+                or m["due_date"] < db.today().isoformat(),
                 "waiting_on": [
                     f"{w['waiting_on_type']} #{w['waiting_on_id']} (task #{w['id']})"
                     for w in waiting
@@ -699,7 +694,7 @@ def what_if(
         raise scope.missing("intake_requests", request_id)
     # window-aware like allocation_conflicts - an allocation that ended last
     # quarter must not veto today's intake decision
-    today = _today().isoformat()
+    today = db.today().isoformat()
     current = {
         r["person"]: r["total_percent"]
         for r in db.query(

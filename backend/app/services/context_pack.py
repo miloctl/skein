@@ -180,12 +180,7 @@ def build_engagement_pack(
     """Scoped pack for ONE engagement - what a delegated agent needs and
     nothing else: cheaper tokens, less noise, cleaner blast radius. Generated
     on demand (unversioned; versioning is for the org-brain)."""
-    # Filtered by the CALLER. An agent tool and the MCP server pass NOBODY,
-    # which is the workspace tier - the rule those surfaces need. A crew
-    # member gets their own engagement. Locked to the workspace tier instead,
-    # a crew member saw the engagement in GET /api/engagements and got "not
-    # found" asking for its pack - a correct refusal with a misleading
-    # sentence (services/handoff.py states the same pair).
+    # Filtered by the CALLER, for the reason services/handoff.py::generate_handoff states.
     efrag, ep = scope.visible_filter(viewer, "engagements")
     mfrag, mp = scope.visible_filter(viewer, "milestones")
     tfrag, tp = scope.visible_filter(viewer, "tasks", "t")

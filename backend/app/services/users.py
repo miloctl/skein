@@ -387,8 +387,8 @@ def ensure_user(name: str, kind: str = "human", *, _owner: str = "") -> dict:
     effective_kind = kind if kind in ("human", "agent") else "human"
     # The folded-name check and insert are one transaction, and the lock is
     # what makes that mean something: there is no unique index on the FOLDED
-    # name (folding is users.fold - NFKC plus zero-width stripping - which no
-    # collation reproduces), so concurrent `Mira` and `MIRA` claims both read
+    # name (folding is users.fold - NFKC, format-character stripping and
+    # casefold - which no collation reproduces), so concurrent `Mira` and `MIRA` claims both read
     # "absent" and both insert unless they serialize here.
     with db.transaction():
         db.name_lock(db.LOCK_IDENTITY, fold(name))

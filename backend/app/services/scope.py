@@ -71,12 +71,12 @@ class Viewer:
     __slots__ = ("crew_ids", "name")
 
     def __init__(self, name: str, strong: bool):
-        # _SYSTEM_ACTORS, not _NOT_A_VIEWER: the two lists disagreed, and this
-        # is the half that mattered. `scheduler` is a machine to is_machine and
-        # was a full viewer here - earning an author arm over every row the
-        # scheduler ever wrote. The static set only, never the is_agent lookup:
-        # this runs on every request, and an agent-owned key is already refused
-        # on REST (routes/deps.py).
+        # _SYSTEM_ACTORS, not _NOT_A_VIEWER: `scheduler` is a machine to
+        # is_machine but not in _NOT_A_VIEWER, so the narrower list makes it a
+        # full viewer here, with an author arm over every row the scheduler
+        # writes. The static set only, never the is_agent lookup: this runs on
+        # every request, and an agent-owned key is already refused on REST
+        # (routes/deps.py).
         weak = not strong or name in _SYSTEM_ACTORS
         self.name = "" if weak else name
         # resolved ONCE per viewer, not once per query. One dashboard load
@@ -679,7 +679,7 @@ UNSCOPED: dict[str, str] = {
     "context_packs": (
         "a published pack, not authored content. The TEAM pack is the workspace"
         " tier; a crew pack appends that crew's own rows and versions"
-        " independently (migration 005), and context_pack.get_pack gates it on"
+        " independently (ux_context_packs_crew_version, 001_baseline.sql), and context_pack.get_pack gates it on"
         " the reader's crew membership rather than on a column here"
     ),
     # --- infrastructure: no user-authored content ---
@@ -726,9 +726,9 @@ UNSCOPED: dict[str, str] = {
         " the tier - this row holds a reader's name, a row id and a time."
     ),
     "pending_changes": (
-        "the review queue. A proposal against a scoped row is the open"
-        " question of phase 3: the payload holds a copy of the row, and the"
-        " reviewer may not be able to read the original."
+        "the review queue. A proposal takes the tier of the row it addresses,"
+        " resolved at read time (review._governing_tier), so a reader who"
+        " cannot read that row neither sees nor judges the proposal."
     ),
     "schema_version": "migration bookkeeping",
     "extension_outbox": (
