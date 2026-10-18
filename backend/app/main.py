@@ -1250,15 +1250,18 @@ def create_app(
 
     application.add_route(REMOTE_PATH, remote_app(registry))
 
-    application.middleware("http")(perimeter_auth)
-    # outside perimeter_auth: an unsigned caller must not get a body buffered.
-    # The exempt routes stream their own body under a smaller cap, and the
-    # forge webhook must refuse BEFORE it reads one when it is switched off:
-    # a read here would come first (tests/test_forge.py, test_mcp_remote.py).
+    # Added BEFORE perimeter_auth, so it runs inside it: Starlette wraps each
+    # later middleware around the earlier ones. Outside, every unsigned
+    # request had its body buffered up to the cap before its 401
+    # (tests/test_input_bounds.py). The exempt routes stream their own body
+    # under a smaller cap, and the forge webhook must refuse BEFORE it reads
+    # one when it is switched off: a read here would come first
+    # (tests/test_forge.py, test_mcp_remote.py).
     application.add_middleware(
         BodyCap,
         exempt=frozenset({"/api/webhooks/forge", "/api/webhooks/gitlab", REMOTE_PATH}),
     )
+    application.middleware("http")(perimeter_auth)
     # JSON payloads compress well at any level. Add gzip before CORS so CORS
     # stays outermost and also decorates perimeter-auth refusals: a 401
     # without Access-Control-Allow-Origin reaches the browser as an opaque

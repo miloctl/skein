@@ -28,6 +28,7 @@ keeps its existing `minimum_core` and needs no change.
 - Adding a personal MCP server refuses a URL with a query string or a fragment and asks for the credential in the token field. The URL is stored in plain text and travels in every backup, while the token field is sealed. A server added earlier with such a URL keeps working: delete it and add it again without the query string to move the credential into the sealed store.
 - The chat working indicator announces "Thinking", the long-wait line and a refusal to a screen reader. Its live regions now exist before their text arrives. Before, they mounted together with the text, and screen readers often said nothing.
 - The visibility picker shows "one crew only" for a chosen crew that the person has left, the value the row still carries. Before, it showed "everyone on the roster" while the row kept the crew.
+- A request without a credential is refused before Skein reads its body. Before, the body-size check ran first and buffered up to 1 MB of every unsigned request before its 401. An oversized unsigned request now answers 401, not 413.
 
 ### Operations
 

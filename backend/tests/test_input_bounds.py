@@ -248,3 +248,17 @@ def test_the_route_picks_the_body_cap_never_the_content_type(client):
     # a legitimate upload body above the JSON cap still reaches the route
     files = {"file": ("big.txt", b"y" * (2 * 1024 * 1024), "text/plain")}
     assert client.post("/api/files", files=files).status_code != 413
+
+
+def test_an_unsigned_caller_is_refused_before_its_body_is_read(client, monkeypatch):
+    """The perimeter decides before the body cap reads anything. With the
+    cap outside, an unsigned caller made the process buffer up to the cap
+    for every request before its 401."""
+    from app import config
+
+    monkeypatch.setattr(config, "AUTH_MODE", "api-key")
+    big = json.dumps({"text": "x" * (1024 * 1024)})
+    refused = client.post(
+        "/api/ingest", content=big, headers={"content-type": "application/json", "X-User": ""}
+    )
+    assert refused.status_code == 401
