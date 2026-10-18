@@ -11,10 +11,11 @@ services/tuning.py). Do not read the process-local note as covering both.
 Not a security control, with one exception that decides what may be tuned
 and where the count lives: `signin`, `forge_addr`, `verify`,
 `export`, and `backup` bound an UNAUTHENTICATED caller or a whole-deployment
-cost, so they are withheld from the admin surface, stay env-only, and count
-in the database (SHARED, the rate_hits table) so every process adds to one
-window. Adding one of them to TUNED hands an administrator the dial that
-holds an unsigned caller off the identity provider."""
+cost, so they are withheld from the admin surface, stay code-only (a deploy
+changes them), and count in the database (SHARED, the rate_hits table) so
+every process adds to one window. Adding one of them to TUNED hands an
+administrator the dial that holds an unsigned caller off the identity
+provider."""
 
 import contextlib
 import math
@@ -33,9 +34,9 @@ class RateLimited(ValueError):
 
     Subclasses ValueError so the agent gate (tools/_gate.py) and the mock
     agent keep catching it as the plain-string refusal they hand to the
-    model. main.py maps it to 429 with a Retry-After header - as a bare
-    ValueError it answered 400, which made a refused-for-now request
-    wire-identical to a malformed one, so no client could back off.
+    model. main.py maps it to 429 with a Retry-After header, not the 400 of a
+    bare ValueError: a refused-for-now request that is wire-identical to a
+    malformed one gives no client a reason to back off.
     """
 
     def __init__(self, message: str, retry_after: int):
@@ -73,8 +74,8 @@ LIMITS = {
     "ritual": 4,
     "memory": 10,
     # its own bucket, not the shared `write` one: the private journal is the
-    # single store that backup, export, FTS, MCP and every agent surface
-    # structurally never open, so nothing else would notice a flood - and a
+    # single store that export, FTS, MCP and every agent surface structurally
+    # never open, so nothing else would notice a flood - and a
     # manager who spends the write budget planning a week must still be able
     # to record a 1:1 note. Same reasoning that gave `forge` its own bucket.
     "private": 20,
@@ -119,9 +120,9 @@ LIMITS = {
     # credential buys an HMAC over the whole body at line rate.
     "forge_addr": 600,
 }
-# X-User is client-supplied - bound the key space. 4096 rather than the
-# original 1024 leaves room for a team plus every agent identity that writes
-# without a requester behind it (MCP, the scheduler).
+# X-User is client-supplied - bound the key space. 4096 leaves room for a
+# team plus every agent identity that writes without a requester behind it
+# (MCP, the scheduler).
 MAX_KEYS = 4096
 # What the cap counts, per surface. A signed-out caller has no name, so the
 # signin cap counts addresses - and the refusal must not claim otherwise.
@@ -163,8 +164,8 @@ NAMED = {
 # Surfaces an administrator can retune at runtime, mapped to their knob
 # (services/tuning.py). Every OTHER surface stays code-only on purpose: the
 # ones left out bound an unauthenticated caller (signin, forge_addr) or a
-# whole-deployment cost (verify, export), and those are the operator's to set in the
-# environment, not an admin's to raise from a form.
+# whole-deployment cost (verify, export), and those change only with a
+# deploy, never from an admin's form.
 TUNED = {"chat": "chat_limit", "write": "write_limit", "capture": "capture_limit"}
 # Counted in the database, as fixed windows: a process-local count would
 # multiply each of these by the process count, and each bounds something a
@@ -210,9 +211,10 @@ def check(surface: str, user: str, cost: int = 1) -> None:
     # by arithmetic accident and turn the cap into a no-op
     cost = max(1, cost)
     if cost > limit:
-        # unreachable today (the flock cost caps at MAX_MEMBERS + 1, below
-        # every limit) - but a full window of waiting never makes room for
-        # this request, and window[need - 1] below would index past the deque
+        # reachable when an admin sets chat_limit below a flock or shared-chat
+        # charge (at most 4, routes/chat.py). A full window of waiting never
+        # makes room for this request, and window[need - 1] below would index
+        # past the deque.
         raise RateLimited(
             f"Skein refused this request. One request cannot use {cost}"
             f" {NAMED.get(surface, surface)} slots, and the limit is {limit} per minute"
@@ -242,7 +244,7 @@ def check(surface: str, user: str, cost: int = 1) -> None:
             # An empty window is unreachable for cost=1 (len 0 never exceeds a
             # limit of 1 or more) but reachable the moment cost > limit, and it
             # is permanent: the shed loop skips empty windows, it counts toward
-            # MAX_KEYS, and the eviction below reads _hits[k][-1] on every
+            # MAX_KEYS, and the eviction above reads _hits[k][-1] on every
             # surface's key - which is an IndexError on an empty one, surfacing
             # as a 500 somewhere unrelated.
             if not window:
@@ -257,9 +259,8 @@ def check(surface: str, user: str, cost: int = 1) -> None:
 
 def _refusal(surface: str, limit: int, cost: int, wait: int) -> RateLimited:
     unit = "second" if wait == 1 else "seconds"
-    # "of them" pointed at the LIMIT, the nearest number - name the noun
-    # instead, because the word `slots` appears nowhere a reader of this
-    # sentence has been
+    # names the noun: a bare "of them" points at the LIMIT, the nearest
+    # number, and the word `slots` appears nowhere else in the sentence
     uses = f" This request uses {cost} slots." if cost > 1 else ""
     return RateLimited(
         f"Skein refused this request. The limit for {NAMED.get(surface, surface)} is {limit}"

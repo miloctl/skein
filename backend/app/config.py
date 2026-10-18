@@ -40,8 +40,8 @@ FLOCKS_OVERLAY: Path | None = Path(_flocks_overlay) if _flocks_overlay else None
 def overlay_errors() -> list[str]:
     """A configured overlay dir that does not exist is ignored by the loaders
     (the deployment keeps working on stock content) - but silently, which is
-    how an unmounted volume masquerades as a working overlay. /health carries
-    this, on the MODEL_PROVIDER_ERROR precedent: degrade AND say so.
+    how an unmounted volume masquerades as a working overlay. /api/health
+    carries this, on the MODEL_PROVIDER_ERROR precedent: degrade AND say so.
     Computed live so mounting the directory clears the error without a
     restart. Names the variable, never its value: /api/health reaches every
     signed-in user, and a filesystem path is deployment shape."""
@@ -58,7 +58,6 @@ def overlay_errors() -> list[str]:
     return out
 
 
-# ---- structured settings ---------------------------------------------------
 # Structured settings also take a <NAME>_FILE path, so a deployment can
 # mount and edit YAML with comments. deploy/k8s/README.md decides ConfigMap
 # versus Secret by content.
@@ -189,7 +188,8 @@ def _structured(name: str) -> tuple[str, str, str]:
 # The PostgreSQL server. No default and no fallback: a default that resolved
 # would serve an empty database beside the real one, and the roster coming up
 # blank reads as data loss rather than as a missing setting. Fails CLOSED like
-# AUTH_MODE - db.py raises this string, and /health carries it.
+# AUTH_MODE - db.py raises this string on first use (init_db at startup aborts
+# the boot with it), and /ready reports not ready.
 def _database_url() -> str:
     url = os.getenv("SKEIN_DATABASE_URL", "").strip()
     if url:
@@ -267,7 +267,7 @@ SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 # The split is not pedantic: the provider's formatter and the served model are
 # different things, and claiming a capability the model lacks is not a worse
 # answer but a 400 that kills the whole turn (`this model does not support
-# image input` - ollama serving a text model, 2026-08-16).
+# image input` from ollama serving a text model).
 #
 # config.attachment_support() resolves the two layers and is what callers use.
 PROVIDERS: dict[str, dict] = {
@@ -311,10 +311,7 @@ PROVIDERS: dict[str, dict] = {
     # in SKEIN_MODEL_API_KEY.
     "openai_compatible": {
         "default_model": None,
-        # empty for the same reason ollama's is: this provider is whatever
-        # endpoint the operator pointed it at, serving whatever model they
-        # chose. The OpenAI formatter can express both, and the SERVED model
-        # is the one that answers 400. SKEIN_MODELS declares it per model.
+        # empty: see the `attachments` note above PROVIDERS.
         "attachments": (),
         "base_url": "required",
         "key_env": "",
@@ -328,11 +325,8 @@ PROVIDERS: dict[str, dict] = {
     # degrades to mock at boot.
     "ollama": {
         "default_model": "gpt-oss:120b-cloud",
-        # EMPTY, though the formatter has an image branch: the operator picks
-        # which model ollama serves, and most are text-only - a text model
-        # answers an image with `this model does not support image input`
-        # (HTTP 400), which kills the whole turn. Declare `attachments` on the
-        # model's SKEIN_MODELS entry to turn it on for a vision model.
+        # EMPTY, though the formatter has an image branch: see the
+        # `attachments` note above PROVIDERS.
         "attachments": (),
         "base_url": "forbidden",
         "key_env": "OLLAMA_API_KEY",
@@ -570,7 +564,6 @@ except (ValueError, OverflowError):
         "SKEIN_MONTHLY_BUDGET_USD is not a usable number. The budget rule is off."
     )
 
-# ---- model registry (SKEIN_MODELS) ----------------------------------------
 # The menu of models an administrator may pick between in Settings, each with
 # optional per-model tuning. env-only ON PURPOSE: the operator curates the
 # menu, the admin picks from it (services/settings.py) - the same two-tier
@@ -586,7 +579,7 @@ except (ValueError, OverflowError):
 # collected in one pass (the _ctx_num rule: one at a time makes an operator
 # with two typos restart twice). A fault names entry positions, ids, and
 # field NAMES only, never field values: this string reaches every signed-in
-# user through /api/agents/status and /health.
+# user through /api/agents/status and /api/health.
 #
 # schemas/skein_models.schema.json is the same contract for ConfigMap
 # editors; tests/test_model_registry.py pins the two against each other.
@@ -947,8 +940,7 @@ def attachment_support(model_id: str = "") -> tuple[str, ...]:
 
 # A second model, on THIS provider, that reads an image the chat model cannot -
 # it describes the picture and the description goes to the chat model as text.
-# Empty = off, and an attached image degrades to a line naming the file, which
-# is what every deployment did before this existed.
+# Empty = off, and an attached image degrades to a line naming the file.
 #
 # A model ID, never a provider or a URL: the same wall a persona's model
 # override sits behind (agents/team_agent.py::_model). A vision sidecar that
@@ -990,7 +982,6 @@ def menu_warnings() -> list[str]:
 # https://ollama.com and OLLAMA_API_KEY to a key from ollama.com settings.
 OLLAMA_HOST = os.getenv("SKEIN_OLLAMA_HOST", "") or "http://localhost:11434"
 
-# ---- optional semantic search --------------------------------------------
 # Deliberately its OWN provider setting, not SKEIN_MODEL_PROVIDER: anthropic
 # and bedrock have no embeddings endpoint, and vectors PERSIST - following the
 # chat provider would mean a chat switch silently invalidates every stored
@@ -1099,11 +1090,11 @@ def provider_key() -> str:
 
 
 # Mutating agent writes become pending_changes proposals that a human
-# approves in the review inbox. ON by default - the one trust boundary that
-# shipped open while every other one fails closed (an unset auth mode
-# refuses every request, a secretless webhook is closed). Autonomy is
-# granted per (agent, entity) through the authority matrix, after a record
-# exists, never assumed. SKEIN_AGENT_REVIEW=0 is the deliberate opt-out.
+# approves in the review inbox. ON by default, like every other trust
+# boundary (an unset auth mode refuses every request, a secretless webhook is
+# closed). Autonomy is granted per (agent, entity) through the authority
+# matrix, after a record exists, never assumed. SKEIN_AGENT_REVIEW=0 is the
+# deliberate opt-out.
 # `or`, not a getenv default: the conftest idiom pins a setting with "" to
 # keep backend/.env out of the suite, and "" must mean the default, not off.
 AGENT_REVIEW = (os.getenv("SKEIN_AGENT_REVIEW") or "1") == "1"
@@ -1200,9 +1191,10 @@ CONTEXT_SUMMARY_RATIO = _ctx_num("SKEIN_CONTEXT_SUMMARY_RATIO", 0.3, float, low=
 # raises "insufficient messages for summarization" on every overflow, so the
 # ceiling is a typo guard rather than a preference
 CONTEXT_PRESERVE_RECENT = _ctx_num("SKEIN_CONTEXT_PRESERVE_RECENT", 10, int, low=0, high=1000)
-# opening messages the SDK holds during a turn. INERT on Skein's file-backed
-# chats: session restore replays from an offset that skips exactly these
-# messages, so the pin does not survive a turn boundary. Wired for when it does.
+# opening messages the SDK holds during a turn. INERT on Skein's persisted
+# sessions (agents/session_store.py): session restore replays from an offset
+# that skips exactly these messages, so the pin does not survive a turn
+# boundary. Wired for when it does.
 CONTEXT_PIN_FIRST = _ctx_num("SKEIN_CONTEXT_PIN_FIRST", 0, int, low=0, high=1000)
 # compress before an overflow instead of after. The threshold is 70% of the
 # MODEL's TOKEN context window - NOT of CONTEXT_WINDOW_MESSAGES, which is a
@@ -1222,7 +1214,6 @@ CORS_ORIGINS = [
     if o.strip()
 ]
 
-# ---- team time zone --------------------------------------------------------
 # The zone the TEAM's rhythms run in: which hour a ritual fires, and which
 # calendar day "today" means. STORAGE is unaffected - db.now() stays UTC
 # ISO-8601 and every stored timestamp keeps that shape, because a stored local
@@ -1238,7 +1229,8 @@ CORS_ORIGINS = [
 TZ_NAME = os.getenv("SKEIN_TZ", "").strip() or "UTC"
 TZ_ERROR = ""
 # the rejected value, for the boot log only - never for TZ_ERROR, which
-# /health serves to every signed-in caller (main.py logs this)
+# /api/health serves to every signed-in caller. AUTH_ERROR makes the same
+# split for the same reason, and main.py logs both rejected values.
 TZ_REJECTED = ""
 # tzinfo, not ZoneInfo: the fallback below must never need tzdata. ZoneInfo
 # is an ordinary tzdata lookup even for "UTC", so a slim/alpine/distroless
@@ -1263,10 +1255,6 @@ def _zone(name: str) -> tzinfo:
 try:
     TZ = _zone(TZ_NAME)
 except ValueError:
-    # The rejected value is kept for the BOOT LOG and never put in TZ_ERROR:
-    # that string is served on /health to every signed-in caller, and
-    # AUTH_ERROR makes the same split for the same reason. main.py logs this,
-    # exactly as it logs the rejected auth mode.
     TZ_REJECTED = TZ_NAME
     TZ_ERROR = (
         "SKEIN_TZ is not an IANA Region/City time zone name. Set a name like"
@@ -1299,7 +1287,6 @@ except (ZoneInfoNotFoundError, KeyError):
         )
     TZ_NAME, TZ = "UTC", UTC
 
-# ---- unattended agent runs -------------------------------------------------
 # Ceilings for turns NO HUMAN IS WATCHING (services/agent_runner.py). A chat
 # turn is bounded by the person in it; an overnight run is bounded only here.
 #
@@ -1349,10 +1336,11 @@ AGENT_WAKES_PER_DAY = _ctx_num("SKEIN_AGENT_WAKES_PER_DAY", 24, int, low=0, high
 AGENT_RUNNER = [a.strip() for a in os.getenv("SKEIN_AGENT_RUNNER", "").split(",") if a.strip()]
 
 # Background jobs (blocker sweep, daily digest, daily backup). Disabled in tests.
-# Run the scheduler in exactly ONE process (the default single-worker uvicorn).
+# More than one process can run the scheduler: services/jobs.py::run_job
+# leases each firing, so a second process skips a firing the first one holds.
 SCHEDULER_ENABLED = os.getenv("SKEIN_SCHEDULER", "1") == "1"
 
-# ---- optional integrations: each activates only when its config is set ----
+# Optional integrations: each one activates only when its config is set.
 
 # MCP servers for the real agent, JSON list:
 # [{"name": "github", "url": "https://.../mcp/", "auth_token_env": "GITHUB_MCP_TOKEN"}]
@@ -1368,8 +1356,8 @@ OTEL_ENDPOINT = os.getenv("SKEIN_OTEL_ENDPOINT", "")
 # allowlisted names load - see app/agents/extra_tools.py.
 EXTRA_TOOLS = tuple(t.strip() for t in os.getenv("SKEIN_EXTRA_TOOLS", "").split(",") if t.strip())
 
-# ---- authentication --------------------------------------------------------
-# How a caller proves who they are. routes/deps.py is the single branch point.
+# How a caller proves who they are. routes/deps.py resolves identity per mode,
+# and main.py::_perimeter_auth refuses a request with no valid credential for it.
 #   trusted-header  identity is the self-asserted X-User header (trusted
 #                   network / local dev). Personal API keys still work and are the only
 #                   STRONG identity. Opt-in only: scripts/skein.sh,
@@ -1402,22 +1390,18 @@ try:
 except ValueError:
     TRUST_PROXY_HOPS = 0
 
-# Thread-pool sizes, applied at startup (main.py lifespan). Measured, not
-# guessed under SQLite: GIL handoff between threads parked on the driver's C
-# boundary made throughput ANTI-scale with pool width - GET /api/tasks at 40
-# concurrent callers measured 97 req/s with 8 threads against 68 with the
-# default 40 (4 cores). RE-MEASURE on PostgreSQL before trusting these
-# numbers: the driver, the round trip, and the connection pool are all
-# different now, and nobody has run the benchmark since. The pool sizes
+# Thread-pool sizes, applied at startup (main.py lifespan). The defaults 8
+# and 16 have no PostgreSQL measurement behind them: measure before you trust
+# or change them. The pool sizes
 # derive from these two values (db.py::_max_size), so raising one raises that too.
-# Smaller is faster until requests queue on genuinely-blocking
-# work (a 5s embedding call), which is what raising this is for.
+# Raising them is for requests that queue on genuinely-blocking work (a 5s
+# embedding call).
 #
 # THREAD_POOL is anyio's limiter: every sync route handler and every
 # run_in_threadpool call. TOOL_THREADS is the event loop's default executor:
 # every sync @tool via asyncio.to_thread - unset, it sizes itself
-# min(32, cpu + 4), so the ceiling was 8 on a 4-vCPU deploy VM and 32 on a
-# dev box, and nobody chose either. The floor is 2, never 0 or 1: a
+# min(32, cpu + 4), so the ceiling is 8 on a 4-vCPU deploy VM and 32 on a
+# dev box, and nobody chooses either. The floor is 2, never 0 or 1: a
 # single-thread pool deadlocks the first tool that itself waits on the pool.
 try:
     THREAD_POOL = max(2, int(os.getenv("SKEIN_THREAD_POOL", "").strip() or 8))

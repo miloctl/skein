@@ -199,8 +199,10 @@ _jwks_fetching = False
 _key_refreshing = False
 _last_refresh = float("-inf")
 
-# One condition, one wording: every path that gives up on reaching the IdP
-# says this, so the caller cannot tell which fetch failed (and does not need to).
+# The shared wording for a refusal that does not fetch (another fetch in
+# flight, a recent failure inside its cooldown) and for a transient userinfo
+# HTTP error, so the caller cannot tell which fetch failed (and does not need
+# to). A failed fetch itself names its own cause in its message.
 IDP_UNREACHABLE = "the identity provider cannot be reached. Try again in a minute."
 
 

@@ -35,8 +35,8 @@ class CommandContext:
     actor: str = ""
     actor_kind: str = ""
     # What the contribution declared about the operation performing this write.
-    # Without these the domain decision always read "none"/"low", so a
-    # workplace rule keyed on risk never fired on the write it meant to gate.
+    # The domain decision reads these: without them it reads "none"/"low", and
+    # a workplace rule keyed on risk never fires on the write it gates.
     effect: str = "none"
     risk: str = "low"
 
@@ -454,8 +454,9 @@ _PREVIEW_CHARS = 200
 def _command_preview(command: dict[str, Any]) -> dict[str, Any]:
     """A bounded, readable summary of the arguments a reviewer is approving.
 
-    The full arguments stay out of the queue on purpose (migration 013), so
-    this names the fields that decide whether the write is acceptable and
+    The full arguments stay out of the queue on purpose: they live in
+    extension_review_invocations (services/review.py::propose_extension_invocation).
+    So this names the fields that decide whether the write is acceptable and
     truncates every one of them.
     """
     arguments = command.get("arguments")
@@ -691,9 +692,9 @@ class WorkItems:
                 "action": request.action,
                 "resource_type": request.resource.type,
                 "resource_id": request.resource.id,
-                # What the reviewer is answering. Without it the queue showed
+                # What the reviewer is answering. Without it the queue shows
                 # the command name alone, so a status change bundled into a
-                # create was invisible on the approve screen. Governed tools
+                # create is invisible on the approve screen. Governed tools
                 # carry review_preview for the same reason.
                 "preview": _command_preview(command),
             },
@@ -1069,7 +1070,7 @@ class WorkItems:
     ) -> PromiseView:
         self._require_issued_context(context)
         # The linked engagement owns the project class. Reading it from the
-        # caller's context let a rule keyed on it govern task writes into a
+        # caller's context lets a rule keyed on it govern task writes into a
         # regulated engagement and skip a promise written into the same one.
         project_type = self._linked_project_type(
             engagement_id=command.engagement_id, fallback=context.project_type
@@ -1170,12 +1171,12 @@ class WorkItems:
     ) -> tuple[dict[str, Any], dict[str, str]]:
         row = self._visible_promise_row(promise_id, context)
         attributes = {
-            # HIGH-5: the engagement owns the project class, not the caller. A
-            # rule keyed on it governed task writes and silently skipped these.
+            # The engagement owns the project class, not the caller: see
+            # _create_promise_locked.
             "project_type": self._promise_project_type(row, context),
             "classification": str(row.get("visibility") or scope.WORKSPACE),
             # A crew review must name its crew, and _queue_command reads it
-            # from here. Without it a crew-tier hold raised a bare 400.
+            # from here. Without it a crew-tier hold raises a bare 400.
             "crew_id": str(row.get("crew_id") or ""),
             "audience": str(row.get("audience") or ""),
             "direction": str(row.get("direction") or ""),
@@ -1405,7 +1406,7 @@ class WorkItems:
         self, blocker_id: int, context: CommandContext
     ) -> tuple[dict[str, Any], dict[str, str]]:
         # the caller's own filter, as _task_state and _visible_promise_row:
-        # an unfiltered SELECT returned a private blocker to any caller
+        # an unfiltered SELECT returns a private blocker to any caller
         viewer = self._viewer(context)
         visible, params = scope.visible_filter(viewer, "blockers")
         row = db.query_one(

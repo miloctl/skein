@@ -142,7 +142,7 @@ def now() -> str:
 
 
 def today() -> date:
-    """The team's current calendar day (config.SKEIN_TZ), for every surface a
+    """The team's current calendar day (config.TZ), for every surface a
     human reads as "today": due-soon, week rituals, digests, month boundaries.
 
     NOT interchangeable with now()[:10]. That is the UTC day, and east of UTC
@@ -275,8 +275,6 @@ def validate_date(label: str, value: str, allow_clear: bool = True) -> None:
         raise ValueError(f"{label} must be a real date (YYYY-MM-DD)") from exc
 
 
-# ---- connection pool -------------------------------------------------------
-
 # PostgreSQL returns `numeric` for SUM over an integer column, for
 # ROUND(x::numeric, n), and for EXTRACT(epoch ...); psycopg loads that as
 # Decimal, which json.dumps refuses. Every service here is written for the
@@ -342,7 +340,8 @@ def privilege_warnings() -> list[str]:
     every SQL bug - and every extension, which supplies raw SQL - into command
     execution. The deployment creates a NOSUPERUSER role for this
     (deploy/k8s/base/postgres.yaml); a deployment that skipped it has no other
-    signal, so /health carries this the way it carries a bad model provider.
+    signal, so /api/health carries this the way it carries a bad model
+    provider.
 
     A warning, never a refusal: an existing deployment must not fail to boot
     over its own historical credentials, and the operator needs the running
@@ -653,13 +652,14 @@ LOCK_PAIRING = 15
 LOCK_CI_SOURCE = 16
 LOCK_PROPOSAL = 17
 
-# EVERY advisory lock is scoped to the current database by this expression.
-# PostgreSQL advisory locks are CLUSTER-global: the key space is shared by
-# every database on the server, so without this a dev database beside a
-# production one - or the test suite's per-worker databases - serialize on
-# each other's ledger and identity locks, and can deadlock across databases
-# that share nothing. A stable 32-bit hash of the database name is the first
-# key of every two-key acquisition below.
+# The first key of every two-key acquisition in this module: a stable 32-bit
+# hash of the database name. PostgreSQL already scopes advisory locks to the
+# current database (the lock tag carries the database OID), so this key is
+# not what keeps two databases on one server apart. Changing the expression
+# still breaks a rolling deploy: a process on the old key and one on the new
+# key do not serialize on the same lock. services/forge.py takes the bigint
+# form instead, and PostgreSQL keeps the bigint and (int4, int4) key spaces
+# apart, so the two never collide.
 _DB_KEY = "('x' || substr(md5(current_database()), 1, 8))::bit(32)::int"
 
 
@@ -699,9 +699,8 @@ def name_lock(namespace: int, name: str) -> None:
     conn = _ambient.get()
     if conn is None:
         raise RuntimeError("name_lock needs an active transaction")
-    # Scoped to this database like every other advisory lock (_DB_KEY). The
-    # namespace and the folded name are combined into the second key, because
-    # the first is spent on the database identity.
+    # The namespace and the folded name are combined into the second key,
+    # because the first holds _DB_KEY.
     # Through _prepare: the name is caller text (a person, a thread, a key
     # request), and a NUL in it is a 400 there but a driver error, so a 500,
     # here.
@@ -765,8 +764,8 @@ def schema_scope(schema: str) -> Iterator[None]:
             # ABORTED - and then this reset raises InFailedSqlTransaction and
             # REPLACES the real error on the way out, so the caller is told
             # "transaction is aborted" instead of which statement aborted it.
-            # The reset is only an optimisation anyway: SET LOCAL dies with
-            # the transaction regardless.
+            # Suppressing it is safe: an aborted transaction runs no later
+            # statement, and SET LOCAL dies with it.
             with contextlib.suppress(psycopg.Error):
                 conn.execute(set_path.format(pgsql.Identifier("public")))
 
@@ -779,9 +778,9 @@ def savepoint() -> Iterator[None]:
         with transaction():
             yield
         return
-    # This fixed internal name prevents caller-controlled SQL. Savepoints DO
-    # nest now (the agent gate wraps direct(), and a service under it can
-    # open its own), and one name still works: PostgreSQL shadows a
+    # This fixed internal name prevents caller-controlled SQL. Savepoints
+    # nest (the agent gate wraps direct(), and a service under it can open
+    # its own), and one name still works: PostgreSQL shadows a
     # re-declared savepoint name, so ROLLBACK TO and RELEASE bind to the most
     # recent declaration and each level unwinds its own. Pinned by
     # tests/test_db_transactions.py::test_nested_savepoints_unwind_their_own_level.
@@ -799,9 +798,9 @@ def savepoint() -> Iterator[None]:
         connection.execute("ROLLBACK TO SAVEPOINT skein_review_apply")
         connection.execute("RELEASE SAVEPOINT skein_review_apply")
         # SQL created after the savepoint no longer exists. Its deferred
-        # effects must not run when the outer review-settlement transaction
-        # commits - and the LEDGER rows queued inside the rolled-back unit
-        # must go with them, or the chain records writes that never happened.
+        # effects must not run when the outer transaction commits - and the
+        # LEDGER rows queued inside the rolled-back unit must go with them, or
+        # the chain records writes that never happened.
         if callbacks is not None:
             del callbacks[callback_count:]
         if rollbacks is not None:
@@ -812,8 +811,6 @@ def savepoint() -> Iterator[None]:
             del queued[activity_count:]
         raise
 
-
-# ---- migrations ------------------------------------------------------------
 
 # Two workers booting together must not both apply a migration. A session
 # advisory lock serializes them without a table to contend on - the arbitrary
@@ -889,9 +886,6 @@ def pending_migrations() -> list[str]:
             return names
         applied = {r["version"] for r in conn.execute("SELECT version FROM schema_version")}
     return [n for n in names if n not in applied]
-
-
-# ---- query helpers ---------------------------------------------------------
 
 
 def query(sql: str, params: tuple = ()) -> list[dict]:
@@ -1053,8 +1047,6 @@ def session_lock(namespace: int, name: str, *, wait_seconds: float) -> Iterator[
                 conn.close()
                 raise
 
-
-# ---- provenance ledger -----------------------------------------------------
 
 ACTIVITY_DOMAIN = b"skein-activity/v1"
 GENESIS_PREV = "0" * 64
@@ -1289,8 +1281,7 @@ def hold_activity_chain() -> None:
 
     Take it FIRST in the transaction. The flush at commit acquires the same
     lock last, so a transaction that takes a row lock before this one and an
-    appender that takes them the other way round is a deadlock cycle - which
-    is exactly what the adoption did while it took no lock at all.
+    appender that takes them the other way round is a deadlock cycle.
     """
     conn = _ambient.get()
     if conn is None:
@@ -1307,8 +1298,8 @@ def _flush_activity(conn: DictConnection, queued: list[tuple[str, str, str, str]
     """Write a transaction's queued ledger rows, in the order they were made.
 
     One advisory-lock acquisition for the whole batch rather than one per row,
-    and it happens after every other statement in the transaction - which is
-    what keeps the ledger lock out of every deadlock cycle.
+    and it comes after every other lock-taking statement in the transaction,
+    which is what keeps the ledger lock out of every deadlock cycle.
     """
     _append_activity_batch(conn, queued)
     queued.clear()

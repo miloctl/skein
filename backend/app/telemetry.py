@@ -33,7 +33,7 @@ def _require_redaction_token() -> None:
     tokens = [token.strip() for token in opt_in.split(",")]
     if any(token.startswith("gen_ai_unredacted_attributes=") for token in tokens):
         return
-    redact = "gen_ai_unredacted_attributes="  # empty list: redact everything sensitive
+    redact = "gen_ai_unredacted_attributes="
     os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = f"{opt_in},{redact}" if opt_in else redact
 
 

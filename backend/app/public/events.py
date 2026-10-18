@@ -132,10 +132,11 @@ def dispatch_events(
     """
     if not contributions:
         # No subscriber is composed AT ALL - the extension is disabled or the
-        # composition is core-only. Finalizing here consumed every pending
-        # event, so a disable/re-enable cycle silently lost the backlog. Leave
-        # the rows for the composition that can deliver them; retention prunes
-        # pending rows at the same age as delivered ones (services/retention.py).
+        # composition is core-only. Finalizing here would consume every
+        # pending event, so a disable/re-enable cycle would silently lose the
+        # backlog. Leave the rows for the composition that can deliver them;
+        # retention prunes pending rows at the same age as delivered ones
+        # (services/retention.py).
         return {"delivered": 0, "failed": 0, "dead": 0}
     rows = db.query(
         # (created_at, seq), never (created_at, event_id): timestamps carry

@@ -294,7 +294,7 @@ def _opaque_refusal(action: str, resource_type: str) -> str:
     # agent and tool, as every other tool's ProjectionPolicy here: without
     # the tool name the core policy cannot see this is a read, judges each
     # engagement as an ungoverned agent write, and asks for review - so the
-    # aggregate was refused in every workspace that had one engagement
+    # aggregate is refused in every workspace that has one engagement
     policy = projection_policy.ProjectionPolicy(
         current_policy_engine(),
         current_policy_subject(),
@@ -377,20 +377,20 @@ def capture(text: str, share_with_team: bool = False) -> str:
     Only you see the record unless share_with_team is true."""
     ratelimit.check("capture", _actor())
     # Route through the SAME gate every other MCP writer uses, on the entity
-    # the text classifies to. Checking only `forbidden` honored the kill
-    # switch but skipped the DEFAULT level: an agent at `review` had its
+    # the text classifies to. Checking only `forbidden` honors the kill
+    # switch but skips the DEFAULT level: an agent at `review` gets its
     # create_task queued and its `todo: …` capture written straight through,
-    # so prefixing the text was a one-word way around the review inbox for
+    # so prefixing the text is a one-word way around the review inbox for
     # seven entity types.
     # capture.plan gives the entity AND the handler's own kwargs, so a queued
-    # proposal is applicable. A generic {"text": ...} was applicable by
-    # nothing: every proposal failed at apply and reset to pending.
+    # proposal is applicable. A generic {"text": ...} matches no handler:
+    # every such proposal fails at apply and resets to pending.
     # fb: BEFORE plan(). capture() has this guard, but the proposal path never
     # calls capture() - review.approve_change applies the payload straight
-    # against the registry. Without this, a private feedback line became a
-    # note proposal sitting in the TEAM-VISIBLE review queue, and approving it
-    # wrote (and FTS-indexed) a public note. chat.py and session_log.py both
-    # refuse at the surface; this was the one writer that did not.
+    # against the registry. Without this, a private feedback line becomes a
+    # note proposal in the TEAM-VISIBLE review queue, and approving it writes
+    # (and FTS-indexes) a public note. chat.py and session_log.py both refuse
+    # at the surface.
     if capture_svc.is_private_feedback(text):
         return json.dumps({"error": wording.private_feedback_agent_refusal()})
     # the person's own words, as `remember` files them. Private only with a
@@ -484,9 +484,9 @@ def read_worklog(task_id: int, limit: int = 20) -> str:
     if refusal := _policy_refusal("skein.mcp.worklog.read", "task", task_id):
         return refusal
     try:
-        # actor=_actor() is the door, and the limit is clamped in the service -
-        # this twin passed the model's number straight into LIMIT, where a
-        # negative value is refused outright and a huge one is a full scan.
+        # actor=_actor() is the door, and the limit is clamped in the service:
+        # the model's number never reaches LIMIT unclamped, where a negative
+        # value is refused outright and a huge one is a full scan.
         # The requester's Viewer (remote_app sets it) makes this read match
         # the REST worklog read for every task the actor is not a party to.
         rv = requester_viewer()

@@ -5,7 +5,9 @@ anyone who can reach the API could mint a key for any identity with one
 X-User header and walk through the private-record boundary. The first key
 per person is
 therefore issued here, by someone with shell access to the box (the trusted
-root of the deployment). OIDC+PKCE replaces this flow at deployment."""
+root of the deployment). In oidc mode a browser sign-in is strong identity,
+so a person mints their own keys through POST /api/keys and never needs this
+command. In api-key mode this is the only path to a person's first key."""
 
 import sys
 

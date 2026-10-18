@@ -742,9 +742,9 @@ def _validate_namespace(module: SkeinModule) -> None:
     # The capability endpoint exempts `skein.`-prefixed actions from its
     # composed-catalog refusal, because core REST actions are not
     # contributions. That exemption is safe only while no private module can
-    # DECLARE an operation under the prefix - a frontend naming
-    # `skein.atlas.view` otherwise rendered with no backend at all, through
-    # the engine's human default. Policy RULES are deliberately absent from
+    # DECLARE an operation under the prefix - otherwise a frontend that names
+    # one (`skein.atlas.view`) renders with no backend at all, through the
+    # engine's human default. Policy RULES are deliberately absent from
     # this check: inspecting `skein.rest.*` is how a workplace narrows core
     # operations, and inspection claims nothing.
     claimed_core_actions = sorted(

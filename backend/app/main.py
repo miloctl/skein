@@ -118,10 +118,9 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             )
         from .public._owner_work import run_bounded_work_handler
 
-        # The owner-dispatch facade revokes the job's WorkItems authority at
-        # the deadline. A bare executor only stopped WAITING: the worker
-        # thread kept a live context and wrote core rows AFTER the run was
-        # recorded COMPLETION_UNKNOWN.
+        # run_bounded_work_handler revokes the job's WorkItems at the deadline,
+        # so a handler that keeps running cannot write core rows after the run
+        # is recorded COMPLETION_UNKNOWN. A bare executor stops only the wait.
         def invoke_handler(services: JobExecutionContext, _request: Any) -> Any:
             return contribution.handler(services)
 
@@ -236,8 +235,8 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             return {"skipped": "this dispatch window is already claimed", "status": "noop"}
         counts = dict(dispatch_events(registry.events, event_context))
         if counts.get("failed") or counts.get("dead"):
-            # `partial` is what run_job records as an error - without it a
-            # night of dead deliveries left /health green.
+            # `partial` is what run_job records as an error - without it, dead
+            # deliveries leave the job green on /api/health.
             return {**counts, "status": "partial"}
         return counts
 
@@ -247,9 +246,9 @@ def _job_specs(registry: ExtensionRegistry, settings: AppSettings) -> tuple[JobS
             fn=dispatch_extension_events,
             trigger={"trigger": "interval", "minutes": 1},
             period_hours=1 / 60,
-            # catch_up drained the whole backlog synchronously before the
-            # lifespan yielded - a slow subscriber delayed readiness by its
-            # full timeout per event. The one-minute interval covers boot.
+            # A catch-up drains the whole backlog synchronously before the
+            # lifespan yields - a slow subscriber delays readiness by its full
+            # timeout per event. The one-minute interval covers boot.
             catch_up=False,
         )
     )
@@ -310,7 +309,7 @@ async def lifespan(app: FastAPI):
     settings: AppSettings = app.state.skein_settings
     registry: ExtensionRegistry = app.state.skein_registry
     specs = _job_specs(registry, settings)
-    db.init_db()  # a failed migration MUST abort startup - everything else must not
+    db.init_db()  # a failed migration MUST abort startup
     from .services.users import identity_ownership_conflicts
 
     for conflict in identity_ownership_conflicts():
@@ -336,7 +335,7 @@ async def lifespan(app: FastAPI):
 
     # Invalid contributed machine ownership is an application composition
     # error. An invalid operator-supplied MCP actor disables only MCP; REST
-    # stays available, as it did before the extension composition work.
+    # stays available.
     validate_machine_identity_ownership(registry)
     mcp_identity_available = True
     try:
@@ -414,9 +413,7 @@ async def lifespan(app: FastAPI):
             mcp_user,
         )
     if config.TZ_ERROR:
-        # the rejected value, for whoever runs the server. TZ_ERROR itself is
-        # served on /health and never carries it (config.py::TZ_REJECTED) -
-        # the same split the auth fault below makes, for the same reason.
+        # the rejected value goes to the log only: config.py::TZ_REJECTED
         log.warning(
             "time zone is misconfigured (SKEIN_TZ=%r): %s",
             config.TZ_REJECTED,
@@ -441,8 +438,9 @@ async def lifespan(app: FastAPI):
     # a row holding a system-actor name predates the wall that now refuses it.
     # The doors refuse the identity, so nothing writes under it - but the
     # person cannot work until it moves, and moving a person is rename_user's
-    # job, not a migration's: it knows all 47 attribution columns and the
-    # private notes DB that SQL cannot reach.
+    # job, not a migration's: it knows every attribution column
+    # (services/users.py::_ATTRIBUTION) and the consent rule that decides
+    # whether the person's private notes move with them.
     from .services.users import reserved_name_rows
 
     for stuck in reserved_name_rows():
@@ -518,11 +516,8 @@ async def lifespan(app: FastAPI):
         from .agents.narrator import register_narrator
 
         register_narrator()  # composition root: agents plug into services here
-        # Two SEPARATE thread pools, sized here so the numbers are chosen rather
-        # than inherited (config.py documents the measurement). anyio's limiter
-        # carries every sync route handler and run_in_threadpool call; the loop's
-        # default executor carries every sync @tool via asyncio.to_thread - left
-        # unset it sizes itself min(32, cpu + 4), invisible and host-dependent.
+        # Two SEPARATE thread pools: config.py THREAD_POOL/TOOL_THREADS says
+        # what each one carries and why both are set here.
         import asyncio
         from concurrent.futures import ThreadPoolExecutor
 
@@ -716,8 +711,8 @@ async def _perimeter_auth(request: Request, call_next):
     # caller has a credential. Both routes there are written for that (public
     # client parameters, and a relay of a code the browser already holds).
     # /api/webhooks/forge: a git forge cannot hold a personal key or sign in,
-    # so it proves itself with an HMAC over the body (deps.verify_forge_
-    # signature). Without this the endpoint answers every
+    # so it proves itself with an HMAC over the body
+    # (deps.verify_forge_signature). Without this the endpoint answers every
     # delivery with "get a personal API key" in api-key, oidc, and token mode.
     # /api/webhooks/gitlab: the same, with GitLab's secret token header
     # (deps.verify_gitlab_token).
@@ -728,7 +723,8 @@ async def _perimeter_auth(request: Request, call_next):
         "/api/webhooks/forge",
         "/api/webhooks/gitlab",
         # the OAuth authorization server sends the browser here with a code;
-        # a state nonce the provider minted is the only key (routes/api.py)
+        # the state nonce and the browser-binding cookie the sign-in set are
+        # the keys (routes/api.py::get_mcp_oauth_callback)
         "/api/mcp/oauth/callback",
     )
     # OPTIONS must pass through so CORS preflights (which carry no Authorization
@@ -887,25 +883,6 @@ async def _perimeter_auth(request: Request, call_next):
     return JSONResponse(status_code=401, content={"detail": detail})
 
 
-# JSON payloads compress well at any level; added before CORS so CORS stays
-# outermost. compresslevel=1, not the default 9: a body under 128 KiB is
-# compressed ON THE EVENT LOOP (Starlette moves larger ones to a worker
-# thread), and a 251 KB /api/tasks response measured 1.37 ms at level 9
-# against 0.17 ms at level 1, for 5.7 KB instead of 4.2 KB on the wire - on
-# an internal deployment the loop time is the scarce resource, not the bytes.
-# added AFTER perimeter_auth so CORS is the OUTERMOST layer - a 401 short-circuit
-# must still carry Access-Control-Allow-Origin, or the browser reports an
-# opaque CORS failure instead of a readable auth error
-# Malformed input is the caller's error. The rule is the classification, not
-# this list of handlers: if a request body, path, or query can produce the
-# exception, it maps to a 4xx here. If only our own state can produce it, it
-# stays a 500. Load is the third class: if the identical request succeeds on
-# a retry with nothing changed (a rate cap, a held write lock), it maps to
-# 429 or 503 with Retry-After. Add a handler when a 500 traces back to
-# something a caller sent. Add it for that reason, never because an exception
-# class looked familiar. A handler never echoes the rejected value back. The
-# caller already has it, and rendering it turned a 50 MB body into a 50 MB
-# response.
 async def not_found_handler(request: Request, exc: db.NotFound):
     # one rule for the surface: entity-lookup failures are 404, everywhere
     # an owner-scoped miss is a 404 too, because any other status confirms the row exists
@@ -982,12 +959,7 @@ async def rate_limited_handler(request: Request, exc: ratelimit.RateLimited):
 
 
 async def database_busy_handler(request: Request, exc: Exception):
-    # Serialization failure, deadlock, or an exhausted pool is LOAD, not fault:
-    # the same request succeeds on a retry with nothing changed, which is the
-    # 503 + Retry-After contract. A 500 here told the operator "bug" and the
-    # client "do not retry" - both wrong. Only the types in db.BUSY_ERRORS
-    # reach this; an ordinary fault (bad SQL) is a ProgrammingError and keeps
-    # its 500.
+    # Only the types in db.BUSY_ERRORS reach this: load, not fault (db.py).
     return JSONResponse(
         status_code=503,
         content={"detail": "The database is busy. Wait 5 seconds, then send the request again."},
@@ -1014,16 +986,14 @@ async def database_operation_error_handler(request: Request, exc: psycopg.Operat
 
 async def artifact_unreadable_handler(request: Request, exc: RuntimeError):
     # The 500 CLASS is right - the row is readable and the FILE is not, which
-    # is our own state and belongs in the error rate. What was wrong is the
-    # SHAPE: with no handler, Starlette answers a bare `Internal Server Error`
-    # in text/plain, so the operator instruction inside the message reached
-    # nobody and lib/api.ts fell back to the status line. An error response is
-    # always JSON (CLAUDE.md).
+    # is our own state and belongs in the error rate. This handler exists to
+    # pass the operator instruction inside the message through to the reader:
+    # unhandled_error_handler answers the same 500 with no message at all.
     #
     # Handled on ITS OWN CLASS, not on RuntimeError: that would catch every
     # RuntimeError in the process - Starlette's, anyio's, the SDK's - and put
-    # a raw message from one of them into a response body. The four raises
-    # this covers are written for a reader; nothing else is.
+    # a raw message from one of them into a response body. Every raise of
+    # ArtifactUnreadable is written for a reader; nothing else is.
     logging.getLogger("skein").exception("artifact unreadable", exc_info=exc)
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
@@ -1045,12 +1015,12 @@ async def client_disconnect_handler(request: Request, exc: ClientDisconnect):
 async def unhandled_error_handler(request: Request, exc: Exception):
     """Anything with no handler above, as JSON with NOTHING from the exception.
 
-    "An error response is always JSON" (CLAUDE.md) was true for the classes
-    named above and false for every other one - a KeyError or a bad-SQL
-    OperationalError answered `Internal Server Error` in text/plain, and
-    lib/api.ts fell back to the status line. The body carries no message on
-    purpose: these are unclassified, so the text is as likely to be a
-    filesystem path or a library's internals as anything a reader can act on.
+    "An error response is always JSON" (CLAUDE.md): without this handler, a
+    KeyError or a bad-SQL OperationalError answers `Internal Server Error` in
+    text/plain, and lib/api.ts falls back to the status line. The body carries
+    no message on purpose: these are unclassified, so the text is as likely to
+    be a filesystem path or a library's internals as anything a reader can act
+    on.
     The log is where the detail belongs, and the 500 puts it in the error
     rate. A handler that echoed str(exc) here would publish every stub's
     NotImplementedError message to whoever tripped it.
@@ -1285,7 +1255,14 @@ def create_app(
         exempt=frozenset({"/api/webhooks/forge", "/api/webhooks/gitlab", REMOTE_PATH}),
     )
     # JSON payloads compress well at any level. Add gzip before CORS so CORS
-    # stays outermost and also decorates perimeter-auth refusals.
+    # stays outermost and also decorates perimeter-auth refusals: a 401
+    # without Access-Control-Allow-Origin reaches the browser as an opaque
+    # CORS failure instead of a readable auth error.
+    # compresslevel=1, not the default 9: a body under 128 KiB is compressed ON
+    # THE EVENT LOOP (Starlette moves larger ones to a worker thread), and a
+    # 251 KB /api/tasks response measured 1.37 ms at level 9 against 0.17 ms
+    # at level 1, for 5.7 KB instead of 4.2 KB on the wire - on an internal
+    # deployment the loop time is the scarce resource, not the bytes.
     application.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=1)
     application.add_middleware(
         CORSMiddleware,
@@ -1297,6 +1274,9 @@ def create_app(
         max_age=7200,
     )
 
+    # Status by classification: CLAUDE.md, "Input errors are 4xx". A handler
+    # never echoes the rejected value: rendering it turns a 50 MB body into a
+    # 50 MB response.
     application.add_exception_handler(db.NotFound, cast(Any, not_found_handler))
     application.add_exception_handler(db.Conflict, cast(Any, conflict_error_handler))
     application.add_exception_handler(PermissionError, cast(Any, permission_error_handler))
