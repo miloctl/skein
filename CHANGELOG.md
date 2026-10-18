@@ -32,6 +32,7 @@ keeps its existing `minimum_core` and needs no change.
 - In OIDC mode, a userinfo request that fails in transit answers with the same 503 detail as an identity provider that is down ("the identity provider cannot be reached. Try again in a minute."). The exception class goes to the server log, not to the response.
 - The authority card lists "run a write on a remote MCP server" for each agent. An administrator can forbid an agent's writes through the system MCP servers, or let them run without review. Before, the level existed in policy, but no one could set it.
 - A task create and a new engagement that adopts the task's milestone no longer interleave. Before, a task that named another engagement could land between the adoption's check and its update, which left a task whose milestone and engagement disagree, decided for a milestone with no project type. That create now waits and is refused.
+- The personal MCP server URL check unwraps the IPv4 address inside a 6to4 or Teredo IPv6 address. Before, `2002:a9fe:a9fe::1` counted as a private address and reached the cloud metadata service.
 
 ### Operations
 

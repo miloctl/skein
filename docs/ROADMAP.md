@@ -664,10 +664,6 @@ Connections). The tiers differ in trust, not only in scope: the system tier
 is operator-classified, the personal tier is annotation-classified with every
 write under review. What is left:
 
-- **`check_url` passes a 6to4 address** - `2002:a9fe:a9fe::1` wraps the
-  metadata address. Unwrap `sixtofour` beside `ipv4_mapped`
-  (`services/mcp_servers.py`), with a test.
-
 - **Team tier** - an administrator or crew steward registers a server with
   `scope = 'team'` in the same `mcp_servers` table, scoped to one crew or to
   everyone. The credential is a Secret key name (`auth_token_env`) or a

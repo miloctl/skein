@@ -421,6 +421,10 @@ def test_a_failed_connect_is_a_field_not_an_error(client, sealed):
         "http://[::ffff:127.0.0.1]:8000/mcp",
         "http://localhost/mcp",
         "http://169.254.169.254/latest/",
+        # IPv6 forms that embed the metadata address: 6to4, and Teredo with
+        # its obfuscated client field
+        "http://[2002:a9fe:a9fe::1]/latest/",
+        "http://[2001:0:4136:e378:8000:63bf:5601:5601]/latest/",
         "https://user:pw@host.example/mcp",
         "ftp://host.example/mcp",
         # a URL is stored in plain text, travels in every backup and reaches

@@ -61,8 +61,16 @@ def check_url(url: str) -> None:
     for info in infos:
         address = ipaddress.ip_address(info[4][0])
         # ::ffff:127.0.0.1 is not loopback to the ipaddress module, and an
-        # AF_INET6 connect to it reaches IPv4 loopback
-        address = getattr(address, "ipv4_mapped", None) or address
+        # AF_INET6 connect to it reaches IPv4 loopback. A 6to4 (2002::/16) or
+        # Teredo address embeds an IPv4 one the same way, and the module calls
+        # 2002:a9fe:a9fe:: private, so the metadata address passed as one.
+        teredo = getattr(address, "teredo", None)
+        address = (
+            getattr(address, "ipv4_mapped", None)
+            or getattr(address, "sixtofour", None)
+            or (teredo[1] if teredo else None)
+            or address
+        )
         if (
             address.is_loopback
             or address.is_link_local
