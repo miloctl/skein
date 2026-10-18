@@ -179,10 +179,11 @@ def _gated_write_locked(
     # the path where every write becomes a proposal. The requester is the
     # subject the label already names.
     #
-    # Falls back to the actor for MCP and the scheduler, where the agent IS
-    # the caller and no human stands behind the write. No separator, no join:
-    # a composite key collides the moment a teammate picks the name on the
-    # other side of it.
+    # Falls back to the actor for stdio MCP and the scheduler, where no human
+    # stands behind the write. HTTP MCP sets the requester to the key's owner
+    # (mcp_server.py), so its writes count against that person. No
+    # separator, no join: a composite key collides the moment a teammate
+    # picks the name on the other side of it.
     try:
         ratelimit.check("write", requester_identity() or actor)
     except ValueError as exc:

@@ -332,7 +332,7 @@ def test_a_write_after_a_private_read_is_the_requesters_to_approve(fresh_db, mon
     assert queued["status"] == "pending"
     pending = fresh_db.query("SELECT review_visibility, review_owner FROM pending_changes")
     assert pending == [{"review_visibility": "private", "review_owner": "ava"}]
-    assert refused["error"].startswith("This turn read notes that only you or your crew")
+    assert refused["error"].startswith("This turn read notes or comments that only you")
     topics = [r["topic"] for r in fresh_db.query("SELECT topic FROM notes ORDER BY id")]
     assert "digest" not in topics
 

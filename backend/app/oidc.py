@@ -663,7 +663,9 @@ def exchange(form: dict[str, str]) -> dict[str, Any]:
     except (RecursionError, TypeError, ValueError) as exc:
         raise OIDCProviderError(SIGNIN_UNUSABLE) from exc
     except Exception as exc:
-        # no log here: routes/auth.py::post_token logs the cause's class
+        # no log here: routes/auth.py::post_token logs the cause's class. The
+        # session refresh (services/browser_sessions.py) answers
+        # SessionUnavailable and logs nothing.
         raise OIDCUnavailable(SIGNIN_UNAVAILABLE) from exc
     if not isinstance(payload, dict):
         raise OIDCProviderError("The identity provider returned an unusable token response.")

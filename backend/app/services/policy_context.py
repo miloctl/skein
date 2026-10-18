@@ -88,9 +88,10 @@ def resource_row(entity: str, entity_id: int) -> dict | None:
     hold_resource: for_route_scoped (REST), review._approve_change_locked, and
     the two that reach _task_context through existing("task") -
     mcp_server._policy_refusal and agents/core_tools.py::_resource. The agent
-    write gate holds nothing: tools/_gate.py::gated_write decides on plain
-    SELECTs (work.task_update_policy_context, for_change), and its own comment
-    records that gap.
+    write gate does not hold the row it decides on: tools/_gate.py::gated_write
+    decides through work.task_update_policy_context and for_change, whose
+    transaction commits before the write, and its own comment records that
+    gap.
     """
     if entity_id <= 0:
         return None

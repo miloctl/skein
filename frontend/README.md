@@ -47,9 +47,9 @@ The workplace root pins these packages directly:
 
 - `@miloctl/skein-frontend-host@0.6.17`
 - `@miloctl/skein-extension-api@1.0.0`
-- `next@16.3.8`
-- `react@19.2.4`
-- `react-dom@19.2.4`
+- `next@16.4.0`
+- `react@19.3.0`
+- `react-dom@19.3.0`
 - The private frontend extension package.
 
 Add these exact root overrides:

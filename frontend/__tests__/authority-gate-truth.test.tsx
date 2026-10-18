@@ -240,7 +240,7 @@ describe("the authority card and a flock member", () => {
   // own - forbidden still refuses (extensions/policy.py::CorePolicy checks it
   // before force_review) - so the not-allowed carve-out is what makes the
   // sentence true, and the refusal clause is what keeps it from promising an
-  // inbox entry that the four refuse_when_consultative paths never produce.
+  // inbox entry that the five refuse_when_consultative paths never produce.
   const FLOCK_CARVE_OUT =
     /only\s+not allowed\s+still applies from the levels\s+below/i;
   const FLOCK_CLAIM = /every other level becomes a wait in Inbox → Approvals/i;

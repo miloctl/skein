@@ -49,8 +49,8 @@ def scoped_read_team_review() -> str:
     # tools/_gate.py and agents/mcp_tools.py refuse the same condition, so they
     # share these words
     return (
-        "This turn read notes that only you or your crew can read, and the team"
-        " reviews agent work here. An agent cannot write a record or call a remote"
+        "This turn read notes or comments that only you or your crew can read, and"
+        " the team reviews agent work here. An agent cannot write a record or call a remote"
         " tool in the same turn. Ask for it in a new message."
     )
 
