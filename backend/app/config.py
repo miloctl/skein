@@ -1409,7 +1409,7 @@ except ValueError:
 # default 40 (4 cores). RE-MEASURE on PostgreSQL before trusting these
 # numbers: the driver, the round trip, and the connection pool are all
 # different now, and nobody has run the benchmark since. The pool sizes
-# derive from these two values (db.py::pool), so raising one raises that too.
+# derive from these two values (db.py::_max_size), so raising one raises that too.
 # Smaller is faster until requests queue on genuinely-blocking
 # work (a 5s embedding call), which is what raising this is for.
 #

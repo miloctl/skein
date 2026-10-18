@@ -153,3 +153,20 @@ def test_the_route_refuses_a_bad_value_as_4xx(client, fresh_db):
         "/api/settings/tuning", json={"name": "chat_limit", "valu": 25}, headers=_key("op2")
     )
     assert r.status_code == 422
+
+
+def test_a_stored_pool_size_also_sizes_the_connection_pool(fresh_db):
+    """Every request thread and every tool thread can hold one connection at
+    once. The boot that applies a stored thread_pool override to the thread
+    limiter must apply it to the connection pool too, or a burst of requests
+    queues inside the pool with no setting that names that queue."""
+    from fastapi.testclient import TestClient
+
+    from app import config
+    from app.main import app
+
+    tuning.set_tunable("thread_pool", config.THREAD_POOL + 30, actor="op")
+    with TestClient(app):
+        assert db.pool().max_size >= tuning.effective("thread_pool") + tuning.effective(
+            "tool_threads"
+        )

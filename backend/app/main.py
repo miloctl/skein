@@ -528,7 +528,7 @@ async def lifespan(app: FastAPI):
 
         import anyio.to_thread
 
-        # THE only place either pool size is applied. services/tuning.py exposes
+        # THE only place the pool sizes are applied. services/tuning.py exposes
         # both as knobs marked live=False, and this line is why that mark is
         # honest: an administrator's override reaches the process here and
         # nowhere else, so it takes effect at the next boot and not before.
@@ -543,6 +543,7 @@ async def lifespan(app: FastAPI):
             # correct sizing, just not the stored one
             log.exception("could not read the stored pool sizes - using the environment values")
         anyio.to_thread.current_default_thread_limiter().total_tokens = pools["thread_pool"]
+        db.size_pool(pools["thread_pool"], pools["tool_threads"])
         asyncio.get_running_loop().set_default_executor(
             ThreadPoolExecutor(max_workers=pools["tool_threads"], thread_name_prefix="skein-tool")
         )

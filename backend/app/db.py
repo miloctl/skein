@@ -296,6 +296,18 @@ _pool: ConnectionPool[DictConnection] | None = None
 _pool_lock = Lock()
 
 
+def _max_size(thread_pool: int, tool_threads: int) -> int:
+    # Every request thread and every sync @tool can hold one connection at
+    # once: a pool smaller than the two thread pools turns a burst into a
+    # queue nobody configured.
+    return thread_pool + tool_threads + 4
+
+
+def size_pool(thread_pool: int, tool_threads: int) -> None:
+    """Resize the open pool to the thread pools the process actually runs."""
+    pool().resize(1, _max_size(thread_pool, tool_threads))
+
+
 def pool() -> ConnectionPool[DictConnection]:
     """The process-wide pool, opened on first use.
 
@@ -311,11 +323,10 @@ def pool() -> ConnectionPool[DictConnection]:
             _pool = ConnectionPool[DictConnection](
                 config.DATABASE_URL,
                 min_size=1,
-                # Every request thread and every sync @tool can hold one
-                # connection at once. Sized from the two knobs that already bound
-                # that number, so it cannot drift below them: a pool smaller than
-                # the thread pool turns a burst into a queue nobody configured.
-                max_size=config.THREAD_POOL + config.TOOL_THREADS + 4,
+                # The env sizes, because the stored overrides live in the
+                # database this pool opens. main.py's lifespan calls
+                # size_pool with the effective values once it can read them.
+                max_size=_max_size(config.THREAD_POOL, config.TOOL_THREADS),
                 kwargs={"autocommit": True, "row_factory": dict_row},
                 open=True,
             )
