@@ -1041,9 +1041,17 @@ def _metadata(server: dict, remote_tool) -> MCPToolMetadata | None:
 
 
 def _audit_mcp(actor: str, tool: str, status: str, error_code: str = "") -> None:
+    from .. import db
     from ..services.tool_audit import record_tool_execution
 
-    record_tool_execution(actor=actor, tool=tool, status=status, error_code=error_code)
+    # every call runs after the outcome is decided: raised, a completed or
+    # completion-unknown write reaches the model as a failed call it can run
+    # again. The savepoint keeps an ambient transaction usable after it.
+    try:
+        with db.savepoint():
+            record_tool_execution(actor=actor, tool=tool, status=status, error_code=error_code)
+    except Exception as exc:
+        log.warning("MCP audit row for %s failed (%s)", tool, type(exc).__name__)
 
 
 def _registry_key(name: str) -> str:

@@ -219,6 +219,22 @@ def test_a_failed_team_notice_still_reports_the_completed_write(fresh_db, monkey
     assert remote.called and result["status"] == "success"
 
 
+def test_a_failed_audit_row_still_reports_the_completed_write(fresh_db, monkeypatch):
+    """Every audit row is written after the outcome is decided. Raised, it
+    reaches the model as a failed call, and a completed write reads as one
+    it can run again."""
+    from app.services import delegation, tool_audit, users
+
+    def unavailable(**kwargs):
+        raise RuntimeError("connection pool timeout")
+
+    users.ensure_user("boss")
+    delegation.set_authority("scout", "mcp-tool", "autonomous", actor="boss")
+    monkeypatch.setattr(tool_audit, "record_tool_execution", unavailable)
+    remote, result = _run("write", scoped=False, agent="scout")
+    assert remote.called and result["status"] == "success"
+
+
 def test_the_authority_card_offers_remote_tools(client):
     entities = client.get("/api/agents/entities").json()["entities"]
     assert any(e["entity"] == "mcp-tool" and e["label"] != "mcp-tool" for e in entities)
