@@ -30,10 +30,20 @@ def server_id(owner: str, name: str) -> str:
     return f"{SCOPE}:{owner}:{name}"
 
 
+# Metadata services outside link-local, which the range checks below pass:
+# Alibaba Cloud's, and AWS's IPv6 one. The others answer on 169.254.169.254.
+_METADATA = frozenset(ipaddress.ip_address(a) for a in ("100.100.100.200", "fd00:ec2::254"))
+
+
 def check_url(url: str) -> None:
     """Refuse a URL that reaches this host or the cloud metadata service.
     Called at add time and again at every connect (agents/mcp_tools.py)."""
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        # urllib's message quotes the part it could not read
+        raise ValueError("The URL is not valid. Check the host name and the port.") from None
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ValueError("The URL must start with http:// or https:// and name a host.")
     if parts.username or parts.password:
@@ -50,7 +60,7 @@ def check_url(url: str) -> None:
     # NetworkPolicy is the stronger control
     # (deploy/k8s/overlays/example-prod/backend-egress.yaml is the model).
     try:
-        infos = socket.getaddrinfo(parts.hostname, parts.port or 443, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(parts.hostname, port or 443, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
         return
     for info in infos:
@@ -72,6 +82,7 @@ def check_url(url: str) -> None:
             or address.is_unspecified
             or address.is_multicast
             or address.is_reserved
+            or address in _METADATA
         ):
             raise ValueError("The URL points at this server or its host. Name a remote MCP server.")
 

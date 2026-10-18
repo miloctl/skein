@@ -427,6 +427,9 @@ def test_a_failed_connect_is_a_field_not_an_error(client, sealed):
         # its obfuscated client field
         "http://[2002:a9fe:a9fe::1]/latest/",
         "http://[2001:0:4136:e378:8000:63bf:5601:5601]/latest/",
+        # metadata services outside link-local: Alibaba Cloud, AWS over IPv6
+        "http://100.100.100.200/latest/meta-data/",
+        "http://[fd00:ec2::254]/latest/meta-data/",
         "https://user:pw@host.example/mcp",
         "ftp://host.example/mcp",
         # a URL is stored in plain text, travels in every backup and reaches
@@ -440,6 +443,17 @@ def test_the_url_check_refuses_this_host_and_odd_schemes(client, sealed, url):
     refused = client.post("/api/mcp/servers", json={"name": "x", "url": url}, headers=ava)
     assert refused.status_code == 400, refused.text
     assert url not in refused.text
+
+
+@pytest.mark.parametrize("port", ["99999", "8o8o"])
+def test_a_bad_port_is_refused_without_echoing_it(client, sealed, port):
+    """urllib's own message quotes the port it could not read, and an error
+    response never echoes the rejected value (CLAUDE.md)."""
+    ava = _bootstrap("ava")
+    url = f"https://host.example:{port}/mcp"
+    refused = client.post("/api/mcp/servers", json={"name": "x", "url": url}, headers=ava)
+    assert refused.status_code == 400, refused.text
+    assert port not in refused.text
 
 
 def test_a_bad_name_is_refused(client, sealed):
