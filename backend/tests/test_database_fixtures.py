@@ -375,14 +375,14 @@ def test_postgres_commands_allow_a_clean_twenty_minute_shutdown():
     assert "POSTGRES_CONNINFO" in postgres
 
     for path in (
-        root / "CLAUDE.md",
+        root / "AGENTS.md",
         root / "backend" / ".env.example",
         root / "backend" / "tests" / "conftest.py",
         root / "scripts" / "skein.sh",
     ):
         assert "--stop-timeout 1200" in path.read_text(), path
     for path in (
-        root / "CLAUDE.md",
+        root / "AGENTS.md",
         root / "backend" / ".env.example",
         root / "scripts" / "skein.sh",
     ):
