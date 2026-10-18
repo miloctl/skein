@@ -200,9 +200,9 @@ _key_refreshing = False
 _last_refresh = float("-inf")
 
 # The shared wording for a refusal that does not fetch (another fetch in
-# flight, a recent failure inside its cooldown) and for a transient userinfo
-# HTTP error, so the caller cannot tell which fetch failed (and does not need
-# to). A failed fetch itself names its own cause in its message.
+# flight, a recent failure inside its cooldown) and for a userinfo fetch that
+# fails in transit, so the caller cannot tell which fetch failed (and does not
+# need to). A failed discovery or key fetch names its own cause in its message.
 IDP_UNREACHABLE = "the identity provider cannot be reached. Try again in a minute."
 
 
@@ -572,10 +572,8 @@ def _fetch_userinfo(access_token: str) -> dict[str, Any]:
             "The identity provider returned an unusable userinfo response."
         ) from exc
     except Exception as exc:
-        raise OIDCUnavailable(
-            f"the identity provider cannot be reached ({exc.__class__.__name__})."
-            " Try again in a minute."
-        ) from exc
+        log.warning("identity provider userinfo unavailable (%s)", exc.__class__.__name__)
+        raise OIDCUnavailable(IDP_UNREACHABLE) from exc
     if not isinstance(payload, dict):
         raise OIDCProviderError("The identity provider returned an unusable userinfo response.")
     return payload
@@ -663,10 +661,8 @@ def exchange(form: dict[str, str]) -> dict[str, Any]:
     except (RecursionError, TypeError, ValueError) as exc:
         raise OIDCProviderError(SIGNIN_UNUSABLE) from exc
     except Exception as exc:
-        raise OIDCUnavailable(
-            f"the identity provider cannot be reached ({exc.__class__.__name__})."
-            " Try again in a minute."
-        ) from exc
+        # no log here: routes/auth.py::post_token logs the cause's class
+        raise OIDCUnavailable(SIGNIN_UNAVAILABLE) from exc
     if not isinstance(payload, dict):
         raise OIDCProviderError("The identity provider returned an unusable token response.")
     return payload

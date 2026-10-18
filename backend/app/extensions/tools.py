@@ -233,12 +233,13 @@ async def execute_tool(
             )
         else:
             # The direct path must also revoke write authority at the
-            # deadline: asyncio.wait_for stopped WAITING but the worker
-            # thread kept a live WorkItems and wrote AFTER the terminal
-            # completion_unknown receipt. The owner-dispatch facade closes
-            # at the deadline, so a late command fails instead of landing.
-            # to_thread keeps the dispatcher's blocking loop off the event
-            # loop that carries every open chat stream.
+            # deadline, so it never uses asyncio.wait_for: wait_for stops
+            # WAITING while the worker thread keeps a live WorkItems and
+            # writes AFTER the terminal completion_unknown receipt. The
+            # owner-dispatch facade closes at the deadline, so a late command
+            # fails instead of landing. to_thread keeps the dispatcher's
+            # blocking loop off the event loop that carries every open chat
+            # stream.
             execution = await asyncio.to_thread(
                 run_bounded_work_handler,
                 policy,

@@ -15,14 +15,12 @@ from .. import config, db, ratelimit
 from ..extensions.registry import ExtensionRegistry
 from ..services import wording
 from . import session_store
+from .session_log import SESSION_AGENT_ID
 
 log = logging.getLogger("skein.chat")
 
 if TYPE_CHECKING:  # the SDK's own content type, for describe_image below
     from strands.types.content import ContentBlock
-
-# strands' _DEFAULT_AGENT_ID; build_agent never overrides it
-SESSION_AGENT_ID = "default"
 
 # An infinity guard on provider sockets, NOT a latency budget. The DEFAULT
 # for the read_timeout_s knob; _client_timeout below reads the administrator's
@@ -38,13 +36,9 @@ SESSION_AGENT_ID = "default"
 # asyncio.to_thread (strands/tools/decorator.py), and cancelling that await
 # orphans the THREAD, which keeps reading a stalled socket.
 #
-# That thread holds a slot in the event loop's DEFAULT executor, sized by
-# config.TOOL_THREADS in main.py's lifespan - NOT in the anyio pool
-# (config.THREAD_POOL) that run_in_threadpool and every sync route handler
-# use. The two are separate pools, and exhausting this one stops every tool
-# call in every chat with no error that names the cause. Both sizes are
-# admin-tunable (services/tuning.py), so neither number belongs in this
-# comment: read config.py, which records how they were measured.
+# That thread holds a slot of config.TOOL_THREADS (config.py says which pool
+# that is), and exhausting it stops every tool call in every chat with no
+# error that names the cause.
 #
 # Read is an idle-GAP bound, not a request bound: it ends a socket that goes
 # silent, not one that dribbles. It caps the stall, never the orphan's total
@@ -690,7 +684,7 @@ def _user_aligned_offset(repo, thread_id: str, offset: int) -> int:
     window, which is the failure this whole function exists to prevent.
 
     Backward, not forward: moving back re-admits a message or two that are
-    already on disk, while moving forward would silently drop them.
+    already in the session, while moving forward silently drops them.
 
     "Starts with a user message" is NOT the whole test, and checking only the
     role reintroduces the bug through a side door: a user message carrying a

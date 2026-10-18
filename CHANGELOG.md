@@ -29,8 +29,11 @@ keeps its existing `minimum_core` and needs no change.
 - The chat working indicator announces "Thinking", the long-wait line and a refusal to a screen reader. Its live regions now exist before their text arrives. Before, they mounted together with the text, and screen readers often said nothing.
 - The visibility picker shows "one crew only" for a chosen crew that the person has left, the value the row still carries. Before, it showed "everyone on the roster" while the row kept the crew.
 - A request without a credential is refused before Skein reads its body. Before, the body-size check ran first and buffered up to 1 MB of every unsigned request before its 401. An oversized unsigned request now answers 401, not 413.
+- In OIDC mode, a userinfo request that fails in transit answers with the same 503 detail as an identity provider that is down ("the identity provider cannot be reached. Try again in a minute."). The exception class goes to the server log, not to the response.
 
 ### Operations
+
+- A negative `SKEIN_OIDC_LEEWAY` takes the 30-second default. Before, it became 0, which refused a token on any clock skew. An explicit 0 still sets zero tolerance.
 
 - The server log no longer carries the httpx request line for each outbound call (MCP servers, OAuth endpoints, model providers). Those lines held full URLs, query strings included. Warnings and errors from both HTTP clients still log.
 

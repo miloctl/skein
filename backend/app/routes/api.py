@@ -86,6 +86,10 @@ from .deps import AdminUser, CurrentUser, StrongUser, ViewerDep, is_administrato
 
 router = APIRouter(prefix="/api", route_class=PolicyAPIRoute)
 
+# A create body's tier: the one the writer picked, checked in the service for
+# crew membership. A body whose service checks more says so beside its field.
+Tier = Annotated[str, Field(max_length=16)]
+
 
 def _permitted_collection(
     request: Request,
@@ -1156,9 +1160,8 @@ class AbsenceIn(BaseModel):
     kind: str = Field("pto", max_length=10)
     note: str = Field("", max_length=200)
     # `person` is checked as a READER (absences.add_absence).
-    # the tier the writer picked, checked in the service: crew membership only.
     # None is the narrowest tier the service allows for this person.
-    visibility: str | None = Field(None, max_length=16)
+    visibility: Tier | None = None
     crew_id: int = 0
     # a private window counts in capacity and planning only with this
     share_dates: bool = False
@@ -1560,10 +1563,9 @@ class DocumentIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str = Field(max_length=documents.TITLE_LIMIT)
     content: str = Field(max_length=documents.MAX_DOCUMENT_BYTES)
-    # the tier the writer picked, checked in the service (crew membership).
     # No engagement_id: a person's document filed under an engagement waits
     # for its trigger (docs/ROADMAP.md, cut table)
-    visibility: str = Field("", max_length=16)
+    visibility: Tier = ""
     crew_id: int = 0
 
 
@@ -1858,10 +1860,10 @@ def _crew_admin_override(user: str, request: Request) -> bool:
     """The half of the crew-edit check that only a ROUTE can answer.
 
     Strong identity, and whether this caller is a named administrator. The
-    steward test itself moved into the services (crews.assert_steward), where
-    it runs inside the write's own transaction - membership decides what every
-    person reads, and a guard that lives only here is a guard the next caller
-    does not have.
+    steward test itself lives in the services (crews.assert_steward) and runs
+    inside the write's own transaction - membership decides what every person
+    reads, and a guard that lives only here is a guard the next caller does
+    not have.
 
     Not AdminUser on the route: a crew whose membership only an administrator
     can edit is a crew nobody maintains. Not CurrentUser alone either - in
@@ -2232,10 +2234,11 @@ def post_key_request(user: CurrentUser, request: Request):
     from ..services.api_keys import request_key
 
     # ABOVE the try, never inside it: RateLimited subclasses ValueError, so
-    # the handler below caught the cap and answered 400 - wire-identical to a
-    # malformed request, and stripping the Retry-After header the class exists
-    # to carry. This surface is capped at 3/minute and is the one a client is
-    # most likely to retry.
+    # inside it the handler below catches the cap and answers 400 -
+    # wire-identical to a malformed request, and stripping the Retry-After
+    # header the class exists to carry. This surface is capped at 3/minute and
+    # is the one a client is most likely to retry. Pinned for every route by
+    # tests/test_rate_limits.py::test_no_route_rate_cap_sits_inside_a_try_that_catches_it.
     ratelimit.check("keys_request", user)
     try:
         return request_key(user, strong=bool(getattr(request.state, "strong_auth", False)))
@@ -2823,8 +2826,7 @@ class PromiseIn(BaseModel):
     direction: str = Field("given", max_length=10)
     # No reader check on `to_whom`: it is deliberately not a roster name (the
     # default audience is external) - promises.add_promise says why.
-    # the tier the writer picked, checked in the service: crew membership only.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -3052,11 +3054,15 @@ def get_agents_status(user: CurrentUser):
     }
 
 
-class ContextStrategyIn(BaseModel):
-    # extra=forbid + no default: a mistyped field name would otherwise fall
-    # through to "" - the CLEAR sentinel - silently reverting the whole team to
-    # the env default and answering 200 as if it were deliberate
+class _ClearableSettingIn(BaseModel):
+    # extra=forbid, and no default on a subclass field: otherwise a mistyped
+    # field name falls through to "" or None - the CLEAR sentinel - silently
+    # reverting the whole team to the default and answering 200 as if it were
+    # deliberate
     model_config = ConfigDict(extra="forbid")
+
+
+class ContextStrategyIn(_ClearableSettingIn):
     strategy: str = Field(max_length=20)
 
 
@@ -3087,10 +3093,7 @@ def post_context_strategy(body: ContextStrategyIn, user: AdminUser):
         raise HTTPException(400, str(e)) from e
 
 
-class ReasoningIn(BaseModel):
-    # extra=forbid + no default: same trap ContextStrategyIn names - a
-    # mistyped field falling through to "" is the CLEAR sentinel
-    model_config = ConfigDict(extra="forbid")
+class ReasoningIn(_ClearableSettingIn):
     level: str = Field(max_length=20)
 
 
@@ -3139,10 +3142,7 @@ def post_agent_automation(body: AgentAutomationIn, user: AdminUser):
     return settings.set_agent_automation(body.enabled, actor=user)
 
 
-class ModelPickIn(BaseModel):
-    # extra=forbid + no default: same trap ContextStrategyIn names - a
-    # mistyped field falling through to "" is the CLEAR sentinel
-    model_config = ConfigDict(extra="forbid")
+class ModelPickIn(_ClearableSettingIn):
     model: str = Field(max_length=200)
 
 
@@ -3212,11 +3212,7 @@ def post_model_pick(body: ModelPickIn, user: AdminUser):
         raise HTTPException(400, str(e)) from e
 
 
-class TuningIn(BaseModel):
-    # extra=forbid, and `value` has NO default: a mistyped field would fall
-    # through to None, which is the CLEAR sentinel, silently returning a knob
-    # to its default while answering 200. Same trap ContextStrategyIn names.
-    model_config = ConfigDict(extra="forbid")
+class TuningIn(_ClearableSettingIn):
     name: str = Field(max_length=64)
     # null clears the override; the service range-checks the number
     value: int | None
@@ -3271,8 +3267,8 @@ def get_agent_entities(user: CurrentUser):
 
     return {
         # the label enumerates every capability the grant carries: a matrix
-        # row is keyed on the entity, and "a blocker" hid that the same grant
-        # also resolves them
+        # row is keyed on the entity, and a bare "a blocker" hides that the
+        # same grant also resolves them
         "entities": [
             {"entity": e, "label": entity_label(e)}
             for e in sorted(_registry())
@@ -3634,10 +3630,9 @@ class MilestoneIn(BaseModel):
     project: str = Field("default", max_length=120)
     owner: str = Field("", max_length=64)
     due_date: str = Field("", max_length=10)
-    # the tier the writer picked, checked in the service: crew membership only.
     # No assignee check here - a milestone has an owner, not an assignee, and
     # create_milestone takes no readability check on it.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -3672,9 +3667,8 @@ class TaskIn(BaseModel):
     priority: str = Field("medium", max_length=10)
     due_date: str = Field("", max_length=10)
     engagement_id: int = 0
-    # the tier the writer picked, checked in the service: crew membership,
-    # and whether the assignee could read what they are being handed
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    # the service also checks whether the assignee can read what they are handed
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -3787,7 +3781,7 @@ class RoutineIn(BaseModel):
     every_weeks: int = Field(1, strict=True)
     starts_on: str = Field("", max_length=10)
     due_days: int | None = Field(None, strict=True)
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -3933,8 +3927,7 @@ class QuestionIn(BaseModel):
     question: str = Field(max_length=1000)
     assigned_to: str = Field("", max_length=64)
     # `assigned_to` is checked as a READER (collab.ask_question).
-    # the tier the writer picked, checked in the service: crew membership only.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -3982,9 +3975,8 @@ class DecisionIn(BaseModel):
     context: str = Field("", max_length=4000)
     review_by: str = Field("", max_length=10)
     category: str = Field("", max_length=40)
-    # the tier the writer picked, checked in the service: crew membership only.
     # No assignee check here - a decision names nobody to hand work to.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -4009,10 +4001,10 @@ class StandupIn(BaseModel):
     yesterday: str = Field("", max_length=2000)
     today: str = Field("", max_length=2000)
     blockers: str = Field("", max_length=2000)
-    # the tier the writer picked, checked in the service: crew membership, and
-    # the OWNER of the blocker this standup forks - which is always the author.
-    # None: the capture default below (_personal_default).
-    visibility: str | None = Field(None, max_length=16)
+    # the service also checks the OWNER of the blocker this standup forks -
+    # which is always the author. None: the capture default below
+    # (_personal_default).
+    visibility: Tier | None = None
     crew_id: int = 0
 
 
@@ -4044,9 +4036,8 @@ class NoteIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     topic: str = Field(max_length=200)
     content: str = Field(max_length=20_000)
-    # the tier the writer picked, checked in the service: crew membership only.
     # No assignee check here - a note names nobody to hand work to.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -4115,10 +4106,10 @@ def post_event_outcome(event_id: int, body: OutcomeIn, user: CurrentUser):
     try:
         return schedule.record_outcome(event_id, body.outcome, actor=user)
     except db.NotFound:
-        # db.NotFound subclasses ValueError, so a bare `except ValueError`
-        # turned "no event #12" into a 400. The id is in the PATH here, which
-        # scope.missing_text says is the 404 case - and the sibling route
-        # GET /events/{id}/stakeholders already answers 404 for the same row.
+        # db.NotFound subclasses ValueError, so without this re-raise the
+        # handler below turns "no event #12" into a 400. The id is in the PATH
+        # here, which scope.missing_text says is the 404 case - and the sibling
+        # route GET /events/{id}/stakeholders answers 404 for the same row.
         raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -4136,9 +4127,8 @@ class EventIn(BaseModel):
     # anything" answerable by whoever attended.
     agenda: str = Field("", max_length=2000)
     engagement_id: int = 0
-    # the tier the writer picked, checked in the service: crew membership only.
     # No assignee check here - `attendees` is free text, not a roster join.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -4176,13 +4166,12 @@ class BlockerIn(BaseModel):
     owner: str = Field("", max_length=64)
     impact: str = Field("medium", max_length=10)
     task_id: int = 0
-    # the tier the writer picked, checked in the service: crew membership, and
-    # the owner is checked as a READER (blockers.raise_blocker). Present here
+    # the owner is checked as a READER too (blockers.raise_blocker). Present here
     # even though the two doors that usually create a blocker inherit instead
     # - capture.py and collab.post_standup. Every create body whose service
     # accepts a tier offers one, pinned by
     # tests/test_visibility_writes.py::test_a_create_body_exposes_the_tier_its_service_accepts.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -4292,8 +4281,7 @@ class IntakeIn(BaseModel):
     title: str = Field(max_length=200)
     detail: str = Field("", max_length=4000)
     project_class: str = Field("", max_length=40)
-    # the tier the writer picked, checked in the service: crew membership only.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -4784,7 +4772,7 @@ class CaptureIn(BaseModel):
     # None: "only you" for a strong caller, a capture being personal until
     # shared (docs/VISIBILITY.md). _personal_default says why a weak one
     # gets the roster. The CLI sends workspace only for `--team`.
-    visibility: str | None = Field(None, max_length=16)
+    visibility: Tier | None = None
     crew_id: int = 0
     # The idempotency key. The CLI outbox is at-least-once: a crash between
     # the server's accept and the outbox rewrite re-sends the row. A repeated
@@ -5008,10 +4996,9 @@ class EngagementIn(BaseModel):
     timebox_end: str = Field("", max_length=10)
     kill_criteria: str = Field("", max_length=500)
     outcome: str = Field("", max_length=2000)
-    # the tier the writer picked, checked in the service: crew membership only.
     # It PROPAGATES - the handoff artifact, the ship-it note and the
     # experiment lesson all inherit from the engagement they came from.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 
@@ -5091,8 +5078,7 @@ class LessonIn(BaseModel):
     recommendation: str = Field("", max_length=2000)
     engagement_id: int = 0
     project_class: str = Field("general", max_length=40)
-    # the tier the writer picked, checked in the service: crew membership only.
-    visibility: str = Field(scope.WORKSPACE, max_length=16)
+    visibility: Tier = scope.WORKSPACE
     crew_id: int = 0
 
 

@@ -1456,8 +1456,10 @@ OIDC_TOKEN_URL = os.getenv("SKEIN_OIDC_TOKEN_URL", "").strip()
 # with ImmatureSignatureError - intermittently, right after sign-in. A bad
 # value degrades to the default, never to zero.
 try:
-    OIDC_LEEWAY = max(0, int(os.getenv("SKEIN_OIDC_LEEWAY", "").strip() or 30))
+    OIDC_LEEWAY = int(os.getenv("SKEIN_OIDC_LEEWAY", "").strip() or 30)
 except ValueError:
+    OIDC_LEEWAY = 30
+if OIDC_LEEWAY < 0:
     OIDC_LEEWAY = 30
 if not AUTH_ERROR and AUTH_MODE == "oidc":
     if not OIDC_ISSUER:

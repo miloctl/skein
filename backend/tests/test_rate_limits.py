@@ -303,3 +303,50 @@ def test_deployment_wide_caps_count_across_processes(fresh_db, pinned_window):
     )
     assert ratelimit.prune() == 1
     assert db.query_one("SELECT 1 FROM rate_hits WHERE surface = 'signin'")
+
+
+def test_no_route_rate_cap_sits_inside_a_try_that_catches_it():
+    """RateLimited subclasses ValueError (the test above says why). A
+    ratelimit.check inside a try whose handler catches ValueError, Exception or
+    RateLimited answers 400 - wire-identical to a malformed request - and drops
+    the Retry-After header. So no route calls it inside such a try."""
+    import ast
+    import pathlib
+
+    from app import ratelimit
+
+    caught = {c.__name__ for c in ratelimit.RateLimited.__mro__}
+
+    def names(node):
+        if node is None:  # a bare except
+            return {"BaseException"}
+        if isinstance(node, ast.Tuple):
+            return set().union(*(names(e) for e in node.elts))
+        return {getattr(node, "attr", getattr(node, "id", ""))}
+
+    routes = pathlib.Path(__file__).resolve().parent.parent / "app" / "routes"
+    swallowed, checks = [], 0
+    for path in sorted(routes.glob("*.py")):
+        tree = ast.parse(path.read_text())
+        parent = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+        for call in ast.walk(tree):
+            func = getattr(call, "func", None)
+            if not (
+                isinstance(func, ast.Attribute)
+                and func.attr == "check"
+                and getattr(func.value, "id", "") == "ratelimit"
+            ):
+                continue
+            checks += 1
+            node = call
+            while not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Module)):
+                up = parent[node]
+                if (
+                    isinstance(up, ast.Try)
+                    and node in up.body
+                    and any(names(h.type) & caught for h in up.handlers)
+                ):
+                    swallowed.append(f"{path.name}:{call.lineno}")
+                node = up
+    assert checks > 100  # the walk found the calls it judges
+    assert swallowed == [], "move each ratelimit.check above its try"

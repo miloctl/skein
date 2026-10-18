@@ -860,3 +860,27 @@ def test_a_forged_signature_still_fails_after_the_refresh(jwks, issuer):
     with pytest.raises(oidc.OIDCError):
         oidc.validate(_token(attacker))
     assert jwks.fetches >= 2  # it looked again, and refused again
+
+
+@pytest.mark.parametrize(
+    "fetch, wording",
+    [
+        (lambda: oidc._fetch_userinfo("token"), oidc.IDP_UNREACHABLE),
+        (lambda: oidc.exchange({"grant_type": "authorization_code"}), oidc.SIGNIN_UNAVAILABLE),
+    ],
+    ids=["userinfo", "token-exchange"],
+)
+def test_a_network_fault_reads_like_every_other_unreachable_provider(monkeypatch, fetch, wording):
+    """One condition, one wording: a refused connection and a 503 from the
+    same endpoint must read the same."""
+    monkeypatch.setattr(config, "OIDC_ISSUER", ISS)
+    monkeypatch.setattr(config, "OIDC_USERINFO_URL", "https://idp.test/userinfo")
+    monkeypatch.setattr(config, "OIDC_TOKEN_URL", "https://idp.test/token")
+
+    def down(request, timeout):
+        raise OSError("no route to host")
+
+    monkeypatch.setattr(oidc, "_open", down)
+    with pytest.raises(oidc.OIDCUnavailable) as refused:
+        fetch()
+    assert str(refused.value) == wording

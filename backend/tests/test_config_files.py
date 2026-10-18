@@ -273,3 +273,10 @@ def test_a_deeply_nested_file_degrades_instead_of_breaking_import(monkeypatch, t
     assert cfg.MODEL_PARAMS == {}
     assert "nested too deeply" in cfg.MODEL_PROVIDER_ERROR
     assert str(path) not in cfg.MODEL_PROVIDER_ERROR
+
+
+def test_a_negative_oidc_leeway_takes_the_default_not_zero(monkeypatch):
+    """Zero tolerance refuses every fresh token from an IdP whose clock runs
+    one second ahead (config.py says why), so a typo must not reach it."""
+    monkeypatch.setenv("SKEIN_OIDC_LEEWAY", "-5")
+    assert importlib.reload(config).OIDC_LEEWAY == 30

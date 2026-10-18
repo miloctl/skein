@@ -16,7 +16,7 @@ from .. import config, db
 from ..services.private_notes import FB_GUARD
 
 # strands' _DEFAULT_AGENT_ID; build_agent never overrides it
-_AGENT_ID = "default"
+SESSION_AGENT_ID = "default"
 
 
 def log_exchange(thread_id: str, user_text: str, assistant_text: str) -> None:
@@ -70,13 +70,13 @@ def _append_exchange(thread_id: str, user_text: str, assistant_text: str) -> Non
         if not db.query_one("SELECT 1 FROM chat_threads WHERE id = ? FOR SHARE", (thread_id,)):
             return
         messages: list = []
-        if repo.read_agent(thread_id, _AGENT_ID) is None:
+        if repo.read_agent(thread_id, SESSION_AGENT_ID) is None:
             # a command-first thread must not lose its opening exchange
             repo.create_session(Session(session_id=thread_id, session_type=SessionType.AGENT))
             repo.create_agent(
                 thread_id,
                 SessionAgent(
-                    agent_id=_AGENT_ID,
+                    agent_id=SESSION_AGENT_ID,
                     state={},
                     # the CONFIGURED manager's own state, not a hand-rolled
                     # dict and not a hardcoded class: restore_from_session
@@ -87,7 +87,7 @@ def _append_exchange(thread_id: str, user_text: str, assistant_text: str) -> Non
                 ),
             )
         else:
-            messages = repo.list_messages(thread_id, _AGENT_ID)
+            messages = repo.list_messages(thread_id, SESSION_AGENT_ID)
         next_id = messages[-1].message_id + 1 if messages else 0
         if messages and messages[-1].to_message()["role"] == "user":
             # a failed model call strands its user turn, and bedrock's
@@ -96,14 +96,14 @@ def _append_exchange(thread_id: str, user_text: str, assistant_text: str) -> Non
             last = messages[-1]
             target = last.redact_message if last.redact_message is not None else last.message
             target["content"].append({"text": user_text})
-            repo.update_message(thread_id, _AGENT_ID, last)
+            repo.update_message(thread_id, SESSION_AGENT_ID, last)
         else:
             user_msg: Message = {"role": "user", "content": [{"text": user_text}]}
             repo.create_message(
-                thread_id, _AGENT_ID, SessionMessage.from_message(user_msg, next_id)
+                thread_id, SESSION_AGENT_ID, SessionMessage.from_message(user_msg, next_id)
             )
             next_id += 1
         assistant_msg: Message = {"role": "assistant", "content": [{"text": assistant_text}]}
         repo.create_message(
-            thread_id, _AGENT_ID, SessionMessage.from_message(assistant_msg, next_id)
+            thread_id, SESSION_AGENT_ID, SessionMessage.from_message(assistant_msg, next_id)
         )

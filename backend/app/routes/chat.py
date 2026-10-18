@@ -730,17 +730,23 @@ def _attributed(r: dict, head: str) -> dict:
     return r
 
 
+def _fault_name(exc: BaseException) -> str:
+    """The only part of a provider failure that reaches a log, a transcript or
+    an error response. A provider SDK exception's message can carry request
+    IDs, raw HTTP content, or credential fragments."""
+    return type(exc).__name__
+
+
 def _agent_fault(exc: Exception) -> str:
     """One sentence per error class (the main.py classification, inside a
     stream): load says retry, configuration says who to ask, anything else
-    stays the unknown-fault line. Classified from the status code and class
-    name only - a provider exception's MESSAGE carries request IDs and
-    credential fragments, and an error response never echoes it. The frame
-    stays an SSE error on purpose: by the time a turn fails the stream is the
+    stays the unknown-fault line. Classified from the status code and
+    _fault_name only, never the exception's message. The frame stays an SSE
+    error on purpose: by the time a turn fails the stream is the
     response, and the pre-stream build_agent failure uses the same wording so
     one condition reads the same on every path."""
     status = getattr(exc, "status_code", None)
-    name = exc.__class__.__name__
+    name = _fault_name(exc)
     if status in (408, 429, 500, 502, 503, 504, 529) or any(
         marker in name for marker in ("Timeout", "Connection", "Overloaded", "RateLimit")
     ):
@@ -846,12 +852,10 @@ async def _summarize_title(thread_id: str, user: str) -> None:
             chat_threads.set_auto_title, thread_id, user, previous, "".join(parts)
         )
     except Exception as exc:
-        # Provider exceptions can carry prompt or credential fragments. The
-        # operation and class distinguish the fault without copying that body.
         logging.getLogger("skein.chat").warning(
             "thread title summary did not finish (thread=%s error=%s)",
             thread_id,
-            type(exc).__name__,
+            _fault_name(exc),
         )
 
 
@@ -957,13 +961,11 @@ async def _run_member(
         raise
     except Exception as exc:
         entry["status"] = "failed"
-        # The class name is the complete diagnostic here. A provider SDK error
-        # can carry raw HTTP content, so neither the log nor transcript gets it.
         logging.getLogger("skein.chat").warning(
-            "flock member %s failed (%s)", slug, type(exc).__name__
+            "flock member %s failed (%s)", slug, _fault_name(exc)
         )
         out.put_nowait(
-            {"type": "text", "text": f"{card['name']} did not answer ({exc.__class__.__name__})."}
+            {"type": "text", "text": f"{card['name']} did not answer ({_fault_name(exc)})."}
         )
     finally:
         # a member that died mid-loop reaches NEITHER drain above: the in-loop
@@ -1201,8 +1203,7 @@ async def _flock_stream(
                 synth_entry["status"] = "ok"
             except Exception as exc:
                 synth_entry["status"] = "failed"
-                # class name only, for the reason the member branch above gives
-                text = f"The merge step did not finish ({exc.__class__.__name__})."
+                text = f"The merge step did not finish ({_fault_name(exc)})."
                 transcript.append(text)
                 model_parts.append(text)
                 yield _sse({"type": "text", "text": text})
@@ -1658,13 +1659,11 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
     except Exception as exc:
         with contextlib.suppress(Exception):
             await run_in_threadpool(chat_threads.finish_model_turn, thread_id, turn_key)
-        # Provider exceptions can carry request IDs or credential fragments.
-        # The log gets the class only, and the transcript gets the public fault.
         logging.getLogger("skein.chat").warning(
             "agent construction failed (thread=%s user=%s error=%s)",
             thread_id,
             user,
-            type(exc).__name__,
+            _fault_name(exc),
         )
         fault = _agent_fault(exc)
         await run_in_threadpool(
@@ -1692,7 +1691,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 # so without this its words render as the specialist's.
                 open_section = False
                 transcript: list[str] = [masthead] if masthead else []
-                wrote = False  # ANY receipt - silences the guard (it told the truth)
+                any_receipt = False
                 filed = False  # wrote/queued only - a failed write must not tie a knot
                 # user turn first, assistant turn in finally: a cancelled stream
                 # (stop button, tab close, thread switch) keeps the partial exchange
@@ -1754,7 +1753,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                 async def pump(prompt: str):
                     """One model exchange, rendered. Factored out so the turn guard can
                     run a second one without duplicating the event handling."""
-                    nonlocal wrote, filed, open_section
+                    nonlocal any_receipt, filed, open_section
                     async for event in agent.stream_async(prompt):
                         if "data" in event:
                             if open_section:
@@ -1793,7 +1792,7 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                                 # heading names the author, so _attributed with the
                                 # SLUG as head strips the redundant suffix, exactly as
                                 # the flock's per-member drain does.
-                                wrote = True
+                                any_receipt = True
                                 filed = filed or channel_receipt["kind"] in ("wrote", "queued")
                                 r = _attributed(channel_receipt, slug)
                                 transcript.append(_receipt_line(r))
@@ -1829,13 +1828,13 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                         # model makes - drained as it happens, so it lands with the
                         # tool call that caused it
                         for r in receipts.drain():
-                            wrote = True
+                            any_receipt = True
                             filed = filed or r["kind"] in ("wrote", "queued")
                             r = _attributed(r, turn_head)
                             transcript.append(_receipt_line(r))
                             yield _sse({"type": "receipt", **r})
                     for r in receipts.drain():
-                        wrote = True
+                        any_receipt = True
                         filed = filed or r["kind"] in ("wrote", "queued")
                         r = _attributed(r, turn_head)
                         transcript.append(_receipt_line(r))
@@ -1847,11 +1846,11 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                         yield chunk
                     # the turn is closing: a filing request that wrote nothing must say
                     # so, because silence reads as success
-                    note = turn_guard.unfiled(message, wrote)
+                    note = turn_guard.unfiled(message, any_receipt)
                     if note and turn_guard.reprompt_enabled():
                         async for chunk in pump(turn_guard.OBJECTION):
                             yield chunk
-                        note = turn_guard.unfiled(message, wrote)  # budget: one, always
+                        note = turn_guard.unfiled(message, any_receipt)  # budget: one, always
                     if note:
                         transcript.append(_receipt_line(note))
                         yield _sse({"type": "receipt", **note})
@@ -1860,7 +1859,12 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                         # filed nothing both fire, and this one's detail tells the
                         # author to use the capture prefix they already typed
                         miss = await run_in_threadpool(
-                            turn_guard.unnotified, message, wrote, user, persona, tuple(consulted)
+                            turn_guard.unnotified,
+                            message,
+                            any_receipt,
+                            user,
+                            persona,
+                            tuple(consulted),
                         )
                         if miss:
                             transcript.append(_receipt_line(miss))
@@ -1883,13 +1887,11 @@ async def chat(req: ChatRequest, request: Request, user: CurrentUser, viewer: Vi
                     # before the done frame, never after: _summarize_title says why
                     await _summarize_title(ui_thread, user)
                 except Exception as exc:  # surface model/config errors to the UI
-                    # Provider SDK errors can carry request IDs or credential fragments.
-                    # The log gets the class only, and the transcript gets the public fault.
                     logging.getLogger("skein.chat").warning(
                         "chat stream failed (thread=%s user=%s error=%s)",
                         thread_id,
                         user,
-                        type(exc).__name__,
+                        _fault_name(exc),
                     )
                     fault = _agent_fault(exc)
                     transcript.append(f"\n\n> {fault}\n")
