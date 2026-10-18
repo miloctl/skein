@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.17 - 2026-10-17
+
+### Contracts
+
 - No extension API or data-format changes. Extension API 1.0 remains compatible. The REST additions (`GET /api/chats/search`, `through=` on `GET /api/chats/{thread_id}/messages/page`) are new and optional, and no migration ships.
 
 ### Behavior
