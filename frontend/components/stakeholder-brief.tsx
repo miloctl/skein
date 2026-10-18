@@ -45,7 +45,7 @@ export function StakeholderBrief({ eventId }: { eventId: number }) {
     // app/page.tsx, and components/event-panel.tsx).
     <div className="ml-1.5 text-xs text-ink-3">
       {/* the trigger STAYS mounted and toggles. Unmounting it on activation
-          dropped a keyboard reader's focus to <body>, and left a failed fetch
+          drops a keyboard reader's focus to <body>, and leaves a failed fetch
           with no control at all - no retry and no way back. Collapsing clears
           nothing, so re-opening after a failure refetches (threads is still
           null). */}

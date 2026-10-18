@@ -17,10 +17,10 @@
  *  It builds React elements and never touches dangerouslySetInnerHTML: an
  *  artifact body is assembled from rows people wrote (task titles, decision
  *  text, promise wording), so treating it as HTML would make every generator
- *  an injection sink. Same reason nav-search parses FTS5's <b> into runs. A
- *  ```mermaid fence is the ONE exception, and it is quarantined in
- *  components/mermaid-diagram.tsx - read the comment there before touching
- *  it. Every other fence renders as literal text in a <pre>. */
+ *  an injection sink. Same reason components/snippet.tsx parses a search
+ *  snippet's <b> into runs. A ```mermaid fence is the ONE exception, and it
+ *  is quarantined in components/mermaid-diagram.tsx - read the comment there
+ *  before touching it. Every other fence renders as literal text in a <pre>. */
 
 import { MermaidDiagram } from "@/components/mermaid-diagram";
 
@@ -110,11 +110,11 @@ function parse(markdown: string): Block[] {
     }
     const heading = /^(#{1,3})\s+(.*)$/.exec(line);
     // the indent is captured, not skipped: readout.py indents an engagement's
-    // receipts two spaces under their engagement, and flattening those made
-    // three receipts read as three more engagements
+    // receipts two spaces under their engagement, and flattened they read as
+    // three more engagements
     const bullet = /^(\s*)[-*]\s+(.*)$/.exec(line);
-    // digest.py wraps its LLM summary in one, and it rendered as a literal
-    // "> " at the head of the paragraph a reader starts on
+    // digest.py wraps its LLM summary in one: without this case the paragraph
+    // a reader starts on opens with a literal "> "
     const quote = /^>\s?(.*)$/.exec(line);
     if (quote) {
       flushPara();

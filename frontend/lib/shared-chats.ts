@@ -92,10 +92,11 @@ export function announceSharedChatActivity() {
 
 // Same-tab writers dispatch a synthetic new Event("storage") for ANY
 // localStorage change - the sidebar toggle (lib/chat-layout.ts), theme
-// adoption (lib/theme.ts), the manage toggle. Acting on that form wiped the
-// open private room on a sidebar click. Only a real cross-tab StorageEvent
-// carries a key; same-tab identity changes arrive as skein-identity-change
-// (lib/api.ts, lib/auth.ts). A null key on a real event is storage.clear().
+// adoption (lib/theme.ts), the manage toggle. Treated as an identity change,
+// that form wipes the open private room on a sidebar click. Only a real
+// cross-tab StorageEvent carries a key; same-tab identity changes arrive as
+// skein-identity-change (lib/api.ts, lib/auth.ts). A null key on a real event
+// is storage.clear().
 export function isIdentityEvent(event: Event): boolean {
   if (event.type !== "storage") return true;
   if (!(event instanceof StorageEvent)) return false;
@@ -103,8 +104,8 @@ export function isIdentityEvent(event: Event): boolean {
 }
 
 // lib/theme.ts dispatches a synthetic storage event on every paint. Treated
-// as an identity change, one hue drag blanked the Settings identity panel,
-// and a paint or a write in another tab cleared an unsaved 1:1 note draft on
+// as an identity change, a hue drag blanks the Settings identity panel, and a
+// paint or a write in another tab clears an unsaved 1:1 note draft on
 // People. lib/api.ts::subscribeUser stays unfiltered: auth-gate reads session
 // changes that are not identity changes through it.
 export function subscribeIdentity(cb: () => void) {

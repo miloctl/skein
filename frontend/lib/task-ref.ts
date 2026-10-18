@@ -11,11 +11,11 @@
  *  The action is authoritative because services/activity.py's registry is
  *  what names the entity in the first place. An action missing from this set
  *  simply gets no link, which is the safe direction: a row with no link is a
- *  row the reader expands, exactly as before.
+ *  row the reader expands.
  *
- *  In lib, not app/activity/page.tsx where it began: My Day's "Since
- *  yesterday" digest reads the same ledger rows, and importing a page module
- *  from another page drags its whole tree into the bundle.
+ *  In lib, not in app/activity/page.tsx: My Day's "Since yesterday" digest
+ *  reads the same ledger rows, and importing a page module from another page
+ *  drags its whole tree into the bundle.
  */
 const TASK_ACTIONS = new Set([
   "create_task",

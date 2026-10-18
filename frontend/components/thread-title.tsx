@@ -7,8 +7,8 @@ import { reportStatus } from "@/lib/status";
 import { chatThreads } from "@/lib/chat-threads";
 
 /** The conversation's name, as the page's h1. With the sidebar closed this
- *  was the only thing telling you which of your chats you were in - and the
- *  only rename path was three levels into a per-row menu. */
+ *  is the only thing telling you which of your chats you are in, and it
+ *  renames the chat in place, without the sidebar's per-row menu. */
 export function ThreadTitle({ threadId }: { threadId: string }) {
   const [title, setTitle] = useState("");
   const [editing, setEditing] = useState(false);

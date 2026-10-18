@@ -149,7 +149,7 @@ export function registerFrontendExtensions(
     );
   // The backend also bounds the raw query at 2,000 characters, and that
   // bound bites FIRST for long action names: 64 thirty-character actions
-  // passed the count check, got a 422, and the provider hid every gated
+  // pass the count check, get a 422, and the provider hides every gated
   // contribution with nothing said. Fail the build, not the page.
   const encoded = encodeURIComponent([...actions].sort().join(","));
   if (encoded.length > MAX_POLICY_QUERY_CHARS)

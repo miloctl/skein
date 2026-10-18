@@ -49,9 +49,9 @@ const NODE_W = 152;
 // three sub-lines at 12 apart plus the label: at 60 the token line fell
 // outside the box and overlapped the edge beneath it.
 const NODE_H = 74;
-/** Every node keeps NODE_W with a 12-unit gap, so 4 members do not overlap.
- *  MAX_MEMBERS is 4 (backend/app/services/flocks.py), and at the old fixed
- *  560 the four boxes crossed each other by 20 units. */
+/** The width grows with the member count so every node keeps NODE_W and a
+ *  12-unit gap. MAX_MEMBERS is 4 (backend/app/services/flocks.py), and at a
+ *  fixed 560 four boxes cross each other. */
 const width = (members: number) => Math.max(560, (members + 1) * (NODE_W + 12));
 
 /** Status is spelled out next to every node. Colour alone is not a signal a
@@ -143,8 +143,7 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
   const answered = members.filter((m) => m.status === "ok").length;
   /** Wall clock is the slowest member, but SPEND is every member added up
    *  plus the merge - the number a flock's cost ceiling is read against.
-   *  flock_traces has carried per-member tokens since flocks shipped and
-   *  nothing drew them, so a 3-member turn looked as cheap as a 1-member one. */
+   *  Without the sum, a 3-member turn looks as cheap as a 1-member one. */
   const tokensOf = (m: { tokens_in: number; tokens_out: number }) =>
     m.tokens_in + m.tokens_out;
   const turnTokens =
@@ -195,11 +194,10 @@ export function FlockDiamond({ trace }: { trace: FlockTrace }) {
       <svg
         viewBox={`0 0 ${W} ${H}`}
         // EXACTLY its own width, never `w-full`. A viewBox keeps its aspect
-        // ratio, so a stretched diagram grows taller too: at 1070px of card
-        // this 656x260 drawing rendered 1070x391, and three of them made a
-        // card taller than the viewport. Fixed at W it also never scales its
-        // 11px labels down (a 4-member diagram hit 5.6px on a phone once), and
-        // the overflow-x-auto wrapper on /agents does the scrolling instead.
+        // ratio, so a stretched diagram grows taller too, and three of them
+        // make a card taller than the viewport. Fixed at W it also never
+        // scales its 11px labels down on a phone, and the overflow-x-auto
+        // wrapper on /agents does the scrolling instead.
         style={{ width: W }}
         className="h-auto"
         role="img"

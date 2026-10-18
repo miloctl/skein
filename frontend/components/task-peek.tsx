@@ -15,15 +15,13 @@ import { timeAgo } from "@/lib/time";
 
 /** The landing place for every reference to a task.
  *
- *  Before this, My Day named the exact row ("task #12 due") and linked to
- *  /dashboard - the top of a thirteen-section page, where the reader hunted
- *  by eye. `/ask` citations and activity rows had the same dead end. The
- *  panel is addressed by `?task=<id>` so those links stay ordinary links.
+ *  The panel is addressed by `?task=<id>`, so a link from a My Day row, an
+ *  `/ask` citation or an activity row stays an ordinary link and lands on
+ *  the task itself rather than on the top of a long page.
  *
  *  Back-button-safe by construction: opening pushes a history entry and
  *  closing pops it, so Back closes the panel instead of leaving the page
- *  the reader was working on. A panel that swallowed Back would be worse
- *  than the scroll it replaces.
+ *  the reader was working on.
  */
 
 export type PeekTask = {
@@ -67,7 +65,7 @@ export type PeekTask = {
   depth_capped?: boolean;
   // the open blockers filed against this task (services/work.py::blocking).
   // A blocker is what puts a task in status 'blocked', so without these the
-  // panel showed the state and could not name its cause.
+  // panel shows the state and cannot name its cause.
   blockers?: {
     id: number;
     title: string;
@@ -77,8 +75,8 @@ export type PeekTask = {
     escalated_at?: string | null;
   }[];
   // the finding that asked for this work, when it was converted from one
-  // (services/insights.py::convert_finding). The link was stored and never
-  // read back, so a task made because a rule fired could not say so.
+  // (services/insights.py::convert_finding), so a task made because a rule
+  // fired can say so.
   source_finding?: {
     id: number;
     rule_id: string;
@@ -164,10 +162,10 @@ export function PeekLink({
       className={`wrap-anywhere text-left underline decoration-line-strong underline-offset-2 hover:decoration-ink-3 ${className}`}
     >
       {/* the verb is ADDED, never an aria-label: a label replaces the whole
-          subtree, so the task title left the accessibility tree entirely and
-          a screen reader read twelve rows as "Open task #4, Open task #31".
-          Voice control was worse - the visible name was unspeakable. The
-          sibling edit button already names the task this way. */}
+          subtree and drops the task title from the accessible name, so a
+          screen reader reads a list as "Open task #4, Open task #31" and
+          voice control cannot speak the visible name. The sibling edit
+          button already names the task this way. */}
       <span className="sr-only">Open </span>
       {children}
     </button>
@@ -288,10 +286,10 @@ export function TaskPeek() {
     const refresh = nonce ? `?refresh=${nonce}` : "";
     if (!nonce && loadedRef.current?.id === taskId && loadedRef.current.task) {
       // a reopen: the scoped read already succeeded this session and the
-      // panel renders that task now, so the receipt is due now. Tied to the
-      // refetch below, it was lost whenever a close landed first - and after
-      // the notices write cleared lib/api's GET cache, every reopen was a
-      // real fetch, so First Watch's search step counted nothing.
+      // panel renders that task now, so the receipt is due now. Dispatched
+      // here, not after the refetch below: a close can land before the
+      // refetch answers, and First Watch (components/first-watch.tsx) then
+      // never sees the receipt.
       window.dispatchEvent(
         new CustomEvent("skein-peek-result", { detail: { taskId, status: "loaded" } }),
       );
@@ -371,8 +369,8 @@ export function TaskPeek() {
 
   useEffect(() => {
     // `gated` too, and not only in the render below: an effect still runs for
-    // a component that returns null, so a ?task= link on a gated page inerted
-    // every body sibling - the gate included - and locked the page out with
+    // a component that returns null, so a ?task= link on a gated page inerts
+    // every body sibling - the gate included - and locks the page out with
     // no panel on screen to explain it.
     if (!taskId || gated) return;
     // aria-modal prunes the screen reader's buffer; it does NOT touch the
@@ -432,8 +430,9 @@ export function TaskPeek() {
       >
         <div className="flex items-start justify-between gap-2">
           {/* live: focus moves to Close in the same commit as the open, while
-              the fetch is still in flight, so the panel announced a bare
-              number and the title that arrived later was never spoken */}
+              the fetch is still in flight, so without aria-live the panel
+              announces a bare number and the title that arrives later is
+              never spoken */}
           <h2 aria-live="polite" className="text-sm font-medium text-ink">
             <span className="text-ink-3">#{taskId}</span>{" "}
             {task?.title ?? (error ? "Not available" : "Loading…")}
@@ -485,11 +484,10 @@ export function TaskPeek() {
               </dl>
             ) : null}
             {/* What is stopping it, named. `status: blocked` is set BY a
-                blocker (services/blockers.py::raise_blocker), so a panel that
-                showed the status without the row behind it left the reader to
-                find the blocker register by hand - and nothing on the way
-                there said which of its rows was theirs. Impact is what sets
-                the escalation clock, and the owner is who can stop it. */}
+                blocker (services/blockers.py::raise_blocker), so the status
+                without the row behind it leaves the reader to find the
+                blocker register by hand. Impact is what sets the escalation
+                clock, and the owner is who can stop it. */}
             {task.blockers && task.blockers.length > 0 ? (
               <>
                 <h3 className="mt-2 skein-section-title text-weld">
@@ -550,13 +548,11 @@ export function TaskPeek() {
             </p>
 
             {/* The write half of "the one landing place for every task
-                reference": every surface routes task references here, and the
-                panel offered nothing but Delegate - changing a status meant
-                leaving for Browse, whose edit row holds three of these seven
-                fields. A DELEGATED task's status stays off the form: the
-                sponsor's verdict is the only path that ends a delegation
-                (services/delegation.py), and offering the select here would
-                collect an edit the server refuses. */}
+                reference": every surface routes task references here, so the
+                panel edits the task in place. A DELEGATED task's status stays
+                off the form: services/work.py::_update_task_locked refuses
+                void from everyone and done from anyone but the sponsor, whose
+                verdict goes through services/delegation.py::accept_completion. */}
             <EditControls task={task} onSaved={reload} />
 
             {/* Delegation, from the UI. The Agents page empty state points
@@ -569,10 +565,9 @@ export function TaskPeek() {
             ) : null}
 
             {/* The other direction. `waiting_on` above says what this task is
-                stuck behind; the edge cost the person who typed it and paid
-                them nothing until this line existed. Absent when nothing
-                waits - a "Unblocks: nothing" heading on most tasks would be
-                noise on every panel to serve the few. */}
+                stuck behind, and this list says what finishing it releases.
+                Absent when nothing waits - a "Unblocks: nothing" heading on
+                most tasks would be noise on every panel to serve the few. */}
             {task.unblocks && task.unblocks.length > 0 ? (
               <>
                 <h3 className="mt-2 skein-section-title text-ink-3">
@@ -655,9 +650,7 @@ export function TaskPeek() {
 
             </details>}
 
-            {/* How this task came to exist, and what has happened since.
-                `origin` was a label on the row and the rest of the chain lived
-                in three other tables (services/provenance.py). */}
+            {/* How this task came to exist, and what has happened since. */}
             <div className="mt-2 border-t border-line pt-2">
               <Provenance entity="task" entityId={task.id} revision={nonce} />
             </div>
@@ -1045,7 +1038,7 @@ function Delegate({ taskId, onDone }: { taskId: number; onDone: () => void }) {
       </select>
       {/* the contract fields, shown once an agent is picked - before that
           they are two mystery inputs on every task panel. Both optional:
-          a delegation without them is what every delegation was before. */}
+          a delegation without them is a plain hand-off. */}
       {picked ? (
         <>
           <label className="sr-only" htmlFor={`delegate-criteria-${taskId}`}>
@@ -1181,7 +1174,7 @@ function ActivationGuide({
   } else if (wake?.status === "completed") {
     // the server's outcome codes (services/agent_wakeups.py _SAFE_OUTCOMES)
     // outrank the worklog guess below: a refusal read as "did not record
-    // progress" blamed the agent for a write the gate stopped
+    // progress" blames the agent for a write the gate stopped
     if (wake.reason === "cancelled") {
       message =
         "The agent turn stopped when unattended runs were paused. Read the worklog before you start another turn.";

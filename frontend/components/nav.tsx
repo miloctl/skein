@@ -9,8 +9,6 @@ import { NAVIGATION, ROUTE_TITLES, activeNavigation } from "@/lib/navigation";
 import { SkeinMark } from "@/components/mark";
 import { NavSearch } from "@/components/nav-search";
 import { PageHelp } from "@/components/page-help";
-// identity/key changes notify via the storage event (cross-tab natively,
-// same-tab dispatched by the lib/api writers)
 import { actionError, api, getUser, subscribeUser } from "@/lib/api";
 import { bridgeAttentionChange } from "@/lib/attention";
 import { reportStatus } from "@/lib/status";
@@ -78,8 +76,8 @@ export function Nav({ children }: { children?: React.ReactNode }) {
   // two independent numbers - see the poll below for why they cannot be one
   const [attention, setAttention] = useState({ inbox: 0, yours: 0, chats: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
-  // fetched lazily whenever the menu opens. Keeping the first answer forever
-  // showed another identity's progress after a same-tab name change.
+  // fetched lazily whenever the menu opens: a first answer kept forever shows
+  // another identity's progress after a same-tab name change.
   const [guideMeta, setGuideMeta] = useState<{
     tied_count: number;
     total: number;
@@ -114,7 +112,9 @@ export function Nav({ children }: { children?: React.ReactNode }) {
     // number it would carry describes a workspace the reader cannot open. The
     // `locked` dependency also makes signing in re-poll at once, so the badge
     // is current the moment the workspace comes back. `locked`, not `gated`:
-    // the gate publishes `gated` from its effect, which runs AFTER this one.
+    // the gate publishes `gated` from an effect, so the render this effect
+    // closes over still holds the old value, and the poll fires once before
+    // the next commit (lib/auth.ts::sessionLocked).
     if (locked) return;
     let generation = 0;
     const poll = () => {
@@ -122,8 +122,8 @@ export function Nav({ children }: { children?: React.ReactNode }) {
       // two numbers, two readers: `inbox` is what the Inbox badge promises
       // (proposals + triage, the rows that page actually shows) and `yours` is
       // what is addressed to this person by name. The tab title carries
-      // `yours` - it is the only part of Skein visible from an editor, and it
-      // said "3" about a queue nobody had assigned to the reader.
+      // `yours` - it is the only part of Skein visible from an editor, and a
+      // count of the whole queue there reads as work assigned to the reader.
       api<{ inbox: number; yours: number; chats?: number }>("/api/attention")
         .then((r) => {
           if (g === generation)
@@ -132,8 +132,8 @@ export function Nav({ children }: { children?: React.ReactNode }) {
         .catch(() => {});
     };
     poll();
-    // a backgrounded phone tab shouldn't wake for this, and coming back
-    // should refresh immediately rather than show a stale badge for 30s
+    // a backgrounded phone tab does not wake for this, and coming back
+    // refreshes at once rather than showing a stale badge for 30s
     const tick = () => document.visibilityState === "visible" && poll();
     const t = setInterval(tick, 30_000);
     document.addEventListener("visibilitychange", tick);

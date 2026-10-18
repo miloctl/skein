@@ -144,7 +144,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     // overflow-y-auto with the centering on an INNER wrapper: justify-center
     // on a scroll container pushes overflow out of both ends, and the top of
     // it cannot be reached by scrolling. At 400% zoom (WCAG 1.4.10 reflow,
-    // 320x256) the sign-in fault was the part that fell off the bottom.
+    // 320x256) the sign-in fault is the part that falls off the bottom.
     <main
       id="content"
       ref={panel}

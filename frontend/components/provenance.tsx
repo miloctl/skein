@@ -7,11 +7,10 @@ import { timeAgo } from "@/lib/time";
 
 /** How this row came to exist, and what has happened to it since.
  *
- *  `origin` said "agent" and stopped there. That is a label. The reason to
- *  trust a row - or to look at it again - is the chain: an agent proposed it,
- *  a named person approved it on Tuesday, and it has been edited twice since.
- *  Every one of those facts was already stored, in four different tables, with
- *  no surface that put them together (services/provenance.py).
+ *  `origin` alone is a label. The reason to trust a row - or to look at it
+ *  again - is the chain: an agent proposed it, a named person approved it on
+ *  Tuesday, and it has been edited twice since. Those facts live in four
+ *  tables, and services/provenance.py puts them together.
  *
  *  Lazy and collapsed: most rows are read without anybody asking where they
  *  came from, and a request per task panel to answer a question nobody asked
@@ -33,7 +32,7 @@ type Lineage = {
   verdict_is_weak: boolean;
   // no `detail`: it is the one column in `activity` that can carry a person's
   // name from a writer that does not route through `scope.detail`, and nothing
-  // here renders it, so the server stopped selecting it
+  // here renders it, so the server does not select it
   history: { actor: string; action: string; created_at: string }[];
 };
 
@@ -84,7 +83,7 @@ export function Provenance({
   return (
     <div className="space-y-1 text-xs text-ink-3">
       {/* the trigger stays mounted and toggles: unmounting it on activation
-          dropped keyboard focus to <body>, and a failed fetch then had no
+          drops keyboard focus to <body>, and a failed fetch then has no
           control to retry with. Collapsing leaves `d` null, so re-opening
           after a failure asks again. */}
       <button

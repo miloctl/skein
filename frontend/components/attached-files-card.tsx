@@ -7,8 +7,6 @@ import { Card as Section, EmptyState } from "@/components/card";
 import { actionError, api, authenticatedFetch } from "@/lib/api";
 import { checkSessionRevision, sessionRevision } from "@/lib/auth";
 import { reportStatus } from "@/lib/status";
-// moved to lib/size.ts so the activity feed can humanize the byte counts
-// its ledger rows carry without importing this card's tree
 import { size } from "@/lib/size";
 
 type StoredFile = {

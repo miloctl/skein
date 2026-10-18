@@ -29,7 +29,8 @@ function searchBlocked() {
  *  With embeddings on, search() blends semantic hits itself, so the two
  *  return the same rows for an ordinary question and the prefix only shows
  *  through on a query whose real keyword is buried in words that miss. That
- *  is why the placeholder no longer advertises it.
+ *  is why the placeholder does not advertise it: the field guide teaches it,
+ *  where there is room to say what it does.
  *
  *  The box is also the command palette, for the theme only (lib/commands.ts).
  *  A command matches while the reader types and is a button above the
@@ -48,11 +49,11 @@ function announceSearchResult(entity: string, id: number) {
   );
 }
 
-/** entity -> the page that lists it, for every indexed entity except task,
- *  which opens the peek instead. An entity missing here renders as dead
- *  text, which is the exact complaint this table exists to close -
- *  services/search.py::_ENTITY_TABLE is the list to mirror when a new entity
- *  is indexed. */
+/** entity -> the page that lists it. EntityLink routes task (to the peek) and
+ *  document itself, and every other indexed entity needs a row here. An
+ *  entity missing from both renders as dead text, which is the exact
+ *  complaint this table exists to close - INDEXED_KINDS in services/search.py
+ *  is the set to mirror when a new entity is indexed. */
 const ENTITY_PAGE: Record<string, string> = {
   blocker: "/",
   decision: "/charter",
@@ -86,7 +87,7 @@ function EntityLink({
   if (entity === "task")
     return (
       // onDone on the BUTTON, not a wrapping span: on the span, a click
-      // landing in its padding closed the dropdown without opening anything
+      // landing in its padding closes the dropdown without opening anything
       <PeekLink
         taskId={entityId}
         onActivate={() => {
@@ -142,9 +143,10 @@ function EntityLink({
         announceSearchResult(entity, entityId);
         // Announce the fragment, the same way PeekLink announces the peek.
         // A next/link soft navigation fires NO hashchange and NO popstate, so
-        // a page already mounted at this route learns nothing: picking a
-        // general decision while standing on /charter changed the address bar
-        // and left the list unwidened, unscrolled and unfocused.
+        // a page already mounted at this route learns nothing: without this
+        // event, picking a general decision while standing on /charter changes
+        // the address bar and leaves the list unwidened, unscrolled and
+        // unfocused.
         //
         // The target travels IN the event, never read from location by the
         // listener: Next updates the URL inside a transition that finishes
@@ -196,11 +198,6 @@ function CitationRef({
   );
 }
 
-/** An empty result is the moment read intent turns into write intent: the
- *  reader looked for a record, there is none, and filing one is the next
- *  useful move. Outside the nav button this is the only place the shortcut
- *  is taught. It names the button rather than a keystroke: ⌘K focuses this
- *  search box, and capture has no shortcut of its own. */
 function exactReference(query: string): { entity: string; id: number } | null {
   const short = /^#(\d+)$/.exec(query.trim());
   if (short) return { entity: "task", id: Number(short[1]) };
@@ -226,6 +223,11 @@ function HitRow({ hit, onDone }: { hit: Hit; onDone: () => void }) {
   );
 }
 
+/** An empty result is the moment read intent turns into write intent: the
+ *  reader looked for a record, there is none, and filing one is the next
+ *  useful move. The hint names the button rather than a key: a person can
+ *  turn the C shortcut off (lib/capture-key.ts), and the button does not
+ *  depend on that setting. */
 function CaptureHint() {
   return (
     <p className="mt-1 text-xs text-ink-3">
@@ -255,10 +257,8 @@ export function NavSearch() {
   // read by the ⌘K handler, which is registered once with no dependencies
   const canOpen = useRef(false);
 
-  // ⌘K focuses search. It is the command-palette convention every other
-  // product follows, and it used to open quick capture here - a box that
-  // WRITES a row, next to a box that reads. The listener is unconditional
-  // because the box is always mounted in the nav.
+  // ⌘K focuses search, never capture (components/shortcut.tsx says why). The
+  // listener is unconditional because the box is always mounted in the nav.
   useEffect(() => {
     const onShortcut = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -374,10 +374,9 @@ export function NavSearch() {
   const relatedHits = exactHit ? hits?.slice(1) ?? [] : hits ?? [];
 
   return (
-    // flex-1 min-w-0 below `sm`, a fixed box above it. This field is the last
-    // thing added to the phone header, and at a fixed 144px the row needed
-    // 385px of a 360px viewport - the logo, the name and the capture button
-    // were all sized before it existed. Flexing rather than picking a smaller
+    // flex-1 min-w-0 below `sm`, a fixed box above it. The logo, the name and
+    // the capture button share the phone header with this field, and a fixed
+    // width overflows a 360px viewport. Flexing rather than picking a smaller
     // number is what keeps it correct in every theme pack: phosphor and
     // atelier raise --fs-xs, so a width that fits Loom overflows those two.
     <div ref={boxRef} className="relative min-w-0 flex-1 sm:flex-none">
@@ -411,12 +410,6 @@ export function NavSearch() {
         }}
         enterKeyHint="search"
         aria-describedby={semantic ? "nav-search-semantic" : undefined}
-        // "or ? to ask" promised a question-answerer and delivered a second
-        // pass over the same keyword index. Once semantic hits blend into
-        // search() itself, the two return the SAME rows for a natural
-        // question - measured - so the prefix no longer earns a place in a
-        // 208px box. It still works, and the field guide still teaches it,
-        // where there is room to say what it actually does.
         placeholder="Search"
         className="w-full rounded-lg border border-line-strong bg-transparent py-1 pl-2 pr-12 text-xs outline-none focus:border-thread-solid sm:w-52"
       />
@@ -458,10 +451,11 @@ export function NavSearch() {
             <div
               role="region"
               aria-label="Search results"
-              // a landmark announces NOTHING when it appears, so pressing Enter
-              // was met with silence - no result count, no "nothing matches", no
-              // error. Not a combobox: activation here is Tab-then-Enter, and the
-              // role would promise arrow-key navigation that does not exist.
+              // a landmark announces NOTHING when it appears, so without
+              // aria-live pressing Enter is met with silence - no result count,
+              // no "nothing matches", no error. Not a combobox: activation here
+              // is Tab-then-Enter, and the role would promise arrow-key
+              // navigation that does not exist.
               aria-live="polite"
               aria-busy={busy}
             >

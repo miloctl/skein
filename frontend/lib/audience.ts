@@ -3,9 +3,9 @@ import { useCallback, useSyncExternalStore } from "react";
 import { getUser, subscribeUser } from "@/lib/api";
 import { sessionSnapshot, subscribeSession } from "@/lib/auth";
 
-/** The audience a person last picked on one form (standup, capture, time
- *  away), remembered per browser. Until they pick, each of these forms starts
- *  at "only you" (docs/VISIBILITY.md). Keyed by the signed-in name: on a
+/** The audience a person last picked on one form, remembered per browser and
+ *  per form key. Until they pick, each of these forms starts at "only you"
+ *  (docs/VISIBILITY.md). Keyed by the signed-in name: on a
  *  shared browser, one person's "everyone on the roster" must not become the
  *  next person's default. `valid` rejects a value an older build wrote.
  *
@@ -69,9 +69,11 @@ export const ONLY_YOU: TierChoice = { visibility: "private", crew_id: 0 };
 export const ROSTER: TierChoice = { visibility: "workspace", crew_id: 0 };
 
 /** Whether "only you" can be the start. A weak identity (a trusted-header
- *  name with no key) reads no private row, so a private default hid a
- *  person's own standup from them. The server applies the same rule when a
- *  request names no tier (routes/api.py::_personal_default). */
+ *  name with no key) reads no private row, so a private default - or a
+ *  remembered "only you" from a signed-in session on this browser - files a
+ *  record its own author cannot open. Every form passes this into both the
+ *  default and the `valid` check of useRememberedAudience. The server applies
+ *  the same rule when a request names no tier (routes/api.py::_personal_default). */
 export function useStrongIdentity(): boolean {
   return useSyncExternalStore(
     subscribeSession,

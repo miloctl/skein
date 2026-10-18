@@ -136,8 +136,8 @@ export function EventForm({
   const [busy, setBusy] = useState(false);
   const strong = useStrongIdentity();
   // "only you" first for a signed-in person, as every personal record starts
-  // (routes/api.py::_personal_default). A weak identity reads no private
-  // row, so it would file a meeting its own author cannot open.
+  // (routes/api.py::_personal_default). Never for a weak identity
+  // (lib/audience.ts::useStrongIdentity).
   const [tier, setTier] = useRememberedAudience(
     "event",
     strong ? ONLY_YOU : ROSTER,
@@ -167,7 +167,9 @@ export function EventForm({
       onKeyDown={(e) => {
         if (e.key !== "Escape" || e.nativeEvent.isComposing) return;
         // Escape cancels the form. Inside the event panel it must not also
-        // close the panel, whose listener sits on document with React's own
+        // close the panel, whose listener sits on document beside React's own
+        // (components/event-panel.tsx). stopPropagation cannot stop a listener
+        // on the same node, so only stopImmediatePropagation keeps it quiet.
         e.stopPropagation();
         e.nativeEvent.stopImmediatePropagation();
         onCancel();

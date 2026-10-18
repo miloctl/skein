@@ -1,15 +1,14 @@
 /** The one place a surface says "that worked" or "that failed".
  *
- *  36 call sites used window.alert(), which is worse than it looks: after a
- *  few dialogs browsers offer "prevent this page from creating more dialogs",
- *  and once that is ticked every later failure is swallowed in silence - the
- *  app looks like it is working while writes fail. alert() also blocks, steals
- *  focus, and queues serially when several requests fail together.
+ *  Never window.alert(), which is worse than it looks: after a few dialogs
+ *  browsers offer "prevent this page from creating more dialogs", and once
+ *  that is ticked every later failure is swallowed in silence - the app looks
+ *  like it is working while writes fail. alert() also blocks, steals focus,
+ *  and queues serially when several requests fail together.
  *
- *  A store rather than page state, because 12 of those sites live in nested
- *  components (chat-sidebar, thread-title, standup-card, nav) that have no
- *  page banner to write into and would otherwise need props threaded through
- *  the whole tree.
+ *  A store rather than page state, because nested components (chat-sidebar,
+ *  thread-title, standup-card, nav) have no page banner to write into and
+ *  would otherwise need props threaded through the whole tree.
  */
 
 import { isIdentityEvent } from "./shared-chats";
@@ -17,8 +16,7 @@ import { isIdentityEvent } from "./shared-chats";
 export type StatusTone = "failure" | "confirmation";
 export type Status = { message: string; tone: StatusTone; id: number };
 
-/** Confirmations clear themselves; failures do not. Matches what ThemeSync
- *  used for the theme-adopted note it originally owned. */
+/** Confirmations clear themselves; failures do not. */
 const CONFIRMATION_MS = 6000;
 
 let current: Status | null = null;

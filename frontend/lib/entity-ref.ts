@@ -26,12 +26,11 @@ const HREF: Record<string, (id: number) => string> = {
   // `PeekLink`, which pushes the state and announces it - components/receipt.tsx
   // is the caller this rule exists for.
   task: (id) => `?task=${id}`,
-  // one ROW, not the card that holds it. These four named the section
-  // (`#milestones`, `#blockers`, `#questions`, `#promises`) and no element
-  // ever carried those ids, so the fragment did nothing and the reader landed
-  // at the top of a thirteen-section page holding an id to hunt for. The
-  // spellings live with the rows - app/dashboard/page.tsx and
-  // app/portfolio/page.tsx - and a rename there must change these lines too.
+  // one ROW, not the card that holds it: a fragment that names an id no
+  // element carries does nothing, and the reader lands at the top of the
+  // page holding an id to hunt for. The spellings live with the rows -
+  // app/dashboard/page.tsx and app/portfolio/page.tsx - and a rename there
+  // must change these lines too.
   milestone: (id) => `/dashboard#milestone-${id}`,
   blocker: (id) => `/dashboard#blocker-${id}`,
   question: (id) => `/dashboard#question-${id}`,

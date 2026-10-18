@@ -84,9 +84,9 @@ export function MermaidDiagram({ code }: { code: string }) {
           setSvg(out.svg);
           // CLEARED, not just set: in chat this component sees every
           // half-written prefix of a streaming fence, and mermaid rejects
-          // almost all of them. Left sticky, the first rejected prefix pinned
-          // the fallback and the finished diagram never replaced it - every
-          // streamed diagram stayed source forever.
+          // almost all of them. Left sticky, the first rejected prefix pins
+          // the fallback and the finished diagram never replaces it - every
+          // streamed diagram stays source forever.
           setFailed(false);
         }
       })

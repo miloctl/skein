@@ -3,13 +3,11 @@
 // globals.css owns the preset values.
 //
 // This module is the SINGLE SOURCE for the pack and colorway ids, the storage
-// keys, and the custom-hue formula. It used to be one of three copies:
-// layout.tsx repeated the ids and formulas inside its pre-paint script, and
-// scripts/check_theme_contrast.py repeated the formulas again, with only a
-// comment holding them together. That drift shipped the theme-revert bug
-// twice. Now layout.tsx GENERATES its script from the values below
-// (lib/theme-boot.ts) and the contrast checker PARSES them out of this file,
-// so there is nothing left to keep in sync by hand.
+// keys, and the custom-hue formula. layout.tsx GENERATES its pre-paint script
+// from the values below (lib/theme-boot.ts) and scripts/check_theme_contrast.py
+// PARSES them out of this file, so there is nothing to keep in sync by hand.
+// A second copy of any of them elsewhere drifts from this one with nothing to
+// catch it.
 
 import { sessionLocked, sessionRevision } from "./auth";
 
@@ -133,8 +131,8 @@ export const CUSTOM_LC = {
     dark: [0.78, 0.09],
   },
   // the fill half, same hue: white text sits on it in BOTH modes, so both
-  // halves are the dark lightness. Without this a custom hue had no fill
-  // token and bg-weld (the ink) carried white text at ~2:1 in dark.
+  // halves are the dark lightness. Without this a custom hue has no fill
+  // token and bg-weld (the ink) carries white text at ~2:1 in dark.
   "--weld-solid": {
     hue: "weld",
     on: "white",
@@ -281,7 +279,7 @@ const ADOPTED_KEY = "skein-adopted";
 // then runs the callback, so every DOM write of the change must happen
 // inside it: the same-tab "storage" event is dispatched there too, because
 // ThemeSync answers it with applyPrefs, and dispatched synchronously after
-// startViewTransition it restyled the page before the snapshot - old and
+// startViewTransition it restyles the page before the snapshot - old and
 // new frames identical, no visible fade, and the input block for nothing.
 // Reduced motion is honored in globals.css on the ::view-transition
 // pseudo-elements, not here.
@@ -304,7 +302,7 @@ function applyAndPing({ fade = true }: ApplyOpts = {}) {
   pushTheme();
 }
 
-// --- profile sync: the theme follows the person, not the browser ---------
+// Profile sync: the theme follows the person, not the browser.
 // Every change auto-saves to the profile (debounced); a browser with no
 // local prefs adopts the profile on load. Local prefs win locally - they
 // were set deliberately in that browser and immediately re-save anyway.

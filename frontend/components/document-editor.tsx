@@ -52,8 +52,8 @@ export function DocumentEditor({
   const titleField = useRef<HTMLInputElement>(null);
   const strong = useStrongIdentity();
   // "only you" first for a signed-in person, as every personal record starts
-  // (routes/api.py::_personal_default). A weak identity reads no private row,
-  // so it would write a document its own author cannot open.
+  // (routes/api.py::_personal_default). Never for a weak identity
+  // (lib/audience.ts::useStrongIdentity).
   const [tier, setTier] = useRememberedAudience(
     "document",
     strong ? ONLY_YOU : ROSTER,

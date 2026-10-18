@@ -20,8 +20,8 @@ const POLL_MS = 2_000;
 // Every Nth poll rereads the loaded window instead of only the rows after the
 // cursor. A deletion rewrites an OLD row as a tombstone, and an after= cursor
 // never returns that row to a room that is already open.
-// ponytail: whole-window reread every 10 s; a backend changed-since cursor
-// replaces it if rooms grow large enough for the reread to cost.
+// shortcut: whole-window reread every 10 s, replace it with a backend
+// changed-since cursor if rooms grow large enough for the reread to cost.
 const WINDOW_POLL_EVERY = 5;
 const DETAIL_POLL_MS = 5_000;
 const PAGE_SIZE = 1_000;
@@ -178,15 +178,15 @@ export function SharedChat({
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   // The draft belongs to the room it was typed in. Switching rooms remounts
-  // or re-props this component, and the text went with it; sessionStorage
+  // or re-props this component, which drops the text, so sessionStorage
   // keyed by person and room keeps it for this tab and is cleared with the
   // sign-out (lib/auth.ts). Restored DURING RENDER when the KEY changes
-  // (React's prop-change adjustment, never an effect): an effect restored it
-  // one commit late, and the write effect below had already stored the OLD
-  // room's text under the NEW room's key in between. The key, not the room:
-  // on a reload this mounts before the session bootstrap answers, when
-  // getUser() is still "anonymous", and keyed on the room alone the restore
-  // ran once under that name and left the person's draft orphaned.
+  // (React's prop-change adjustment, never an effect): an effect restores it
+  // one commit late, after the write effect below has stored the OLD room's
+  // text under the NEW room's key. The key, not the room: on a reload this
+  // mounts before the session bootstrap answers, when getUser() is still
+  // "anonymous", and keyed on the room alone the restore runs once under that
+  // name and orphans the person's draft.
   const [draftFor, setDraftFor] = useState<string | null>(null);
   const key = draftKey(threadId);
   if (draftFor !== key) {
@@ -394,7 +394,7 @@ export function SharedChat({
 
   // keyed on OPENING a confirmation, not on the action object: ticking
   // "Also share the earlier messages" replaces the object, and focus jumping
-  // to the confirm button let the next Space add the agent with the history
+  // to the confirm button lets the next Space add the agent with the history
   const accessOpened = accessAction?.kind ?? "";
   const accessTrigger = accessAction?.trigger;
   useEffect(() => {
@@ -418,8 +418,8 @@ export function SharedChat({
         const said = actionError(caught);
         // A transient detail fault leaves the loaded room in place - only a
         // definite not-found means access ended. Same policy as the message
-        // poll below; anything else here left a permanent backend-unreachable
-        // alert over a composer that works.
+        // poll below: treating any other fault as final leaves a permanent
+        // backend-unreachable alert over a composer that works.
         if (/not found|not available|no shared chat/i.test(said)) {
           setError(said);
           onUnavailable?.();

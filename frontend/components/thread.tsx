@@ -145,11 +145,15 @@ const UserMessage = () => (
   </MessagePrimitive.Root>
 );
 
+// seconds of silence before the indicator says the wait is unusual. A
+// thinking model is silent for a few seconds; a provider that accepts the
+// request and never answers is silent for the whole read timeout.
+export const LONG_WAIT_S = 30;
+
 /** What an assistant bubble shows before its first word arrives.
  *
- *  The wait is REAL and was invisible: a thinking model streams empty text
- *  deltas for seconds before it says anything (measured at 4.4 seconds and 70
- *  empty frames on glm-5.2), and an attached image the chat model cannot read
+ *  The wait is REAL: a thinking model streams empty text deltas for seconds
+ *  before it says anything, and an attached image the chat model cannot read
  *  spends a whole extra model call on the vision sidecar first
  *  (routes/chat.py). An empty bubble reads as a hung app.
  *
@@ -158,18 +162,13 @@ const UserMessage = () => (
  *  is derived from the thread's own last user message, so no backend frame and
  *  nothing in the stored transcript carries it.
  *
- *  The Empty slot renders for ANY status, not only while running - so a turn
- *  that died before its first token (backend down, rate cap, a 404 thread)
- *  showed pulsing dots and "Thinking…" forever, claiming progress during
- *  exactly the incident the copy rules say must never be dressed up. The
- *  status the slot passes is what tells the two apart.
+ *  The Empty slot renders for ANY status, not only while running. A turn that
+ *  died before its first token (backend down, rate cap, a 404 thread) must say
+ *  that it ended, never "Thinking…" - claimed progress during an incident is
+ *  what the copy rules forbid. The status the slot passes is what tells the
+ *  two apart.
  *
  *  Exported for __tests__/chat-working-indicator.test.tsx. */
-// seconds of silence before the indicator says the wait is unusual. A
-// thinking model is silent for a few seconds; a provider that accepts the
-// request and never answers is silent for the whole read timeout.
-export const LONG_WAIT_S = 30;
-
 export const WorkingIndicator = ({
   status,
 }: {
@@ -186,8 +185,8 @@ export const WorkingIndicator = ({
   }, []);
   if (status && status.type !== "running") {
     // the sentence the backend refused with (a 503 "model session is in
-    // use", a rate cap) is the whole answer; without it the bubble said a
-    // turn had ended and nothing said why
+    // use", a rate cap) is the whole answer; without it the bubble says a
+    // turn ended and nothing says why
     // the local runtime stores toAssistantError(e): a plain {code, message}
     // object, never the Error the adapter threw, so instanceof finds nothing
     const raw = status.error;
@@ -351,15 +350,11 @@ type Person = { name: string; kind: string };
 
 // the charset services/mentions.py::_MENTION can tokenize. A roster name is
 // free-form - ensure_user only strips and truncates - so "O'Brien" and "José"
-// are real names the picker used to offer: the apostrophe and the accent end
-// the token, the backend matches nobody, and the turn guard cannot report a
-// miss it never saw either. Filtering on spaces alone missed both.
+// are real names, but the apostrophe and the accent end the token: the
+// backend matches nobody, and the turn guard cannot report a miss it never
+// saw either. A space ends the token the same way.
 const MENTIONABLE = /^[a-z0-9][a-z0-9._-]*$/i;
 
-// Cached like the catalogs above, but the roster is NOT restart-stable: a
-// person who joins mid-session is not offered until the page reloads. The
-// picker missing a brand-new name costs one manual @type; a fetch per thread
-// switch costs a request on every switch, in every open tab.
 // Whether a mid-sentence @slug can reach the bench at all: the orchestrator
 // consults only on a real provider, and the mock has no tool loop - offering
 // a specialist there promises an answer the keyless path cannot give. The
@@ -378,6 +373,10 @@ function agentStatus(): Promise<{ provider: string }> {
   return statusCache;
 }
 
+// Cached like the catalogs above, but the roster is NOT restart-stable: a
+// person who joins mid-session is not offered until the page reloads. The
+// picker missing a brand-new name costs one manual @type; a fetch per thread
+// switch costs a request on every switch, in every open tab.
 let peopleCache: Promise<Person[]> | null = null;
 function peopleList(): Promise<Person[]> {
   if (!peopleCache) {
@@ -629,9 +628,8 @@ const Composer = () => {
   const mentionRows: SlashCommand[] = !at
     ? []
     : [
-        // a name with a space cannot be written as one @token, so the backend
-        // can never match it (services/mentions.py). Suggesting one produces
-        // a mention that silently notifies nobody.
+        // only names MENTIONABLE accepts: any other suggestion produces a
+        // mention that silently notifies nobody
         ...people
           .filter(
             (p) =>
@@ -759,13 +757,13 @@ const Composer = () => {
 
   const onKeyDownCapture = (e: React.KeyboardEvent) => {
     // An IME conversion ends with Enter (and Escape cancels one). With a
-    // popup open that Enter ran the active row, so committing a Pinyin or
-    // Kana conversion inserted a mention or sent a bare command. keyCode 229
-    // is the Safari form of the same event.
+    // popup open that Enter runs the active row, so without this guard
+    // committing a Pinyin or Kana conversion inserts a mention or sends a
+    // bare command. keyCode 229 is the Safari form of the same event.
     if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     // a MODIFIED arrow belongs to the textarea: Shift+Up extends a selection,
-    // Alt/Meta+Up jumps the caret. Swallowing those left a multi-line draft
-    // uneditable by keyboard, and let Shift+Up replace the whole draft from
+    // Alt/Meta+Up jumps the caret. Swallowing those leaves a multi-line draft
+    // uneditable by keyboard, and lets Shift+Up replace the whole draft from
     // history.
     const arrow =
       (e.key === "ArrowUp" || e.key === "ArrowDown") &&
@@ -817,8 +815,9 @@ const Composer = () => {
         <div className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-line bg-card shadow-float">
           {/* OUTSIDE the listbox: a paragraph is not a role a listbox may own,
               and aria-activedescendant means a screen reader reads only the
-              active option - so the one line that teaches the keys reached
-              nobody. Spoken now through aria-describedby on the input. */}
+              active option - so inside it the one line that teaches the keys
+              reaches nobody. It is spoken through aria-describedby on the
+              input. */}
           <p
             id="cmd-hint"
             className="border-b border-line px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-3"
@@ -829,9 +828,9 @@ const Composer = () => {
           </p>
           {/* max-h + scroll, NOT the outer overflow-hidden alone: the popup is
               anchored bottom-full above a sticky composer, so a roster longer
-              than the space above it put rows off the top of the window with
-              no way to reach them - measured at -106px on a 520px viewport,
-              while ArrowUp still walked the selection onto them. */}
+              than the space above it puts rows off the top of the window with
+              no way to reach them, while ArrowUp still walks the selection
+              onto them. */}
           <div
             id="cmd-list"
             role="listbox"
@@ -846,8 +845,8 @@ const Composer = () => {
               >
                 {/* a real group with a real label, not an aria-hidden heading
                     plus aria-label on each row: aria-label REPLACES the
-                    accessible name, so a specialist row announced its section
-                    and dropped the description that is the whole row */}
+                    accessible name, so a specialist row announces its section
+                    and drops the description that is the whole row */}
                 {sec.group && (
                   <p
                     id={`cmd-grp-${sec.group}`}
@@ -956,7 +955,7 @@ const Composer = () => {
         />
         {running ? (
           // Send is disabled for the whole run, and a provider that never
-          // answers made that forever: Stop aborts the fetch, which ends
+          // answers makes that forever: Stop aborts the fetch, which ends
           // the backend turn and frees the thread for the next message
           <ComposerPrimitive.Cancel
             className="rounded-lg border border-line-strong px-4 py-2 text-sm font-medium text-ink transition hover:bg-raised"

@@ -205,7 +205,7 @@ export function ChatSidebar({
 
   const createAndLink = async (id: string, name: string) => {
     // snap to an existing open engagement first - the backend refuses
-    // duplicate names, and retyping one should link, not error
+    // duplicate names, so retyping one links to it instead of failing
     const existing = (engagements ?? []).find(
       (e) => e.name.toLowerCase() === name.toLowerCase(),
     );
@@ -343,10 +343,10 @@ export function ChatSidebar({
     announce();
   };
 
-  // union with the threads' own folder fields: rendering only the fetched
-  // list made every filed chat vanish when the folders fetch failed - the
-  // t.folder === folder filter below matched no group. Deriving from the
-  // threads means that failure costs only EMPTY folders.
+  // union with the threads' own folder fields, so a failed folders fetch
+  // hides only EMPTY folders. From the fetched list alone, that failure makes
+  // every filed chat vanish - the t.folder === folder filter below matches no
+  // group.
   const filed = [...new Set(threads.map((t) => t.folder).filter(Boolean))]
     .filter((f) => !folders.includes(f))
     .sort();

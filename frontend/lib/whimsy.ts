@@ -4,12 +4,12 @@
 function seeded(pool: string[], seedExtra = ""): string {
   // The DATE is a client fact, exactly like the pack below. The server has a
   // different clock (and, once a page is statically prerendered, a clock
-  // frozen at BUILD time - "Reticulating milestones" was baked into
-  // index.html and served on every later day). Rendering a date-seeded line
-  // during SSR or the hydration pass therefore mismatches, React regenerates
-  // from the root, and that recreates <html> and throws away the theme the
-  // pre-paint script set. Same failure the pack gate exists to stop, so it
-  // takes the same gate: one fixed line until the client is in charge.
+  // frozen at BUILD time, so the build day's line is served on every later
+  // day). Rendering a date-seeded line during SSR or the hydration pass
+  // therefore mismatches, React regenerates from the root, and that recreates
+  // <html> and throws away the theme the pre-paint script set. Same failure
+  // the pack gate exists to stop, so it takes the same gate: one fixed line
+  // until the client is in charge.
   if (!hydrated) return pool[0];
   // LOCAL date: the shared daily joke must not roll over mid-afternoon
   const d = new Date();
@@ -92,11 +92,11 @@ const PACK_EMPTY: Record<string, Record<string, string[]>> = {
 //
 // The flag flips in a post-hydration EFFECT, never a microtask. A microtask
 // fires when the module finishes evaluating - long before React hydrates - so
-// the pack voice raced into the hydration render itself. That mismatch made
+// the pack voice races into the hydration render itself. That mismatch makes
 // React regenerate the tree from the root, which recreates <html> and throws
-// away the data-pack/data-theme/data-appearance the pre-paint script set:
-// picking a non-default pack silently reverted your theme on any page that
-// rendered an empty state. See ThemeSync, which calls markHydrated().
+// away the data-pack/data-theme/data-appearance the pre-paint script set: a
+// non-default pack silently reverts on any page that renders an empty state.
+// See ThemeSync, which calls markHydrated().
 let hydrated = false;
 
 export function markHydrated(): void {

@@ -28,7 +28,7 @@ const identitySnapshot = () => {
 };
 const subscribeIdentity = (listener: () => void) => {
   // lib/theme.ts dispatches a synthetic storage event on every paint, so an
-  // unfiltered listener refetched capabilities on every hue drag
+  // unfiltered listener refetches capabilities on every hue drag
   const changed = (event: Event) => {
     if (!isIdentityEvent(event)) return;
     identityEventRevision += 1;

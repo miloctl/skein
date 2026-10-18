@@ -24,8 +24,8 @@ const RULES: [string, RegExp][] = [
   ["decision", /^\s*(decision:|decided\b)/i],
   ["promise", /^\s*(promised?:|commitment:)/i],
   // BEFORE the `waiting on` blocker heuristic below, which would otherwise
-  // claim the same sentence. Without this rule the preview said "note" while
-  // the backend (services/capture.py) filed a received promise.
+  // claim the same sentence. Without this rule the preview says "note" while
+  // the backend (services/capture.py) files a received promise.
   // `waiting for:` and `waiting on` are one phrase to a reader and opposite
   // entities to the parser, so only the COLON form routes here - the bare
   // `waiting on` heuristic below still means blocker, and docs/LEXICON.md
@@ -91,8 +91,8 @@ export function CapturePalette() {
   const [generatedDraft, setGeneratedDraft] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const strong = useStrongIdentity();
-  // a weak identity reads no private row: a remembered "only you" from a
-  // signed-in session on this browser does not apply to it
+  // no private default or remembered "only you" for a weak identity
+  // (lib/audience.ts::useStrongIdentity)
   const [tier, setTier] = useRememberedAudience(
     "capture",
     strong ? ONLY_YOU : ROSTER,
@@ -214,14 +214,12 @@ export function CapturePalette() {
 
   const trapTab = (e: React.KeyboardEvent) => {
     if (e.key !== "Tab" || !dialogRef.current) return;
-    // `select` and `input` are in this list because the dialog gained a
-    // control that is neither a button nor a textarea. The visibility picker
-    // mounts BELOW the Capture button, so with the old selector the last
-    // focusable was always Capture, Tab from it wrapped to the first chip,
-    // and the one control that decides who can read the capture was
-    // unreachable by keyboard - every keyboard-only capture went to the
-    // workspace tier with no way to see the choice existed.
-    // Anything focusable added here must match, or it is invisible the same way.
+    // `select` and `input` are in this list because the visibility picker is
+    // a select and mounts BELOW the Capture button. Without them the last
+    // focusable is Capture, Tab from it wraps to the first chip, and the one
+    // control that decides who can read the capture is unreachable by
+    // keyboard. Anything focusable in this dialog must match this selector,
+    // or Tab skips it the same way.
     const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
       "button:not([disabled]), textarea, select, input:not([type=hidden]), a[href], [tabindex]",
     );
@@ -275,9 +273,9 @@ export function CapturePalette() {
     // makes type-then-choose the natural order
   }, [text, busy, tier]);
 
-  // An edit starts the next capture. A result left standing hid the
+  // An edit starts the next capture. A result left standing hides the
   // "will file as" preview under an old failure, and the success auto-close
-  // shut the dialog on the text the reader was typing.
+  // shuts the dialog on the text the reader is typing.
   const startEdit = () => {
     setResult(null);
     if (closeTimer.current) clearTimeout(closeTimer.current);

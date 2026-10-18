@@ -166,10 +166,10 @@ export function McpServersCard({
   };
 
   // Focus the sign-in link once it EXISTS: scheduled from the click handler,
-  // the frame could run before React committed the link (under load it
-  // did), found nothing, and focus stayed on a disabled button. The frame
-  // is still needed: act's finally restores focus to that button in its
-  // own frame, scheduled earlier, so this one runs after it.
+  // the frame can run before React commits the link (under load), find
+  // nothing, and leave focus on a disabled button. The frame is still
+  // needed: act's finally restores focus to that button in its own frame,
+  // scheduled earlier, so this one runs after it.
   useEffect(() => {
     if (awaiting === null || !signInUrl) return;
     const frame = requestAnimationFrame(() =>
@@ -328,8 +328,8 @@ export function McpServersCard({
                             if (ok) setDeleting(null);
                             // restoreTo holds the delete… button this confirm
                             // replaced, which is unmounted, so act's restore
-                            // found nothing and focus fell to <body>. Before
-                            // act's requestAnimationFrame reads it.
+                            // finds nothing and focus falls to <body>. Set
+                            // before act's requestAnimationFrame reads it.
                             restoreTo.current = ok
                               ? next
                                 ? document.getElementById(`delete-mcp-${next.id}`)

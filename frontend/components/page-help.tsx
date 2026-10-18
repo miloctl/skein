@@ -47,8 +47,8 @@ export function PageHelp() {
 
   // A SPACER, not null: /guide is the one route with no card of its own (its
   // cards ARE the page, and the panel's footer links straight back to it), but
-  // unmounting the button shrank the header's right cluster by the button plus
-  // its gap, so every control left of it jumped sideways on arrival.
+  // unmounting the button shrinks the header's right cluster by the button plus
+  // its gap, so every control left of it jumps sideways on arrival.
   if (pathname === "/guide")
     return <div aria-hidden className="h-8 w-14 shrink-0" />;
 
@@ -79,10 +79,12 @@ export function PageHelp() {
 
   // A card that points at the route the reader is already on: "Open X" would
   // close the panel and do nothing. The query goes with it, which is right for
-  // the only card that carries one (knots.yaml `bosun`, /chat?as=bosun, read
-  // by a mount effect in thread.tsx that a same-route Link never re-runs) -
-  // narrow this if a card ever links to a page that reads its query live. A
-  // fragment still scrolls (lib/hash-target.ts), so an anchor keeps its link.
+  // the cards that carry one (knots.yaml `bosun`'s /chat?as=bosun, read by a
+  // mount effect in thread.tsx, and `first_watch`'s /?tour=first-watch, read
+  // by a mount effect in components/first-watch.tsx - a same-route Link
+  // re-runs neither) - narrow this if a card ever links to a page that reads
+  // its query live. A fragment still scrolls (lib/hash-target.ts), so an
+  // anchor keeps its link.
   const samePage = (link: string) =>
     !link.includes("#") &&
     (link.split("?")[0].replace(/\/$/, "") || "/") === (pathname.replace(/\/$/, "") || "/");

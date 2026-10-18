@@ -3,12 +3,12 @@
  *  components/auth-gate.tsx renders INSTEAD of the page, but the nav shell
  *  around it and the two overlays mounted beside that shell in app/layout.tsx
  *  are not its children - they keep rendering, and both overlays out-rank
- *  the gate on z-index. `?task=12` in a digest link opened an aria-modal dialog on top of
- *  the gate, and the Capture button opened a box that could only ever answer
- *  401. A
- *  DOM-level fix (setAttribute on the header) reached into a node another
- *  component owns and was lost whenever that component re-created it, so the
- *  state is published here and every sibling reads it as a prop.
+ *  the gate on z-index. Without this store, `?task=12` in a digest link opens
+ *  an aria-modal dialog on top of the gate, and the Capture button opens a box
+ *  that can only ever answer 401. Each of them reads the store through
+ *  useSyncExternalStore and stands down. Each sets inert only on nodes it owns
+ *  (components/nav.tsx on its own header and sidebar): an attribute set on a
+ *  node another component owns is lost whenever that component re-creates it.
  */
 
 let gated = false;

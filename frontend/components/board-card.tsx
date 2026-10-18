@@ -101,8 +101,8 @@ export function BoardCard({ task, today, moves }: { task: BoardTask; today: stri
         </ul>
       ) : null}
       {/* A delegated task has no Move: only its sponsor's verdict closes it
-          (work._update_task_locked refuses done and void), and the task
-          panel says so */}
+          (work._update_task_locked refuses void, and done from anyone but
+          the sponsor), and the task panel says so */}
       {task.delegated_agent ? null : (
         <div className="relative mt-1">
           <button

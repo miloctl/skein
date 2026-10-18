@@ -53,7 +53,7 @@ export const COMMANDS: Command[] = [
 
 /** Every word of the query must start a word of the label, so "dark mode"
  *  finds "Mode: Dark" and "the meeting" finds nothing - a plain substring
- *  match showed seven theme rows for the first four keystrokes of that
+ *  match fills the list with theme rows while the reader types an ordinary
  *  search. Under two characters matches nothing: a one-letter query starts
  *  a word in most labels. A `?` or `#` query starts no word, so ask mode and
  *  an exact reference never see a command. */

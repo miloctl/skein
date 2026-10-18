@@ -28,8 +28,8 @@ export function StandupComposer({
   const [posted, setPosted] = useState(false);
   const [busy, setBusy] = useState(false);
   const strong = useStrongIdentity();
-  // a weak identity reads no private row: a remembered "only you" from a
-  // signed-in session on this browser does not apply to it
+  // no private default or remembered "only you" for a weak identity
+  // (lib/audience.ts::useStrongIdentity)
   const [tier, setTier] = useRememberedAudience(
     "standup",
     strong ? ONLY_YOU : ROSTER,

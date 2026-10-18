@@ -14,7 +14,7 @@ import { PeekLink } from "@/components/task-peek";
  *  it by id on a page of them.
  *
  *  Runs, never `dangerouslySetInnerHTML`: a receipt quotes titles people wrote
- *  (components/artifact-markdown.tsx and components/nav-search.tsx follow the
+ *  (components/artifact-markdown.tsx and components/snippet.tsx follow the
  *  same rule, for the same reason).
  */
 export function ReceiptLine({
@@ -32,9 +32,7 @@ export function ReceiptLine({
         // A TASK opens the peek, and only PeekLink can open it. `next/link`
         // navigates with pushState and dispatches no event, while TaskPeek
         // syncs on `popstate` and `skein-peek` alone - so a <Link href="?task=5">
-        // changed the address bar and opened nothing, on every receipt this
-        // app renders. It is not the same bug as the raw <a> on /review: that
-        // one reloaded the page, this one does nothing at all.
+        // changes the address bar and opens nothing.
         if (run.ref.entity === "task")
           return (
             <PeekLink

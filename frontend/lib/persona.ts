@@ -77,8 +77,8 @@ export function outgoing(text: string): string {
   }
   // "@" as well as "/": a leading @slug invokes one specialist for one message
   // (routes/chat.py rewrites it into the /as form), and prefixed with the
-  // sticky persona it never reaches that rewrite - the picker offered
-  // "Specialists → growth-mentor" and the message went to whoever was sticky.
+  // sticky persona it never reaches that rewrite - the picker offers
+  // "Specialists → growth-mentor" and the message goes to whoever is sticky.
   // Deliberately EVERY leading @, not only a bench slug: this runs before the
   // send, where a person and a specialist are indistinguishable. "@mira ..."
   // losing the sticky persona for one turn is the cheaper wrong answer.

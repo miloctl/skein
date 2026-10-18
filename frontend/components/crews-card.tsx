@@ -52,12 +52,13 @@ export function CrewsCard({
     from: CrewMember["role"];
     to: CrewMember["role"];
   } | null>(null);
-  // keyed per crew: one shared flag disabled the Add and deactivate buttons of
-  // every OTHER crew mid-write, pulling them out of the tab order
+  // keyed per crew: one shared flag disables the Add and deactivate buttons of
+  // every OTHER crew mid-write, which pulls them out of the tab order
   const [busy, setBusy] = useState("");
-  // Chrome blurs a focused element the moment it is disabled, so every write
-  // dropped focus to document.body - on the very control the reader pressed.
-  // The refused case was worst: the confirm stayed open and unreachable.
+  // Chrome blurs a focused element the moment it is disabled, so without this
+  // every write drops focus to document.body - on the very control the reader
+  // pressed. A refused write is the worst case: the confirm stays open and
+  // unreachable.
   const restoreTo = useRef<HTMLElement | null>(null);
   const introId = useId();
   // last-request-wins. act() fires load() without awaiting, so two quick
@@ -117,8 +118,9 @@ export function CrewsCard({
   };
 
   // the server accepts a steward of THIS crew or an administrator
-  // (routes/api.py::_crew_steward). Offering less strands a crew whose only
-  // steward left; offering more is a button that answers 403.
+  // (services/crews.py::assert_steward, fed by
+  // routes/api.py::_crew_admin_override). Offering less strands a crew whose
+  // only steward left; offering more is a button that answers 403.
   const canEdit = (crew: Crew) =>
     strong &&
     (admin ||
@@ -199,7 +201,7 @@ export function CrewsCard({
               className={
                 "rounded-lg border p-3 " +
                 // NOT opacity: dimming the container composites every token at
-                // 60% AFTER the theme system has done its work, and measured
+                // 60% AFTER the theme system has done its work, which measures
                 // 2.3:1 to 3.1:1 in every pack - including `contrast`, the
                 // high-contrast one. A deactivated crew keeps working
                 // controls, so the 1.4.3 inactive-component exception does
@@ -218,7 +220,7 @@ export function CrewsCard({
                 </CrewHeading>
                 <span className="font-mono text-[10px] text-ink-3">
                   {/* a space, not only a margin: an accname computation reads
-                      these as one run and announced "inactive1 member" */}
+                      these as one run and announces "inactive1 member" */}
                   {!crew.active && <span className="mr-1.5">inactive </span>}
                   {crew.member_count} member
                   {crew.member_count === 1 ? "" : "s"}
@@ -267,11 +269,9 @@ export function CrewsCard({
                           {/* the consequence is VISIBLE, not only in the
                               accessible name: this is a data-loss warning, and
                               the file's own docstring says the copy has to say
-                              it. On the aria-label alone a sighted person
-                              confirmed with the word "remove" and no more.
-                              aria-describedby rather than repeating it in the
-                              label: browse mode reads the pill linearly, so
-                              two wordings of one consequence get announced
+                              it. aria-describedby rather than repeating it in
+                              the label: browse mode reads the pill linearly,
+                              so two wordings of one consequence get announced
                               twice. */}
                           <span
                             id={`rm-${crew.id}-${m.person}`}
@@ -301,9 +301,9 @@ export function CrewsCard({
                               );
                               if (ok) setRemoving(null);
                               // restoreTo holds the × this confirm replaced,
-                              // which is unmounted, so act's restore found
-                              // nothing and focus fell to <body>. Before act's
-                              // requestAnimationFrame reads it.
+                              // which is unmounted, so act's restore finds
+                              // nothing and focus falls to <body>. Set before
+                              // act's requestAnimationFrame reads it.
                               restoreTo.current = ok
                                 ? document.getElementById(
                                     next

@@ -67,8 +67,8 @@ export function ChatSearch({
     const request = ++latest.current;
     const owner = sessionRevision();
     setLoading(true);
-    // A retry that fails the same way reused the same alert node with the
-    // same text, and a screen reader announced nothing. Cleared, it remounts.
+    // A retry that fails the same way reuses the same alert node with the
+    // same text, and a screen reader announces nothing. Cleared, it remounts.
     setError("");
     try {
       const result = await api<Found>(`/api/chats/search?q=${encodeURIComponent(q)}`, {
@@ -146,7 +146,7 @@ export function ChatSearch({
                 onClick={() => {
                   // drops the cached chat list (lib/chat-threads.ts): a chat
                   // made in another tab is in the results but not in that
-                  // list, and runtime-provider.tsx opened it empty
+                  // list, so without this runtime-provider.tsx opens it empty
                   window.dispatchEvent(new Event("skein-chat-activity"));
                   onOpen(hit.thread_id, hit.kind, hit.message_id ?? undefined);
                 }}

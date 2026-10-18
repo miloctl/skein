@@ -25,17 +25,15 @@ export function VisibilityPicker({
   value: Tier;
   onChange: (t: Tier) => void;
   label: string;
-  // false for a weak identity: it reads no private row (scope.Viewer), so
-  // "only you" would file a record its own author cannot open
+  // false for a weak identity (lib/audience.ts::useStrongIdentity)
   allowPrivate?: boolean;
 }) {
-  // Three states, and they are three because two lost information:
+  // Three states, and they are three because two lose information:
   //   null - still loading
   //   false - the request FAILED, so the crew list is not known
   //   [] - answered, and this caller is in no crew
-  // Collapsing false into [] made a failed fetch indistinguishable from a
-  // real answer, and the reconciliation below then widened a crew row to the
-  // whole roster on a network blip.
+  // false collapsed into [] makes a failed fetch read as a real answer, and
+  // the reconciliation below then undoes a crew pick on a network blip.
   const [crews, setCrews] = useState<
     { id: number; name: string }[] | null | false
   >(null);
@@ -54,9 +52,8 @@ export function VisibilityPicker({
       })
       // `false`, not `[]`: an empty array means "you are in no crew", and the
       // reconciliation below reads it as "the crew you picked is gone" and
-      // widens the row to the whole roster. A failed request must never do
-      // that - the caller chose a tier and a network blip silently undoing it
-      // is the one direction that costs a reader their privacy.
+      // resets the row to "only you". A failed request must never do that -
+      // the caller chose a tier, and a network blip must not silently undo it.
       .catch(() => live && setCrews(false));
     return () => {
       live = false;
@@ -64,16 +61,16 @@ export function VisibilityPicker({
   }, []);
 
   // The one thing this control must never do is describe a tier it is not
-  // sending. `value` is the parent's, the option list is ours, and nothing
-  // reconciled them: with a crew selected, an identity change (or a reopen as
-  // somebody in no crew) left the select falling back to "everyone on the
-  // roster" while the parent still held `crew_id: 1` and submitted it.
+  // sending. `value` is the parent's and the option list is ours: with a crew
+  // selected, an identity change (or a reopen as somebody in no crew) leaves
+  // the select falling back to "everyone on the roster" while the parent
+  // still holds `crew_id: 1` and submits it. The effect below reconciles them.
   //
   // This REQUESTS the correction, it cannot enforce it: a parent that ignores
   // onChange still holds the stale crew while the select reads "everyone on
-  // the roster". Both call sites pass their setState directly, so the two
+  // the roster". Every call site passes its tier setter directly, so the two
   // agree today - a new caller that filters or debounces onChange brings the
-  // original defect back.
+  // mismatch back.
   //
   // onChange through a ref: callers pass an inline arrow, so depending on it
   // re-runs this effect every render and the reset fights the parent forever.
@@ -101,7 +98,7 @@ export function VisibilityPicker({
 
   return (
     // min-w-0 and a shrinkable select: mounted in a flex row beside an
-    // input, an unshrinkable picker pushed the row 157px sideways at 360px
+    // input, an unshrinkable picker pushes the row sideways at 360px
     <label className="flex min-w-0 items-center gap-1.5 text-xs text-ink-3">
       <span>Visible to</span>
       <select
@@ -154,10 +151,11 @@ export function VisibilityPicker({
 // readable to its members.
 let crewNames: Promise<Record<number, string>> | null = null;
 
-// Dropped on the same signal lib/api.ts drops its GET cache. Both the identity
-// picker and the API-key writer dispatch "storage", and without this a crew
-// renamed in Settings kept its old name in every badge for the rest of the
-// session - the badge would then disagree with the picker that set it.
+// Dropped on the same signal lib/api.ts drops its GET cache. The identity
+// picker (lib/api.ts::setUser) and every session change (lib/auth.ts::publish)
+// dispatch "storage", and without this a crew renamed in Settings keeps its
+// old name in every badge for the rest of the session - the badge then
+// disagrees with the picker that set it.
 if (typeof window !== "undefined") {
   window.addEventListener("storage", () => {
     crewNames = null;
@@ -170,7 +168,7 @@ function useCrewName(crewId?: number): string {
   // mounted picks up a renamed crew instead of holding the old name for the
   // session. It is not a retry: after a failed /api/crews every mounted badge
   // reads "one crew only" until some writer dispatches "storage" (an identity
-  // change, an API-key write, a theme change - lib/theme.ts shares the
+  // change, a session change, a theme change - lib/theme.ts shares the
   // channel). A user who does none of those never recovers without a reload.
   const [tick, setTick] = useState(0);
   useEffect(() => {

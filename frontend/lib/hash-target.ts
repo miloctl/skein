@@ -1,10 +1,10 @@
 /** Land on the ROW a `#…` deep link named - and stay there.
  *
  *  The browser honours a fragment only for an element that exists at
- *  navigation time, and every row on these pages arrives from a fetch - so
- *  "question #12 is still open" on My Day dropped the reader at the top of a
- *  thirteen-section page to find #12 by eye. Pass the fetched rows as `ready`:
- *  the effect runs again when they land, and by then the element exists.
+ *  navigation time, and every row on these pages arrives from a fetch - so on
+ *  its own a link like "question #12 is still open" drops the reader at the
+ *  top of the page to find #12 by eye. Pass the fetched rows as `ready`: the
+ *  effect runs again when they land, and by then the element exists.
  *
  *  focus(), not scrollIntoView(), for the landing itself: a screen reader
  *  announces what it lands on, so the reader hears the row rather than
@@ -45,8 +45,8 @@ export function useHashTarget(
   // request across the render that reveals a hidden register and delayed data.
   const pending = useRef<string | null>(null);
   // the row focus was last moved to. Without it, every background refresh
-  // (answering a question refetches the collection) re-ran the effect and
-  // pulled focus back to the deep-linked row out from under the reader.
+  // (answering a question refetches the collection) re-runs the effect and
+  // pulls focus back to the deep-linked row out from under the reader.
   const landed = useRef("");
   // set by the reader's first input - pinning past it would fight their
   // scroll with ours, which is worse than the drift it corrects
@@ -135,8 +135,8 @@ export function useHashTarget(
 /** The classes a hook target needs to be focusable and to show where focus
  *  went. `focus:`, not `focus-visible:` - Chrome does not match
  *  :focus-visible on an element focused PROGRAMMATICALLY after a mouse click,
- *  so `outline-none` won and focus teleported to a row with nothing drawn on
- *  it. A tabIndex={-1} row is only ever focused deliberately, so the wider
+ *  so with it `outline-none` wins and focus lands on a row with nothing drawn
+ *  on it. A tabIndex={-1} row is only ever focused deliberately, so the wider
  *  selector costs no stray outlines. scroll-mt keeps the landed row clear of
  *  the sticky top bar when the browser scrolls it into view. */
 export const HASH_TARGET =
