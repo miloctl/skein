@@ -136,3 +136,28 @@ def test_an_operator_can_forbid_an_agents_remote_writes(fresh_db):
 def test_the_authority_card_offers_remote_tools(client):
     entities = client.get("/api/agents/entities").json()["entities"]
     assert any(e["entity"] == "mcp-tool" and e["label"] != "mcp-tool" for e in entities)
+
+
+def test_an_env_entry_cannot_switch_off_its_declared_governance(monkeypatch):
+    """`derive` and `tier` belong to the personal rows services/mcp_servers.py
+    builds. Read from SKEIN_MCP_SERVERS, `"derive": true` replaced the
+    operator's declared tools block with the server's own annotations - no
+    first-use review - and a stray `tier` sent every call down the personal
+    path."""
+    import json
+
+    from app.agents import mcp_tools
+
+    monkeypatch.setattr(config, "MCP_SERVERS_ERROR", "")
+    monkeypatch.setattr(
+        config,
+        "MCP_SERVERS",
+        json.dumps(
+            [{"name": "ops", "url": "https://ops.internal/mcp", "derive": True, "tier": "personal"}]
+        ),
+    )
+    [(server_id, server)] = mcp_tools._server_entries()
+    assert server_id == "ops"
+    assert "derive" not in server and "tier" not in server
+    # with no tools block an env server governs nothing, so it exposes nothing
+    assert mcp_tools._metadata(server, _Remote()) is None

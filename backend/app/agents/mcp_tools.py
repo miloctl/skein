@@ -1,8 +1,16 @@
 """MCP server wiring for the real agent. Configure via SKEIN_MCP_SERVERS:
 
-    SKEIN_MCP_SERVERS='[{"name": "github", "url": "https://api.githubcopilot.com/mcp/", "auth_token": "ghp_..."}]'
+    SKEIN_MCP_SERVERS='[{"name": "ops", "url": "https://mcp.internal.example/mcp",
+      "auth_token_env": "OPS_MCP_TOKEN",
+      "tools": {"lookup": {"version": "1", "effect": "read", "risk": "low",
+        "policy_action": "ops.lookup", "allowed_agents": [],
+        "required_capabilities": [], "output_schema": {"type": "object"},
+        "timeout_seconds": 30, "error_codes": [], "receipt": "required",
+        "provenance": "service"}}}]'
 
-SKEIN_MCP_SERVERS_FILE reads the same list from a mounted YAML file instead.
+A tool with no entry under "tools" is omitted: every accepted tool declares
+its governance (docs/EXTENSIONS.md). SKEIN_MCP_SERVERS_FILE reads the same list
+from a mounted YAML file instead.
 
 Unconfigured (the default) this returns [] and costs nothing. Clients are
 opened once per process and kept alive so tools stay usable across requests.
@@ -1066,8 +1074,14 @@ def _server_entries() -> list[tuple[str, dict]]:
             log.warning("MCP server entry %d needs a unique stable name - omitted", position)
             continue
         seen.add(server_id)
-        entries.append((server_id, server))
+        # `derive` and `tier` mark the personal rows services/mcp_servers.py
+        # builds. From the env they would swap the operator's declared tools
+        # block for the server's own annotations, with no first-use review.
+        entries.append((server_id, {k: v for k, v in server.items() if k not in _PERSONAL_KEYS}))
     return entries
+
+
+_PERSONAL_KEYS = frozenset({"derive", "tier"})
 
 
 def _composed_tools(connections) -> list:

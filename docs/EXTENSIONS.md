@@ -691,9 +691,8 @@ effect and risk of each tool from the server's MCP annotations, and it
 stamps the version from a SHA-256 of the whole tool contract (name,
 description, schemas, and annotations). Every write from a personal server
 opens a review, also when the policy engine permits it, because its owner
-classified nothing. The authority matrix cannot store a level for
-`mcp-tool` today, so a system server's writes follow the review gate and the
-workplace policy only. A read
+classified nothing. A system server's writes follow the agent's `mcp-tool`
+level on the authority card, the review gate and the workplace policy. A read
 opens one review the first time that tool runs, per server, tool, and
 version, because annotations are the server's own claim. A personal tool
 joins only the chat turns its owner drives. Its token is

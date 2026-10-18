@@ -664,16 +664,6 @@ Connections). The tiers differ in trust, not only in scope: the system tier
 is operator-classified, the personal tier is annotation-classified with every
 write under review. What is left:
 
-- **An env entry honors `tier` and `derive` by accident** -
-  `_connect_servers` reads `server.get("tier")` and `_metadata` reads
-  `server.get("derive")` from the raw `SKEIN_MCP_SERVERS` entry, so
-  `"derive": true` swaps the declared-governance contract for annotation
-  classification with no first-use review. `_server_entries` drops both
-  keys, with a test that such an entry loads zero tools.
-- **The documented env example loads zero tools** - the `agents/mcp_tools.py`
-  docstring and `backend/.env.example` show a public URL with an inline
-  token and no `tools` block, a shape that composes nothing. Replace it with
-  an internal host, `auth_token_env`, and one complete `tools` entry.
 - **`check_url` passes a 6to4 address** - `2002:a9fe:a9fe::1` wraps the
   metadata address. Unwrap `sixtofour` beside `ipv4_mapped`
   (`services/mcp_servers.py`), with a test.

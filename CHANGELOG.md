@@ -35,6 +35,8 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Operations
 
+- A `SKEIN_MCP_SERVERS` entry ignores `derive` and `tier`, two keys that belong to personal servers. With `"derive": true`, an entry replaced its declared `tools` block with the server's own annotations and skipped the first-use review. Such an entry now exposes only the tools it declares. The example in `backend/.env.example` now points at a complete entry.
+
 - A negative `SKEIN_OIDC_LEEWAY` takes the 30-second default. Before, it became 0, which refused a token on any clock skew. An explicit 0 still sets zero tolerance.
 
 - The server log no longer carries the httpx request line for each outbound call (MCP servers, OAuth endpoints, model providers). Those lines held full URLs, query strings included. Warnings and errors from both HTTP clients still log.
