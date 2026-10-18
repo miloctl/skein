@@ -2758,6 +2758,11 @@ def post_week_plan(
     subject: PolicySubjectDep,
 ):
     with db.transaction():
+        # Every hold FIRST, in id order: two plans naming the same tasks in
+        # different orders would each hold one and wait for the other
+        # (tests/test_lock_order.py).
+        for task_id in sorted(set(body.task_ids)):
+            policy_context.hold_resource("task", task_id)
         permitted: list[int] = []
         for task_id in body.task_ids:
             try:
@@ -2765,7 +2770,6 @@ def post_week_plan(
                 # actor name, so a weak caller's own private task is decided
                 # rather than skipped (get_task on a weak Viewer cannot read
                 # it, and the skipped id was still written by apply_plan)
-                policy_context.hold_resource("task", task_id)
                 attributes = work.task_update_policy_context(task_id, {}, actor=user)
             except (db.NotFound, ValueError):
                 continue

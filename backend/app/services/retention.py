@@ -171,7 +171,6 @@ def prune(*, actor: str = "scheduler") -> dict:
     from . import browser_sessions, mcp_servers
 
     removed = {
-        "browser_sessions": browser_sessions.prune_expired(),
         "mcp_oauth_flows": mcp_servers.prune_oauth_flows(),
         "rate_hits": ratelimit.prune(),
         "forecast_snapshots": db.execute_rowcount(
@@ -183,31 +182,6 @@ def prune(*, actor: str = "scheduler") -> dict:
         "health_snapshots": db.execute_rowcount(
             "DELETE FROM health_snapshots WHERE created_at < ?",
             (_cutoff(FORECAST_SNAPSHOT_DAYS),),
-        ),
-        # "read" means read_at for a personal row and a `notification_reads`
-        # row for a 'team' one. A prune that tests read_at alone makes
-        # every team announcement immortal - mark_read never stamps that
-        # column on a shared record - and drags its dismissal rows along with
-        # it, so the two tables grow together and forever. A team row is
-        # prunable once EVERY active human has dismissed it: one straggler
-        # keeps it, which is the same promise the unread query makes them.
-        "notifications": db.execute_rowcount(
-            "DELETE FROM notifications WHERE created_at < ? AND ("
-            " (\"user\" != 'team' AND read_at IS NOT NULL)"
-            # read_at counts for a team row too. `mark_read_matching` stamps it
-            # when the THING a notification points at is settled - a fact about
-            # the world, not about one reader - and that write also hides the
-            # row from every unread list, so nobody can ever add the per-person
-            # dismissal the arm below waits for. Without this disjunct every
-            # "Review needed: #N" notification the product sends is permanent.
-            " OR (\"user\" = 'team' AND read_at IS NOT NULL)"
-            " OR (\"user\" = 'team' AND NOT EXISTS ("
-            "   SELECT 1 FROM users u WHERE u.kind = 'human' AND u.active = 1"
-            "   AND u.name != 'anonymous'"
-            "   AND NOT EXISTS (SELECT 1 FROM notification_reads r"
-            '     WHERE r.notification_id = notifications.id AND r."user" = u.name)))'
-            ")",
-            (_cutoff(READ_NOTIFICATION_DAYS),),
         ),
         # This also expires capture idempotency receipts (`capture:<user>`),
         # so an outbox row re-sent after the horizon files a duplicate -
@@ -249,10 +223,40 @@ def prune(*, actor: str = "scheduler") -> dict:
             " AND payload::jsonb ->> 'created_at' < ?",
             (_cutoff(RUNNER_SESSION_DAYS),),
         ),
-        # in users.rename_user's table order (_ATTRIBUTION): a rename walks
-        # these the same way, and two transactions that lock them in
-        # opposite orders deadlock
+        # pending_changes, notifications, usage_log, browser_sessions, artifacts
+        # and context_packs in users._ATTRIBUTION order, the order a plain
+        # rename writes them: two transactions that lock rows in opposite
+        # orders deadlock (tests/test_lock_order.py). A merge also deletes the
+        # source's browser_sessions and notifications BEFORE that walk, so a
+        # merge during this prune can still deadlock. PostgreSQL then aborts
+        # one side: the merge answers 503 (db.BUSY_ERRORS), or this
+        # transaction rolls back its claim and the next firing prunes.
         "pending_changes": _clear_settled_proposals(),
+        # "read" means read_at for a personal row and a `notification_reads`
+        # row for a 'team' one. A prune that tests read_at alone makes
+        # every team announcement immortal - mark_read never stamps that
+        # column on a shared record - and drags its dismissal rows along with
+        # it, so the two tables grow together and forever. A team row is
+        # prunable once EVERY active human has dismissed it: one straggler
+        # keeps it, which is the same promise the unread query makes them.
+        "notifications": db.execute_rowcount(
+            "DELETE FROM notifications WHERE created_at < ? AND ("
+            " (\"user\" != 'team' AND read_at IS NOT NULL)"
+            # read_at counts for a team row too. `mark_read_matching` stamps it
+            # when the THING a notification points at is settled - a fact about
+            # the world, not about one reader - and that write also hides the
+            # row from every unread list, so nobody can ever add the per-person
+            # dismissal the arm below waits for. Without this disjunct every
+            # "Review needed: #N" notification the product sends is permanent.
+            " OR (\"user\" = 'team' AND read_at IS NOT NULL)"
+            " OR (\"user\" = 'team' AND NOT EXISTS ("
+            "   SELECT 1 FROM users u WHERE u.kind = 'human' AND u.active = 1"
+            "   AND u.name != 'anonymous'"
+            "   AND NOT EXISTS (SELECT 1 FROM notification_reads r"
+            '     WHERE r.notification_id = notifications.id AND r."user" = u.name)))'
+            ")",
+            (_cutoff(READ_NOTIFICATION_DAYS),),
+        ),
         "usage_log": db.execute_rowcount(
             # the thread id (sha256 of the name for the default thread) and
             # the run ids relinked the row to the person after the name left
@@ -260,6 +264,7 @@ def prune(*, actor: str = "scheduler") -> dict:
             " chat_agent_run_id = NULL WHERE requested_by <> '' AND created_at < ?",
             (_cutoff(USAGE_NAME_DAYS),),
         ),
+        "browser_sessions": browser_sessions.prune_expired(),
         "artifacts": _prune_digests(),
         "exports": _prune_legacy_exports(),
         "context_packs": _prune_pack_versions(),
