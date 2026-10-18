@@ -127,9 +127,12 @@ class ExtensionStore:
     def transaction(self) -> Iterator[ExtensionStore]:
         """One database transaction for a unit of extension-owned work. It nests.
 
-        It takes no lock. A read whose result decides a later write must hold
-        the row it read (SELECT ... FOR UPDATE inside this block), or two
-        callers both read the same state and both write.
+        Blocks on one extension serialize: every statement in the block runs
+        through _scope, whose db.ensure_owned_schema takes this schema's name
+        lock inside the block's transaction and holds it until commit. A
+        second block waits at its first statement. A block that takes a core
+        row lock after a store statement, and a transaction that holds that
+        row and then enters a block, wait on each other: PostgreSQL aborts one.
         """
         with self._scope():
             yield self
