@@ -1188,10 +1188,10 @@ case "$branch" in
   task/*) ;;
   *) exit 0 ;;
 esac
-# the digits must END the segment or be followed by - or /. Without the
-# boundary `task/12abc` claimed task 12, which neither BRANCH_RE nor
-# services/forge.py accepts - three definitions, and this was the outlier.
-id=$(printf '%s' "$branch" | sed -n -e 's|^task/\\([0-9][0-9]*\\)$|\\1|p' -e 's|^task/\\([0-9][0-9]*\\)[-/].*|\\1|p')
+# at most nine digits, which must END the segment or be followed by - or /.
+# Without the boundary `task/12abc` claimed task 12, which neither BRANCH_RE
+# nor services/forge.py accepts - three definitions, and this was the outlier.
+id=$(printf '%s' "$branch" | sed -n -e 's|^task/\\([0-9]\\{1,9\\}\\)$|\\1|p' -e 's|^task/\\([0-9]\\{1,9\\}\\)[-/].*|\\1|p')
 [ -n "$id" ] || exit 0
 # -E, not a BRE alternation: `\\|` is a GNU extension that BSD grep reads as
 # a literal pipe, so the guard never fired there - and a hand-written

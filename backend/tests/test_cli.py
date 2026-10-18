@@ -585,6 +585,7 @@ def test_the_hook_reads_only_a_real_task_number(tmp_path):
         "task/12abc",
         "task/nodigits",
         "task/\u0664\u0662/task-7",
+        "task/1234567890/task-7",
     ):
         hook_id = "Refs-Task: #" in trailer_for(branch)
         cli_id = cli.BRANCH_RE.match(branch) is not None
