@@ -14,6 +14,9 @@ ideation and engineering backlog. The original phase plan, kept for its data
 model and constraints, is archived at
 `docs/reviews/2026-07-23-implementation-spec.md`.
 
+This file holds the project's agent rules. `CLAUDE.md` only imports it
+(`@AGENTS.md`): edit this file.
+
 ## Hard constraints
 
 - **Runtime isolation.** The planned deployment cannot reach GitHub. GitHub
@@ -108,8 +111,12 @@ model and constraints, is archived at
   is a policy one. Take it FIRST in the transaction, so every path acquires
   locks in the same order - the ledger's own lock is deliberately last (its
   rows are queued and written at commit), and a lock taken after another
-  transaction's is how a deadlock forms. A swallowed database error needs
-  `db.savepoint()`
+  transaction's is how a deadlock forms. Hold only on the paths whose write
+  depends on that read: a lock that every write takes queues all of them
+  behind its slowest holder (`work.hold_task_parents`). A foreign key check
+  is a lock too, FOR KEY SHARE on the referenced row, so count it in the
+  order. Pin the order by statement order (`tests/test_lock_order.py`), not
+  by racing two threads. A swallowed database error needs `db.savepoint()`
   as well - a failed statement aborts the whole transaction, so suppressing
   it kills every later statement in the request.
 
@@ -190,6 +197,7 @@ docker run -d --stop-timeout 1200 --name skein-db -p 127.0.0.1:5432:5432 \
 # backend (from backend/)
 uv venv .venv && uv pip install -e ".[dev]" --python .venv/bin/python   # deps
 .venv/bin/pytest      # normal suite; one deployment-role contract is skipped
+# Concurrent runs are safe: every run's test databases get unique names.
 # Needs PostgreSQL 17 client tools and the disposable superuser server above.
 SKEIN_ROLE_CONTRACT=1 .venv/bin/pytest -q -n0 tests/test_database_role.py # role drill
 .venv/bin/ruff check app tests seed.py ../cli/skein_cli.py ../scripts   # lint
@@ -202,6 +210,11 @@ SKEIN_AUTH_MODE=trusted-header .venv/bin/uvicorn app.main:app --port 8000 --relo
 .venv/bin/python seed.py                                # demo data
 .venv/bin/python -m app.bootstrap_key <name>            # first API key per person
                                                         # (private surfaces need one)
+# An isolated seeded stack for a live check, beside a running dev app: it
+# creates a disposable skein_e2e_* database and drops it on SIGTERM. Give it
+# its own data dir; frontend/playwright.config.ts has the full environment.
+SKEIN_E2E_PORT=8700 SKEIN_DATA_DIR=<scratch dir> SKEIN_SCHEDULER=0 \
+  SKEIN_MODEL_PROVIDER=mock .venv/bin/python ../scripts/e2e-backend.py
 
 # frontend (from frontend/)
 npm run dev     # dev server on :3000
@@ -260,13 +273,16 @@ that hasn't passed it will fail on push-to-main.
   far from the window edge - each passes against the broken behavior and
   pins nothing. The first shipped a parser that opened the task panel on a
   blocker id (`frontend/__tests__/activity-task-refs.test.tsx`).
+- A guard you add (a branch that refuses, skips, or narrows) needs a test
+  that fails when that line is deleted. Delete it and run the tests before
+  you commit.
 
 ### User-visible wording
 
 Functional text - errors, helper copy, instructions, refusals, notifications,
-command replies - follows ASD-STE100 Simplified Technical English (the
-`simple-english` skill, pragmatic mode). Code, identifiers, commands, and
-quoted errors are never rewritten.
+command replies - follows ASD-STE100 Simplified Technical English in
+pragmatic mode (the `simple-english` skill applies it where installed).
+Code, identifiers, commands, and quoted errors are never rewritten.
 
 **Warmth is allowed where nothing is being asked of the reader.** Copy may
 carry the product's voice when the system is idle, empty, or finished and
@@ -332,6 +348,8 @@ code in slices, with no access to the session that made it.
 - Never write narration ("loop over the users"), session history ("added
   in round 3"), hedges ("this should probably..."), or bare markers ("do
   not remove"). A marker with no consequence does not survive the next edit.
+  State a fixed bug as its present-tense consequence ("a hold on every
+  update queues..."), not as what happened ("holding... queued").
 - If an edit makes a comment false, the edit is wrong or the comment must
   change with it. Never delete only the comment.
 - If your own code needs an explanation, restructure the code instead. Keep
