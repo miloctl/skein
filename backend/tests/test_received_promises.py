@@ -235,9 +235,19 @@ def test_a_received_promise_never_reads_as_one_the_team_made(client):
 
 
 def test_my_day_shows_what_you_owe_not_what_you_are_owed(client):
-    _overdue(client, "the redlines Acme owes us", who="Acme")
+    # both filed by the reader: the attention query also filters on the
+    # author, and a promise somebody else filed is absent for that reason alone
+    due = (db.today() - timedelta(days=3)).isoformat()
+    for text, direction in (
+        ("the redlines Acme owes us", "received"),
+        ("the draft we owe Acme", "given"),
+    ):
+        promises.add_promise(
+            text, to_whom="Acme", due_date=due, direction=direction, actor="tester"
+        )
     day = client.get("/api/briefing").json()
     labels = " ".join(str(i.get("label", "")) for i in day["attention"])
+    assert "draft we owe Acme" in labels
     assert "redlines Acme owes us" not in labels
 
 

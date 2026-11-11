@@ -743,7 +743,7 @@ def test_the_sweep_notifies_once_per_task_per_week(fresh_db, monkeypatch, aged_d
     assert len(sent) == 1
 
 
-def test_a_task_with_a_recent_note_is_not_quiet(fresh_db, monkeypatch):
+def test_a_task_with_a_recent_note_is_not_quiet(fresh_db, monkeypatch, aged_delegation):
     """QUIET_DAYS is the threshold. A note inside the window means the work is
     moving, and a sponsor pinged about moving work stops reading."""
     task_id = _delegated("research-agent")

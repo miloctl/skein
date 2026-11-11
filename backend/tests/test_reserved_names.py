@@ -194,15 +194,24 @@ def test_identity_folding_agrees_with_the_resolver(fresh_db):
         users.ensure_user("SCOÜT")
 
 
-def test_a_bad_mcp_identity_never_takes_down_the_api(client, fresh_db, monkeypatch):
+def test_a_bad_mcp_identity_never_takes_down_the_api(fresh_db, set_app_state):
     # operator config degrades, it does not abort boot - the same rule the
-    # model provider follows. Proven at the service the boot path calls.
+    # model provider follows. The boot itself runs here: SKEIN_MCP_USER names
+    # a person who already exists, which the reservation refuses.
+    from dataclasses import replace
+
+    from fastapi.testclient import TestClient
+
+    from app import main
     from app.services import users
 
     users.ensure_user("mira")
-    with pytest.raises(ValueError):
-        users.ensure_user("Mira", kind="agent")
-    assert client.get("/health").status_code == 200
+    set_app_state(
+        main.app, "skein_settings", replace(main.app.state.skein_settings, mcp_user="mira")
+    )
+    with TestClient(main.app, headers={"X-User": "tester"}) as booted:
+        assert booted.get("/api/tasks").status_code == 200
+    assert not users.is_agent("mira")
 
 
 def test_a_reserved_key_cannot_read_through_the_perimeter(client, fresh_db, monkeypatch):

@@ -707,6 +707,7 @@ def test_token_redirect_does_not_reach_another_origin(monkeypatch):
 
     class Target(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
             target_calls.append(self.path)
             body = b'{"access_token":"redirected"}'
             self.send_response(200)
@@ -722,6 +723,7 @@ def test_token_redirect_does_not_reach_another_origin(monkeypatch):
 
     class Redirect(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
             self.send_response(307)
             self.send_header(
                 "Location",
@@ -754,6 +756,7 @@ def test_token_redirect_does_not_reach_another_origin(monkeypatch):
 def test_token_redirect_can_stay_on_the_same_origin(monkeypatch):
     class Redirect(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
             if self.path == "/token":
                 self.send_response(307)
                 self.send_header("Location", "/final")
@@ -804,6 +807,7 @@ def test_loopback_token_exchange_bypasses_proxies(monkeypatch):
 
     class Target(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
             nonlocal target_calls
             target_calls += 1
             body = b'{"access_token":"target"}'
@@ -845,6 +849,7 @@ def test_token_post_does_not_follow_a_method_changing_redirect(monkeypatch):
 
     class Redirect(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
             self.send_response(302)
             self.send_header("Location", "/final")
             self.end_headers()

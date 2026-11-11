@@ -121,5 +121,6 @@ def test_a_private_task_title_never_reaches_the_finding(client, fresh_db):
         actor="ava",
         visibility=scope.PRIVATE,
     )
-    fired = insights._r_plan_drift()
-    assert not any("secret" in f["message"] for f in fired)
+    # The message carries a count and no title, so the leak is the count: two
+    # readable tasks stay under the alarm, and a counted private one fires it.
+    assert insights._r_plan_drift() == []

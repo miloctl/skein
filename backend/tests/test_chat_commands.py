@@ -296,8 +296,15 @@ def test_remember_team_offers_the_team_share_only_where_it_works(client):
 
 
 def test_remember_in_an_unlinked_thread_stays_a_direct_team_memory(client):
+    from app import db
+
     out = _read_chat(client, "/remember demos every Friday")
+    # every /remember answers "Remembered": the stored row is what tells a
+    # direct team memory from an engagement one or a proposal
     assert "Remembered" in out
+    rows = db.query('SELECT visibility, engagement_id, "user" FROM memories')
+    assert [(r["visibility"], r["engagement_id"]) for r in rows] == [("workspace", None)]
+    assert db.query("SELECT id FROM pending_changes") == []
 
 
 def _menu(monkeypatch):

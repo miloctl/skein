@@ -281,7 +281,7 @@ def test_the_commit_hook_ignores_a_branch_that_names_no_task(tmp_path):
         cwd=repo,
         check=False,
     )
-    assert "Closes-Task" not in msg.read_text()
+    assert msg.read_text() == "unrelated work\n"
 
 
 def test_the_branch_slug_is_git_safe():
@@ -618,7 +618,7 @@ def test_the_hook_leaves_an_existing_trailer_alone(tmp_path):
         cwd=repo,
         check=False,
     )
-    assert "Closes-Task" not in msg.read_text()
+    assert msg.read_text() == "work\n\nRefs-Task: #42\n"
 
 
 def test_a_refused_capture_is_not_queued_as_if_the_server_were_down(monkeypatch, capsys, tmp_path):

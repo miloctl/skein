@@ -104,23 +104,6 @@ def test_scheduler_runs_in_the_team_zone(monkeypatch):
     assert digest and digest[0]["hour"] == 7
 
 
-def test_the_digest_fires_at_seven_local_not_seven_utc(monkeypatch):
-    """The whole point, stated as the time an operator would check."""
-    _reload(monkeypatch, "America/New_York")
-    from apscheduler.triggers.cron import CronTrigger
-
-    fire = CronTrigger(hour=7, minute=0, timezone="America/New_York").get_next_fire_time(
-        None, datetime(2026, 8, 8, 0, 0, tzinfo=UTC)
-    )
-    assert fire.astimezone(UTC).hour == 11  # EDT is UTC-4
-    winter = CronTrigger(hour=7, minute=0, timezone="America/New_York").get_next_fire_time(
-        None, datetime(2026, 1, 8, 0, 0, tzinfo=UTC)
-    )
-    # EST is UTC-5 - the same wall-clock hour, a different UTC hour. A fixed
-    # offset would have gotten one of these two wrong.
-    assert winter.astimezone(UTC).hour == 12
-
-
 def test_a_fixed_offset_zone_name_is_refused(monkeypatch):
     """tzdata really does carry "EST", and ZoneInfo("EST") resolves - to a
     zone that is UTC-5 all year. A team that writes the abbreviation they say

@@ -330,6 +330,8 @@ def test_browser_refresh_token_input_is_refused(browser, monkeypatch):
     )
     response = browser.post("/api/auth/token", json={"refresh_token": "must stay server-side"})
     assert response.status_code == 400
+    # the missing-code check after this refusal also answers 400
+    assert "no longer supported" in response.json()["detail"]
 
 
 def test_composed_oidc_session_uses_its_app_mode_not_another_apps_global(fresh_db, monkeypatch):

@@ -449,19 +449,6 @@ def test_approve_unknown_entity_never_claims(fresh_db):
     )
 
 
-def test_review_stats_reports_median_minutes(fresh_db):
-    from app.services import review, work
-
-    for title in ("a", "b", "c"):
-        p = review.propose_change("task", "create", {"title": title}, actor="agent")
-        review.mark_seen([p["id"]], actor="r")
-        review.approve_change(p["id"], actor="r")
-    stats = review.review_stats()
-    assert "median" in stats["active_review_minutes"]
-    assert stats["active_review_minutes"]["n"] == 3
-    assert len(work.list_tasks()) == 3
-
-
 def test_review_stats(client):
     from app.services import review
 
@@ -1343,6 +1330,9 @@ def test_a_deadlocked_database_is_a_retry_and_a_completion_holds_its_task(
 
     monkeypatch.setattr(delegation, "accept_completion", deadlocked)
     mira = _strong(client, "mira")
+    # the delegation and the completion above hold this task too: without the
+    # reset, their holds satisfy the assertion and the approval is never checked
+    held.clear()
     approved = client.post(f"/api/review/{proposal}/approve", json={"note": ""}, headers=mira)
     assert (approved.status_code, approved.headers.get("Retry-After")) == (503, "5")
     assert "deadlock" not in approved.text

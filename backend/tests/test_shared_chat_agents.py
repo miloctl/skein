@@ -451,13 +451,11 @@ def test_identity_rename_waits_for_pending_or_live_agent_work(client, monkeypatc
         invoke_agent=agent,
     )
 
+    # by message: an invited agent is also refused a rename for being a room
+    # member, and a bare Conflict passes with the pending-work guard deleted
     for old, new in (("mira", "mira-renamed"), (agent, "renamed-agent")):
-        try:
+        with pytest.raises(db.Conflict, match="Wait for the shared-chat agent response"):
             users.rename_user(old, new, actor="tester")
-        except db.Conflict:
-            pass
-        else:
-            raise AssertionError("an identity moved while its shared-chat turn was pending")
 
 
 def test_provider_fault_stores_only_a_safe_code(client, monkeypatch):

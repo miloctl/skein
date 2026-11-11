@@ -174,9 +174,10 @@ def test_closing_again_after_a_reopen_does_not_repeat_the_close(fresh_db):
     engagements.update_engagement(e["id"], status="active")
     engagements.update_engagement(e["id"], status="closed", conclusion="invalidated")
     lessons = fresh_db.query("SELECT id FROM lessons WHERE engagement_id = ?", (e["id"],))
-    ship = fresh_db.query("SELECT id FROM notifications WHERE message LIKE '%Probe%shipped%'")
+    # an experiment's close notice says "concluded", never "shipped"
+    closed = fresh_db.query("SELECT id FROM notifications WHERE message LIKE '%Probe%concluded%'")
     assert len(lessons) == 1
-    assert len(ship) <= 1
+    assert len(closed) == 1
 
 
 def test_the_ship_recap_counts_only_what_the_team_can_open(fresh_db):

@@ -191,17 +191,33 @@ def test_what_if_projection(client):
 
 
 def test_what_if_ignores_expired_allocations(client):
-    e = client.post("/api/engagements", json={"name": "Old"}).json()
-    client.post(
-        f"/api/engagements/{e['id']}/allocate",
-        json={"person": "zoe", "percent": 80, "starts_on": "2025-01-01", "ends_on": "2025-06-30"},
-    )
-    req = client.post("/api/intake", json={"title": "new"}).json()
-    out = client.post(
-        f"/api/intake/{req['id']}/what-if", json={"people": ["zoe"], "percent": 50}
-    ).json()
-    zoe = out["projection"][0]
+    from app.services import users
+
+    # allocate refuses a name that is not on the roster, and a refused
+    # allocation reads as 0% whether or not what-if filters by date
+    users.ensure_user("zoe")
+
+    def allocate(name, **window):
+        e = client.post("/api/engagements", json={"name": name}).json()
+        r = client.post(
+            f"/api/engagements/{e['id']}/allocate",
+            json={"person": "zoe", "percent": 80, **window},
+        )
+        assert r.status_code == 200, r.text
+
+    def current():
+        req = client.post("/api/intake", json={"title": "new"}).json()
+        out = client.post(
+            f"/api/intake/{req['id']}/what-if", json={"people": ["zoe"], "percent": 50}
+        ).json()
+        return out["projection"][0]
+
+    allocate("Old", starts_on="2025-01-01", ends_on="2025-06-30")
+    zoe = current()
     assert zoe["current_percent"] == 0 and not zoe["overcommitted"]
+    allocate("Live")
+    zoe = current()
+    assert zoe["current_percent"] == 80 and zoe["overcommitted"]
 
 
 def _viewer(name):

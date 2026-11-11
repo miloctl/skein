@@ -244,7 +244,9 @@ def test_finish_keeps_the_turn_outcome_and_only_safe_literals(fresh_db):
 def test_a_failure_before_any_tool_has_its_own_code():
     from app.services import agent_wakeups
 
-    result = {"fault": True, "reason": "the turn failed before any tool ran: ConnectionError"}
+    # a class name that also matches a later branch: the order is the thing pinned
+    reason = "the turn failed before any tool ran: MaxTokensReachedException"
+    result = {"fault": True, "reason": reason}
     assert agent_wakeups._reason_code(result) == "failed_before_tools"
 
 

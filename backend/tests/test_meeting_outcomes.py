@@ -165,12 +165,18 @@ def test_the_interrupt_rule_is_silent_under_the_small_n_floor(client):
     assert not [f for f in insights.list_findings() if f["rule_id"] == "interrupt_load"]
 
 
-def test_a_meeting_written_down_after_it_started_is_not_asked_about(client):
+def test_a_meeting_written_down_after_it_started_is_not_asked_about(client, monkeypatch, pin_now):
     """A playbook ritual is scheduled at a fixed hour on the kickoff DAY, so
     instantiating one in the afternoon writes an event in the past that nobody
     sat in. Skein asked what came out of a meeting nobody attended."""
     from app.services import playbooks
 
+    # Held in the evening. The 09:00 ritual enters the ask window four hours
+    # after it starts, so before 13:00 UTC it is absent with or without the
+    # created_at guard, and the unfrozen test passed against the broken code.
+    evening = datetime.combine(db.today(), datetime.min.time(), UTC) + timedelta(hours=18)
+    pin_now(schedule, evening)
+    monkeypatch.setattr(db, "now", lambda: evening.isoformat(timespec="seconds"))
     made = playbooks.instantiate("incident", "Afternoon kickoff", lead="ava", actor="ava")
     titles = {e["title"] for e in made["events"]}
     asked = {e["title"] for e in schedule.meetings_awaiting_outcome(scope.Viewer("ava", True))}

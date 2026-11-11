@@ -248,6 +248,8 @@ def test_deferred_until_must_be_a_date(fresh_db):
 
 
 def test_rule_stats_median_days(fresh_db):
+    from datetime import UTC, datetime, timedelta
+
     from app import db
     from app.services.insights import disposition_finding, rule_stats
 
@@ -255,9 +257,9 @@ def test_rule_stats_median_days(fresh_db):
         'INSERT INTO findings (rule_id, subject, severity, message, n, "window",'
         " receipt, week, created_at) VALUES ('r1', 's', 'low', 'm', 1, 'w', '{}', '2026-W30', ?)"
         " RETURNING id",
-        ("2026-07-20T00:00:00+00:00",),
+        ((datetime.now(UTC) - timedelta(days=4)).isoformat(timespec="seconds"),),
     )
     disposition_finding(fid, "resolved", actor="m")
     stats = {s["rule_id"]: s for s in rule_stats()}
-    assert stats["r1"]["median_days_to_disposition"] is not None
-    assert stats["r1"]["median_days_to_disposition"] >= 3  # planted 4 days ago
+    # planted 4 days ago: a wide bound also accepts hours or weeks as the unit
+    assert 3.9 <= stats["r1"]["median_days_to_disposition"] <= 4.1

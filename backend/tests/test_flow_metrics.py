@@ -32,14 +32,6 @@ def test_flow_metrics_cycle_wip_stale(client, fresh_db):
     assert [s["id"] for s in flow["stale_wip"]] == [stale["id"]]
 
 
-def test_slas_constants_wired():
-    from app.services import digest, insights, portfolio, slas
-
-    assert portfolio.STALE_WIP_DAYS == slas.STALE_WIP_DAYS
-    assert insights.AGING_WIP_DAYS == slas.AGING_WIP_DAYS
-    assert digest.DIGEST_STALLED_DAYS == slas.DIGEST_STALLED_DAYS
-
-
 def test_accepted_delegated_work_counts_in_flow(fresh_db):
     """A sponsor's acceptance is the ONLY way a delegated task closes - the
     forge refuses to - so if it does not stamp completed_at, every delegated

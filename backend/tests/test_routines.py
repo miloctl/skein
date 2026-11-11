@@ -113,13 +113,15 @@ def test_missed_times_fire_once_late_dated_with_the_latest(people, fresh_db):
     assert len(_tasks(fresh_db, rid2)) == 1
 
 
-def test_a_resumed_routine_never_catches_up(people, fresh_db):
+def test_a_resumed_routine_never_catches_up(people, fresh_db, pin_now):
     from app.services import routines
 
     rid = _routine()["id"]
     routines.pause_routine(rid, actor="mira")
+    # five weeks pass while it is paused: resumed in the same instant, nothing
+    # was missed, and a resume that kept the old due time passes too
+    now = pin_now(routines, datetime.now(UTC) + timedelta(weeks=5))
     routines.resume_routine(rid, actor="mira")
-    now = datetime.now(UTC)
     assert _due(fresh_db, rid) > now
     assert routines.fire_due(rid, now) == ""
     assert _tasks(fresh_db, rid) == []

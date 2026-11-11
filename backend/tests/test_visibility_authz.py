@@ -709,19 +709,24 @@ def test_a_scoped_absence_is_filed_for_a_person_who_can_read_it(fresh_db):
     filed FOR someone else is theirs, readable and deletable by them whatever
     the tier, while it moves their capacity. The person away is the author
     for the tier check, so no window is readable by nobody."""
+    from datetime import timedelta
+
     from app.services import crews
 
     users.ensure_user("ava")
     users.ensure_user("bo")
-    absences.add_absence("ava", "2026-12-01", "2026-12-02", actor="ava", visibility="private")
-    filed = absences.add_absence(
-        "bo", "2026-12-01", "2026-12-02", actor="ava", visibility="private"
+    # list_absences drops a window that ended before today, so a fixed date
+    # passes until the calendar reaches it and then reads back an empty list
+    first, last, later, latest = (
+        (db.today() + timedelta(days=n)).isoformat() for n in (20, 21, 22, 23)
     )
+    absences.add_absence("ava", first, last, actor="ava", visibility="private")
+    filed = absences.add_absence("bo", first, last, actor="ava", visibility="private")
     assert absences.list_absences("bo", viewer=scope.Viewer("bo", True))[0]["id"] == filed["id"]
     assert absences.list_absences("bo", viewer=scope.Viewer("ava", True)) == []
     crew = crews.create_crew("Platform", actor="ava")
     scoped = absences.add_absence(
-        "bo", "2026-12-03", "2026-12-04", actor="ava", visibility="crew", crew_id=crew["id"]
+        "bo", later, latest, actor="ava", visibility="crew", crew_id=crew["id"]
     )
     mine = {a["id"] for a in absences.list_absences("bo", viewer=scope.Viewer("bo", True))}
     assert {filed["id"], scoped["id"]} <= mine
