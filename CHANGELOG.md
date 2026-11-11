@@ -18,6 +18,14 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+### Behavior
+
+### Operations
+
+## 0.6.19 - 2026-11-11
+
+### Contracts
+
 - Extension API 1.0.0 is unchanged, and a package needs no new `minimum_core`. The backend now requires Strands Agents SDK `>=1.63.0`, MCP `>=2.2.0,<2.4` and Pillow `>=13.0.0`. A package that pins an older version of one of them must raise its pin before it installs this core. The frontend host now requires `next@16.4.5`, and a consumer's `package.json` must name the same version.
 
 ### Behavior
