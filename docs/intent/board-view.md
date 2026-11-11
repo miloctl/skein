@@ -1,5 +1,8 @@
 # Board, the team's open work by status
 
+Status: shipped. The decisions in this document are current. The sections on
+what existed before, the slices and the build order record how it was built.
+
 Confirmed 2026-09-28 with the repository owner.
 
 - **Outcome:** A person sees the team's open work as four columns named by

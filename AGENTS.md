@@ -226,8 +226,9 @@ npm run build   # verify compile (run before committing frontend changes)
 # app lifecycle (repo root)
 ./scripts/skein.sh start|stop|restart|status|logs   # detached; survives the terminal
 ./scripts/skein.sh dev                              # both in the foreground, Ctrl-C stops
-./scripts/lint.sh   # all lint gates CI runs: ruff (check + format) + mypy +
-                    # vulture + comment references + persona and flock
+./scripts/lint.sh   # all lint gates CI runs: typography + ruff (check +
+                    # format) + mypy + vulture + comment references +
+                    # license copies + persona and flock
                     # validators + theme contrast + STE self-test and knot
                     # how: check + tsc + eslint + knip
 ```

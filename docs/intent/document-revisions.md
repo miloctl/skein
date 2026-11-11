@@ -1,5 +1,8 @@
 # Document editing and revisions
 
+Status: shipped. The decisions in this document are current. The sections on
+what existed before, the slices and the build order record how it was built.
+
 Confirmed 2026-09-28 with the repository owner.
 
 - **Outcome:** People change a document in place, and no saved text is lost. Every save,
@@ -178,7 +181,7 @@ no search row (`search._is_private` once S6 maps documents), no embedding, no ag
 ## Data model
 
 ```sql
--- core_migrations/0NN_document_revisions.sql: NN is the next free number when the
+-- core_migrations/045_document_revisions.sql: NN is the next free number when the
 -- branch merges (044 is the calendar's).
 CREATE TABLE document_revisions (
     artifact_id bigint NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
@@ -239,11 +242,11 @@ def _readable_document(artifact_id, viewer) -> dict     # visible_filter, then k
   Only a document can be changed." (or "... has revisions." on a read). An absent revision
   of a readable document is `db.NotFound("no revision 9 of document #12")`.
 - `unified` wraps `difflib.unified_diff` over `splitlines()` with `lineterm=""`, `n=3`, per
-  request and never stored, with `# ponytail: difflib is quadratic in the worst case and
+  request and never stored, with `# shortcut: difflib is quadratic in the worst case and
   the 512 KB cap bounds it. Cap the compared lines if a slow diff shows in traces`.
 - `history` returns the newest `HISTORY_LIMIT` rows without bodies (revision, author,
   origin, change_id, restored_from, created_at, size). An older revision still opens by
-  number (`# ponytail: 100-row page, add a before= cursor past 100 revisions`).
+  number (`# shortcut: 100-row page, add a before= cursor past 100 revisions`).
 - Every ledger line is `scope.detail(tier, f"artifact #{id} revision {n}", title)`, never a
   body or a diff. A human save reuses `edit_document`, and a restore logs
   `restore_document`.
@@ -510,7 +513,7 @@ the code before the change, with fixtures from a running mock-provider instance.
   document. A human save inside the same agent turn becomes the base, and the filing check
   still refuses a quote that the save removed.
 - **Two size ceilings.** difflib's worst case on a full rewrite of a 512 KB document (the
-  `ponytail:` marker names the fix), and a Your data export that carries every revision of
+  `shortcut:` marker names the fix), and a Your data export that carries every revision of
   each private document. The export is the person's own data, and the write cap bounds its
   growth. A per-document limit is the fix if an export fails in the browser.
 - **Invisible characters in a person's text block an agent quote of that span** at review

@@ -364,9 +364,8 @@ def capacity_ahead(weeks: int = 6, viewer: scope.Viewer = scope.NOBODY) -> list[
     allocation that STARTS next month" - and a request accepted today against
     today's numbers is a conflict Skein notices only when the date arrives.
 
-    A table, one row per week, never a Gantt: docs/ROADMAP.md records the Gantt
-    as a deliberate refusal, and a week grid answers the staffing question
-    without pretending to schedule the work.
+    A table, one row per week, never a Gantt: a week grid answers the staffing
+    question without pretending to schedule the work.
 
     Person-level and forward-looking, which is the direction the
     anti-surveillance rule permits - this plans the future, it does not score

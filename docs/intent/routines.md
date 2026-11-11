@@ -1,5 +1,8 @@
 # Routines, standing delegations and recurring tasks
 
+Status: shipped. The decisions in this document are current. The sections on
+what existed before, the slices and the build order record how it was built.
+
 Confirmed 2026-09-28 with the repository owner.
 
 - **Outcome:** A person writes recurring work once, with a weekly schedule. Each time it
@@ -237,7 +240,7 @@ slice 1, where the owner placed the trust split: it needs a code path that emits
 
 ### Slice 1 - Schema, service core, one firing, and the trust counts
 
-Migration `0NN_routines.sql`, the next free number when the branch merges (044 is the
+Migration `047_routines.sql`, the next free number when the branch merges (044 is the
 calendar's). After the first production deploy it keeps its name for good. No semicolon
 inside a comment (`docs/VISIBILITY.md`, "Schema"). Text and bigint, as `001_baseline.sql`.
 

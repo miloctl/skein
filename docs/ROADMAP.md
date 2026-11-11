@@ -17,16 +17,6 @@ for a season with the review gate on (the default since 2026-08-21):
 - No new portfolio surfaces. The portfolio items below stay listed and stay
   un-worked; refinement resumes after the season.
 - Investment order: delegation contracts from the deferred specs.
-  (The first slice shipped 2026-08-21: `acceptance_criteria` and
-  `check_in_at` on `delegate_task`, surfaced in the agent inbox and the
-  acceptance verdict, with the sweep nagging a missed check-in. The
-  full contract entity stays in the cut table below.)
-  (The durable first-wake queue shipped 2026-08-24: a human delegation now
-  queues one bounded agent turn, while worklog and sponsor acceptance remain
-  the response path.)
-  (Engagement-level cost attribution shipped with this posture note: the
-  agent runner attributes a turn when every open delegated task resolves to
-  one engagement, and chat turns keep the retroactive thread link.)
 - Exit trigger, cut-table style: if after one season with the gate on the
   trust rows, promotions, and delegations still read zero, that is the
   evidence to NARROW the agent surface instead - the decision is then a
@@ -143,17 +133,11 @@ What is left:
   one - the week is over and the digest already reaches everyone) before
   building anything, or retire the card with the season.
 
-Sized S or M by that review. Items 6 and 8 of the original list are gone. The
-engagement-close conclusion select shipped (`app/dashboard/page.tsx`). The
-portfolio commitments card now names its two audiences in the card title.
-Items 1 (nav search), 3 (delegate control in the task peek), 5 (the
-allocation form on the Capacity card), 7 (the Recently shipped strip), 8 (the
-task `void` status), and 9 (phone-width search results) shipped and were
-dropped. The remaining numbers stay as the review transcripts cite them.
+One item of that review's self-serve list is open:
 
-6. [S] `?` tooltips: ISO week format on the commitment card, season definition
-   on the pulse banner. (The origin glossary this item also named shipped
-   2026-08-09 as the origin chip on each Approvals row.)
+- [S] `?` tooltips: ISO week format on the commitment card, season definition
+  on the pulse banner.
+
 ## Manager and workflow (from the 2026-07-25 ideation run)
 
 Playbooks learn from ONE engagement: the plan is snapshot at kickoff, the
@@ -198,10 +182,6 @@ stops claiming to be an agent.
 
 ## Agent layer (2026-07-25)
 
-A1 (delegation work loop), A2 (system-filed authority proposals) and A3 (the
-morning sweep, which notifies each delegated task's sponsor rather than filing
-`nudge` proposals) shipped.
-
 - **A4 agent-to-agent handoff** - a `handoff_task` tool that keeps the sponsor
   immutable. The hop is itself a proposal the sponsor approves.
 - **A5 proposal bundles** - `bundle_id` and `seq` on `pending_changes`, with
@@ -229,7 +209,7 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
   suggested replacement is the vended `shell`, which Skein refuses. Build a
   small Skein-owned arithmetic tool only if a deployment needs exact math.
   Removing the package also drops its dependency tree from the image
-  (`slack-bolt`, `botocore`, `pillow`, `rich`, `prompt-toolkit`, `dill`). The
+  (`slack-bolt`, `botocore`, `rich`, `prompt-toolkit`, `dill`). The
   release note must tell operators that the variable is ignored.
 - **A failed or unknown MCP review row has no error code.** The ledger row
   says `remote_error` or `deadline_exceeded`, but
@@ -244,12 +224,6 @@ morning sweep, which notifies each delegated task's sponsor rather than filing
 
 ## Developer loop (2026-07-25)
 
-D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
-`--all-from <agent>` batch flag.
-
-- **D4 MCP parity** - landed through `week` on 2026-09-02. Review approval
-  over MCP stays deliberately absent, because an agent must not launder its
-  own proposal.
 - **Test turns that match production.** `conftest._turn` leaves the agent
   identity as "agent", not the persona, and does not apply the shared-chat
   tool allowlist (`SHARED_CHAT_TOOLS`), so a test can call a tool the worker
@@ -279,7 +253,7 @@ D1 (`skein review`/`inbox`/`answer`/`worklog`) shipped, without the proposed
   (`credentials:` in both ci.yml copies, two repository secrets; smallest,
   needs an account); the ECR Public mirror
   (`public.ecr.aws/docker/library/postgres`) with a new digest, since its
-  image index differs from Docker Hub's and the pin sits in thirteen files
+  image index differs from Docker Hub's and the pin sits in eleven files
   under the release contract; or PostgreSQL 17 from the PGDG apt repository
   in a step, as the "PostgreSQL 17 client" step already does, which removes
   Docker from CI (largest, and the Gitea runner image must allow apt).
@@ -344,9 +318,10 @@ settled (time zone, the auth bridge, `wip_by_person` egress) were dropped
   log. Plan it as a logged genesis reset, never a migration.
 - **`statement_timeout` is not classified as load.** A cancelled query
   (SQLSTATE 57014, `psycopg.errors.QueryCanceled`) answers 500, and a retry
-  with nothing changed succeeds. Neither the app nor `deploy/` sets
-  `statement_timeout`, so only an operator's setting or a cancelled backend
-  reaches it. If one is ever configured, map it to 503 with Retry-After
+  with nothing changed succeeds. Chat search sets a local 3-second timeout
+  and handles its own cancel (`services/chat_threads.py`). Nothing sets one
+  globally, so only an operator's setting or a cancelled backend reaches
+  the 500. If one is ever configured, map it to 503 with Retry-After
   (`db.BUSY_ERRORS`), and decide how a query that always times out stays
   visible as a fault.
 - **May an agent create records in a crew for a crew member?** An agent is
@@ -411,18 +386,6 @@ backend ran ahead of its surfaces - search, usage, the worklog, and
 forecast calibration were computed and never delivered to where a
 person looks.
 
-**Nearly all of it shipped 2026-08-08/09**, documented in
-`docs/FEATURES.md`: the task side peek (K4) carrying the worklog panel
-(G9) and the delegate control (self-serve 3), the nav search box with
-the `?` ask prefix (self-serve 1), health snapshots and the readout
-delta (G1), the forecast calibration reader (G2), the agent worklog
-read-back (G3), the tab-title attention count (G8), the forward
-capacity view (G10), the planning cockpit (P1), the Recently shipped
-strip (self-serve 7), `skein standup --draft` (P5), the interrupt
-ratio in the cockpit (P4's ledger half), the turn-anomaly rules and
-the AI usage and estimated cost card (G7), the unattended runner under its ceilings
-(G4, G5, A3), and the trust-blocked line (G6's honesty half).
-
 Still open from that review:
 
 - **G6's evidence pack** - trigger unchanged: worth building when a
@@ -446,12 +409,10 @@ several loops stop at 80% - the trust flywheel has no flow, playbooks
 never learn from their own engagements, and waiting-on edges give the
 person typing them nothing back.
 
-- **R8 runner wake reads: attention** [S] - the wake turn now reads
-  `get_findings`, so an unattended agent sees the rules a chat turn does.
-  `get_attention` is still absent, and deliberately: it resolves the
-  REQUESTER from the turn's own viewer, and an unattended turn has no
-  requester (`tools/portfolio.py` says so rather than returning an empty
-  list). Wiring it needs a requester context on the runner first.
+- **R8 runner wake reads: attention** [S] - `get_attention` is in the wake
+  tools, and on an unattended turn it answers that the turn has no requester
+  (`tools/portfolio.py`), because it resolves the REQUESTER from the turn's
+  own viewer. A real answer needs a requester context on the runner first.
 - **The per-task unblock count on My Day** [S] - the task peek and the
   cockpit card both show what finishing a task releases; My Day does not,
   so the number is absent from the one surface people open first. The
@@ -470,13 +431,6 @@ That note is the binding item now. The proposer's record renders from
 real verdicts, and in trusted-header mode no verdict counts
 at all, so the surface is currently proving itself against an empty
 table.
-
-**Left behind by the 2026-08-09 arc, named where each belongs:** R8 and
-the per-task unblock count above; playbook variance across engagements,
-the unread kickoff half of that loop, and the untracked YAML edit under
-"Manager and workflow"; F6 under "Developer
-loop"; C4's morning rule under "Manager and workflow"; and the
-uncapped-on-both-sides census bullet at the top of this file.
 
 ## Left by the pre-merge review (2026-08-09)
 
@@ -570,7 +524,7 @@ review. Each names the condition that reopens it.
 | Acceptance checks + validation evidence as records | The evidence-gap findings rule (Insights backlog) fires often enough that teams act on it. The rule is the cheap probe; the records are the expensive answer. The display half shipped 2026-08-22: rows an `acceptance_criteria` names now resolve to their current status on the approval card. |
 | Recurring calendar events (RRULE) | A team creates the same weekly meeting by hand more than once a month. A playbook ritual creates one event per listed entry, not a series. |
 | Calendar week view with hour rows, drag to reschedule | The month grid is in use and someone asks to see one day's times side by side. |
-| Two-way Outlook, Exchange or Teams calendar sync, and ICS import | An explicit deployment requirement (runtime isolation, CLAUDE.md), or a team that types the same meetings in twice. The ICS feed stays the one export. |
+| Two-way Outlook, Exchange or Teams calendar sync, and ICS import | An explicit deployment requirement (runtime isolation, AGENTS.md), or a team that types the same meetings in twice. The ICS feed stays the one export. |
 | Per-person ICS feed with private events | A request for it, and a per-person feed token designed first: the feed token is shared today. |
 | Reminders before a meeting | People stop using the ICS feed in their own calendar client. |
 | Lessons, milestones or memories linked to a meeting | A retro or review workflow that asks for it. Milestones already show on the calendar by their due dates. |
@@ -616,7 +570,7 @@ review. Each names the condition that reopens it.
 | Two GitLab tokens during rotation | A rotation loses deliveries. |
 | Crew-tier CI blockers | A crew repository's name must stay in the crew. The GitLab pipeline blocker is workspace tier. |
 | Automatic context pack refresh in repositories | Reports of a stale pack. |
-| Outbound GitLab calls (merge request comments, commit statuses, an API token) | An open decision for the owner (CLAUDE.md, "Runtime isolation"). Nothing is written back today. |
+| Outbound GitLab calls (merge request comments, commit statuses, an API token) | An open decision for the owner (AGENTS.md, "Runtime isolation"). Nothing is written back today. |
 | Nested replies in a comment thread | One thread carries two interleaved conversations. |
 | Comment edit history | Somebody needs a comment's text from before an edit. |
 | Comment search | Somebody searches for a thing said in a thread. |
@@ -718,8 +672,8 @@ larger than its finding.
   the loopback names, the hosts in `SKEIN_CORS_ORIGINS`, and an env-only
   `SKEIN_TRUSTED_HOSTS` (question 2 of the settings rule). The refusal names
   the variable to set. Model: agentgateway `mcp/dns_rebinding.rs`.
-- **The trusted-proxy hop must be forced** - `SKEIN_TRUSTED_PROXIES` names
-  the hop whose `X-Forwarded-For` the rate buckets read, but nothing makes
+- **The trusted-proxy hop must be forced** - `SKEIN_TRUST_PROXY_HOPS` counts
+  the hops whose `X-Forwarded-For` the rate buckets read, but nothing makes
   traffic arrive through it; a direct peer picks any address's bucket.
   Trigger: a deployment that exposes the backend Service outside the Route.
 - **Pin the MCP connect to the addresses the SSRF check resolved** - the
@@ -896,3 +850,71 @@ codes can now show.
   workflow tasks three times. A dev tool, never a CI gate. It is the shape
   the deferred live consult eval needs before live traffic exists. Model:
   buzz `benchmarks/buzz-dataset`.
+
+## Left by the test, docs and backlog audit (2026-11-11)
+
+The audit read about two thirds of the test suite line by line and found
+2-4% of tests weak. The ones that could not fail for the thing they name
+were repaired in the same pass. What follows was found and not repaired.
+
+- **Three state-walk specs test the session screen, not the pages** [M] -
+  `frontend/e2e/responsive.spec.ts` "a page that is still loading claims
+  nothing yet", "a truly empty workspace says so without breaking" and "a
+  dead backend says so, and claims nothing" intercept `**/api/**`, which
+  holds or fails `/api/auth/session` too. `SessionBoundary` then never
+  mounts a page, and every per-page check passes on the session screen.
+  Let `/api/auth/*` fall through, and assert a positive anchor on each page
+  before the negative check. Established from the code path, not from a run.
+- **`e2e/long-words.spec.ts` measures a page it never confirms** [S] - two
+  fixed waits stand in for the mock agent's reply. Wait for the "Queued ...
+  for human review" line and for the token on `/review` before measuring.
+- **`activity-task-refs.test.tsx` uses rows no instance emits** [S] -
+  `mint_key` is `create_api_key`, the `delete_chat` detail is `thread {id}`,
+  and the `report_progress` detail is `task #N <note>`. `complete_task` and
+  `delegate_task` of `TASK_ACTIONS` have no case. AGENTS.md cites this file
+  as the example of real fixtures.
+- **Layout claims asserted as class names in jsdom** [S] -
+  `portfolio-loading`, `settings-identity`, `chat-search`,
+  `dashboard-register-controls` and six "keeps visible labels" tests assert
+  a class where only a browser can prove the layout. Move the claims to
+  `responsive.spec.ts`.
+- **The version ceiling `0.7.0` is a literal in 25 test files** [S] - every
+  test module that builds an extension declares
+  `maximum_core_exclusive="0.7.0"`, and each fails at registry build the day
+  the core becomes 0.7.0. Derive it in one shared helper.
+- **Backend tests that pin less than their name says** [M] -
+  `test_cli.py` (the outbox row with no owner, a `suppress(SystemExit)`, a
+  mocked `cli.api`), `test_intervention.py` (the dispositioned finding is
+  never in the queue), `test_insights.py` (the small-n gate),
+  `test_agent_runner.py` (once per week with no clock moved),
+  `test_retention.py` (rows 400 days old against 90- and 365-day horizons),
+  `test_acceptance_evidence.py` (the member who does read the worklog),
+  `test_shared_chat_agents.py` (a re-add with shared history, the claim
+  scan's second page, fixed 50 ms sleeps, 1-second waits),
+  `test_crews.py`, `test_api.py`, `test_briefing.py`, `test_personas.py`,
+  `test_packaging.py`, `test_engagements.py`, `test_flock_turns.py`,
+  `test_users.py`, `test_questions.py`, `test_write_origin.py`, and
+  `test_rest_errors.py::test_api_tester_regressions`, which is named for a
+  review pass and mixes five behaviors.
+- **Half the largest test files were not read** [M] - only pattern-scanned:
+  `test_extension_policy.py`, `test_extension_composition.py`,
+  `test_extension_workflows.py`, `test_forge.py`, `test_integrations.py`,
+  `test_public_extension_contracts.py`, `test_oidc.py`,
+  `test_mcp_servers.py`, `test_mcp_remote.py`, the three `test_model_*`
+  files, `test_policy_concurrency.py`, `test_prepare_release.py`, and about
+  160 of the 184 `frontend/__tests__` files.
+- **The legacy file-session import still runs** [S] - `main.py` calls
+  `import_file_sessions()` at boot, `chat_threads.py` globs
+  `config.SESSIONS_DIR` on every thread delete, and `config.py` creates the
+  directory. File sessions predate the PostgreSQL move, so no live database
+  can need the import. Remove the three.
+- **Nine `shortcut:` markers, seven with no backlog row** [S] -
+  `agent_wakeups.py`, `comments.py`, `documents.py` (two), `review.py`,
+  `schedule.py`, `runtime-provider.tsx`, `shared-chat.tsx`. Each names its
+  own upgrade trigger in place.
+- **Three security suppressions carry no reason** [S] - `cli/skein_cli.py`
+  (S603), `scripts/check-session-upgrade.py` (S603) and
+  `scripts/validate_release_run.py` (S310).
+- **`renovate.json` has never run** - it waits on the Gitea instance
+  (TODO.md). An owner decision: enable Renovate there, or delete the file
+  with the two comments that cite it.

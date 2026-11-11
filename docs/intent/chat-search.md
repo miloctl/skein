@@ -1,5 +1,8 @@
 # Search inside chats
 
+Status: shipped. The decisions in this document are current. The sections on
+what existed before, the slices and the build order record how it was built.
+
 Decisions confirmed 2026-10-17 with the repository owner (last section).
 
 - **Outcome:** A person types words or parts of words in the chat sidebar and finds the chat
@@ -51,7 +54,7 @@ Chat is not a portfolio surface, so the 2026-08-21 posture note does not block t
   words. Use 8 words or fewer.`). `q` is at most 200 characters (422 past that, from FastAPI).
 - No index (see Database role above). The query joins the caller's own threads first, so it
   reads only the messages in the caller's own chats, not the whole table. Ceiling: a heavy
-  user with tens of thousands of messages waits a few hundred milliseconds. The code carries a `ponytail:`
+  user with tens of thousands of messages waits a few hundred milliseconds. The code carries a `shortcut:`
   comment that names the upgrade: the database owner installs `pg_trgm`, then a migration adds
   a `gin_trgm_ops` index on `content`. A `LEFT JOIN LATERAL` per thread (newest message first,
   `LIMIT 1`) keeps the plan on `idx_chat_messages_thread`, so the planner cannot filter the

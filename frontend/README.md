@@ -6,7 +6,6 @@ This package is the Next.js host for Skein. It also publishes as `@miloctl/skein
 
 ```bash
 npm install
-cp .env.local.example .env.local
 npm run dev
 npm run build
 ```
@@ -57,9 +56,10 @@ Add these exact root overrides:
 ```json
 {
   "overrides": {
-    "@assistant-ui/tap": "0.9.18",
+    "@assistant-ui/tap": "0.9.21",
+    "sharp": "0.35.5",
     "postcss": "8.5.23",
-    "sharp": "0.35.4"
+    "katex": "0.18.11"
   }
 }
 ```

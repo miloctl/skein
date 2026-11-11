@@ -1,5 +1,8 @@
 # GitLab forge support and repository context packs
 
+Status: shipped. The decisions in this document are current. The sections on
+what existed before, the slices and the build order record how it was built.
+
 Confirmed 2026-09-28 with the repository owner.
 
 - **Outcome:** The shipped git loop runs on internal GitLab. A push to

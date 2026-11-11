@@ -164,10 +164,6 @@ through `<img>`.
   a dynamic `opengraph-image.tsx` would drag satori into the standalone bundle
   and its font path does not exist in the container (`frontend/Dockerfile`
   copies only `.next/standalone`, `.next/static`, `public`).
-  Note the app is LAN-only, so external crawlers cannot fetch it regardless.
-- Landing hero - see `image-prompts.md`. Generated, and correctly so:
-  atmospheric, organic, thousands of subtle lines, nothing that has to be
-  *correct*. That is what the medium is good at.
 - Field-guide set glyphs. `app/guide/page.tsx` defines five sets (loops,
   hitches, bends, stoppers, manager) with taglines and no glyphs, and the page
   is already built to receive them. Five correctly-drawn knots, hand-verified

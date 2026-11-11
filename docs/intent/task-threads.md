@@ -1,5 +1,8 @@
 # Comment threads on tasks, decisions and blockers
 
+Status: shipped. The decisions in this document are current. The sections on
+what existed before, the slices and the build order record how it was built.
+
 Confirmed 2026-09-28 with the repository owner.
 
 - **Outcome:** People and agents talk about a task, a decision or a blocker on that record. A
@@ -45,7 +48,7 @@ funds: the sponsor steers a delegation where the work is, and the delegate answe
 ### D1. One `comments` table with three parent columns (owner)
 
 ```sql
--- NNN_comments.sql, the next free number at merge (044 is the calendar's). No semicolons here.
+-- 046_comments.sql, the next free number at merge (044 is the calendar's). No semicolons here.
 CREATE TABLE comments (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     task_id bigint REFERENCES tasks(id) ON DELETE CASCADE,
@@ -185,7 +188,7 @@ link=..., source_entity=<parent>, source_id=<parent id>)`. The link is `?task={t
 {cid}`, or the row anchor from `refHref`'s map for a decision or a blocker. A recipient who
 holds an unread personal notice with this thread's link (`?task={tid}#comment-%`, or the exact
 row anchor) is skipped: that notice already points into the thread. The parent lock
-serializes the check. `ponytail:` a dismissal that races it can hide one notice, and the
+serializes the check. `shortcut:` a dismissal that races it can hide one notice, and the
 upgrade is a per-(person, parent) row, the deferred watch row. An edit sends none. This is
 Fizzy's `CommentEventNotifier` and Mattermost's follow-on-first-post, without a watcher list.
 
@@ -499,7 +502,7 @@ forge comment import stays deferred (`origin` has no external-author value).
   model state) and in a gated reply that quotes it, as a note deleted after an agent read it
   does. The shared-chat delete clears room sessions, and a task has none.
 - **A steering comment can change after the agent acted on it** (D8). **A dismissal that races
-  the unread check can hide one thread notice** (D7's `ponytail:`).
+  the unread check can hide one thread notice** (D7's `shortcut:`).
 - **A missed registry leaks a mention.** Slice 1's first test pins it. About twenty lists
   change, and all but `policy_context._TABLES` have an enumeration test.
 - **Merge order.** The migration number, the knot count and the tool count move with the other

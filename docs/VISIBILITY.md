@@ -94,9 +94,8 @@ product has, and the journal stays in it.
 
 ### Schema
 
-Three migrations: `003_crews.sql` (the crews tables), `004_visibility_tier.sql`
-(the columns on all 16 content tables), and `005_crew_context_packs.sql`
-(per-crew packs). Append-only, DDL plus non-`activity` backfill, no triggers,
+Three migrations, since folded into `001_baseline.sql`: the crews tables, the
+tier columns on all 16 content tables, and the per-crew packs. Append-only, DDL plus non-`activity` backfill, no triggers,
 and **no semicolon inside a comment** - `db.py::_statements` splits on `;`
 with no comment awareness, so the tail half becomes a statement and `init_db`
 fails on a fresh database. An apostrophe is fine: `--` runs to end of line and
@@ -270,7 +269,7 @@ republish its content permanently. Rules read workspace only.
 ### Activity keeps no visibility column
 
 `ALTER TABLE activity ADD COLUMN` is legal - it matches no pattern in
-`tests/test_migrations.py::REWRITES_ACTIVITY` and rewrites no row. It is also useless:
+`tests/test_migrations.py::MUTATES_ACTIVITY` and rewrites no row. It is also useless:
 the column can never be backfilled, it cannot enter `activity_hash`
 without invalidating every existing chain, and `activity` carries no
 `entity_id` to join a row back to its subject.
@@ -321,7 +320,7 @@ crew's view, silently, for 15 seconds.
 | 3 **(shipped)** | Columns on all 16 content tables. Every write path accepts a tier, and nine REST bodies expose one (milestone, task, decision, standup, note, event, blocker, capture, engagement). Children inherit (blockers from a standup, task_worklog from a task, the ship-it note and experiment lesson from an engagement, an engagement from an accepted intake request). Viewer threaded through the reads. Picker and badge in the UI. The `StrongUser` bar. |
 | 4 **(shipped)** | The sinks: FTS (search.index_record looks the tier up itself rather than trusting 20 call sites), admin export, and `activity.detail` via scope.detail. `private` became writable here. |
 | 5 **(shipped, before 3c)** | Jobs and egress read `WORKSPACE_ONLY`: digest, readout, context pack, the findings rules, and the team-wide block of My Day. The handoff is the exception - it takes a viewer and narrows to the artifact's own tier through `scope.audience`, because it is generated on demand by a person rather than by a job. Moved AHEAD of the picker - a crew task would otherwise have gone straight into the daily digest, which is the same control-that-does-not-hold problem `private` was sequenced around. |
-| 6 **(shipped, packs only)** | Per-crew context packs: `005_crew_context_packs.sql`, `build_pack(crew_id)` appending a crew section to the shared body, per-crew version counters, `GET /api/context-pack?crew=`. Per-crew digests and insights are deliberately NOT built. A digest is one morning page for one team - N of them is a different product decision, not a parameter, and the crew pack already answers "what is my crew working on" on demand. A findings row is the most dangerous sink in the app: it quotes another table's text into a row with no identity column and a UNIQUE (rule_id, subject, week) key, and it is never pruned. Per crew, that needs the tier ON the finding, not a second run. Build either when somebody asks for it, not before. |
+| 6 **(shipped, packs only)** | Per-crew context packs: the pack tables (now in `001_baseline.sql`), `build_pack(crew_id)` appending a crew section to the shared body, per-crew version counters, `GET /api/context-pack?crew=`. Per-crew digests and insights are deliberately NOT built. A digest is one morning page for one team - N of them is a different product decision, not a parameter, and the crew pack already answers "what is my crew working on" on demand. A findings row is the most dangerous sink in the app: it quotes another table's text into a row with no identity column and a UNIQUE (rule_id, subject, week) key, and it is never pruned. Per crew, that needs the tier ON the finding, not a second run. Build either when somebody asks for it, not before. |
 
 ### Where the picker actually went
 

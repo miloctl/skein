@@ -31,31 +31,9 @@ this file is only for accepted trade-offs that must eventually be repaid.
   closed). trusted-header is now opt-in - the dev entry points set it -
   so this class no longer applies to a deployment that never chose a mode.
 
-- ~~No re-baseline path for a legitimate unchained activity row.~~ Repaid
-  2026-08-05, in the opposite direction from the sketch above it: instead of
-  a re-baseline (which raises the baseline - the attacker-usable machinery
-  the entry itself warned against), `activity.adopt_unchained` chains the
-  orphaned rows at the tail, appends a chained `adopt_unchained` receipt naming
-  them, and only ever LOWERS the baseline. Runs nightly before verify and
-  anchor. The receipt in the feed, checked against the server log's
-  'activity chain append failed' warnings, is the operation that tells a
-  fallback from a smuggle.
-
-- ~~Single-replica posture is implied, not enforced or insured.~~ Repaid
-  2026-08-14, most of it: `deploy/k8s/` pins `replicas: 1` +
-  `strategy: Recreate` + RWO on one PVC, with the manifest comment naming
-  every mechanism that assumes one process, and
-  `scripts/reference-deployment-contract.sh` renders both overlays in CI
-  and fails if any of it is lost. `SKEIN_TRUST_PROXY_HOPS=1`,
-  `SKEIN_CORS_ORIGINS`, oidc-mode auth and the memory-limit warning all
-  live in the base/overlays; images come from `scripts/publish-images.sh`
-  (a `v*` tag remains the release act, RELEASING.md). NOT shipped from the
-  sketch: the Litestream sidecar - the base mounts a second PVC as
-  `SKEIN_BACKUP_MIRROR` instead, and `deploy/k8s/README.md` forces the
-  written choice between independent storage and the reduced guarantee.
-  Litestream stays the upgrade path if off-cluster streaming is ever
-  wanted; the resource numbers stay starting sizes until measured under
-  real load.
+- **The backend resource requests are starting sizes, not measured ones.**
+  `deploy/k8s/base/backend.yaml` sets them without a load measurement. Repay
+  by measuring uvicorn under real load and tightening them.
 
 - **Dependency-update noise is handled by hand.** The `npm audit`
   high-severity in `brace-expansion` is dev-only and pre-existing; triaging
@@ -71,11 +49,11 @@ this file is only for accepted trade-offs that must eventually be repaid.
 
 - **`semantic_search` scans the whole embeddings table per request.**
   Deferred at the query site (services/search.py) and genuinely fine at
-  team scale (~50ms at 10k rows). The chosen fix, so nobody re-litigates
-  it: `sqlite-vec` - pip-installable loadable extension, KNN inside SQLite,
-  WAL-compatible - not a hand-rolled cached matrix, and not an external
-  vector store, which would break keyless-first. Repay when embeddings are
-  enabled in a real deployment or the table passes ~50k rows.
+  team scale (~50ms at 10k rows). The fix, so nobody re-litigates it: a
+  cached matrix with write invalidation, or a bounded candidate set. pgvector
+  is not installed, and an external vector store would break keyless-first.
+  Repay when embeddings are enabled in a real deployment or the table passes
+  ~50k rows.
 
 - **The extension contracts verify a change only after it reaches main.**
   `.gitea/workflows/ci.yml` is push-only because the runner shares a host with
@@ -178,59 +156,24 @@ this file is only for accepted trade-offs that must eventually be repaid.
   dynamic agent topology, and evaluate then whether to wrap the strands
   tools in governance or extend `consult_specialist` instead.
 
-- ~~An uploaded file has no retention policy and no delete.~~ The delete half
-  is repaid, 2026-08-16, and NOT in the shape this entry first sketched. A
-  reviewed delete was wrong on both axes: `ALWAYS_REVIEW` governs an AGENT
-  destroying SHARED content, and this is a person deleting their own private
-  file. The reviewer could not read what they were approving, and the proposal
-  row would itself announce that the file exists - the thing the 404-on-miss
-  design spends effort preventing. It is a plain owner-scoped REST delete
-  instead, the shape `services/chat_threads.py::delete_thread` already uses
-  for a chat, which destroys strictly more. `GET /api/files` and the Settings
-  card ship with it, because a quota with no list is a wall with no door.
-  There is deliberately NO agent tool for deletion: absent beats reviewed.
-
-  What stays open is retention, on purpose. A file lives until somebody
+- **An uploaded file has no retention policy.** A file lives until somebody
   deletes it, and it outlives the chat thread that carried it - the artifacts
   table has no link back to the thread, and cascading a file's death off a
   conversation's would destroy more than the person asked to destroy. Auto
   expiry is the other candidate and is not worth guessing a number for now:
   revisit when real usage shows quotas filling with files nobody would miss,
   which is also when "stale" can be defined from evidence rather than taste.
+  Deletion is a plain owner-scoped REST delete with no agent tool, on purpose.
   In trusted-header mode a spoofed `X-User` can delete another person's
   files - the identical exposure chat deletion already carries, in the class
   the field-guide entry above records, closing the same way with api-key or
   oidc.
 
-- **Two model calls are unmetered, and a command turn drops its
-  attachments.** Both surfaced in the 2026-08-16 branch review and are
-  deliberately not fixed there.
-
-  `agents/team_agent.py::describe_image` builds its own Agent, so the vision
-  sidecar's tokens never reach `usage_log` - `/api/usage` under-reports every
-  deployment that describes images. The summarizer carries the identical
-  exclusion for the identical reason (the call sits outside the agent's own
-  metrics), and both are now documented in docs/FEATURES.md. Repay by giving
-  `record_chat_usage` a path for a call that is not the turn's own agent, then
-  metering the summarizer and the sidecar together - one mechanism, or the
-  next helper model repeats this a third time.
-
-  A slash-command or flock turn returns before `_attachment_prompt`
-  (`routes/chat.py`), so `req.attachments` is ignored: the file uploaded, it
-  counts against the quota, and neither the model nor the transcript ever
-  hears about it. The composer does not stop a person attaching a file to
-  `/briefing`. Not fixed because the right behavior is a product decision, not
-  a repair - refuse the send, warn and send anyway, or let a command consume
-  attachments - and guessing inside a fix pass is how a wrong answer gets
-  pinned by a test. Decide, then implement the decision.
-
-Decided against, so the next review does not re-open them: Postgres (wrong
-scale - the services layer keeps the door open), Redis-backed rate limits
-(per-pod buckets are fine at one replica), a migration framework (the
-40-line runner plus tests/test_migrations.py cover the classes that matter
-here), suite-wide mutation testing (the per-fix discipline - break the fix,
-watch its pin fail, restore - is sharper and cheaper; `scripts/mutation-test.sh`
-runs the same discipline with tooling, on the module in front of you), and
-load or contention testing (an internal tool at one replica; the 429/503
-mapping is covered functionally, and the first real contention incident is
-what would justify a rig).
+Decided against, so the next review does not re-open them: a migration
+framework (the 40-line runner plus tests/test_migrations.py cover the classes
+that matter here), suite-wide mutation testing (the per-fix discipline - break
+the fix, watch its pin fail, restore - is sharper and cheaper;
+`scripts/mutation-test.sh` runs the same discipline with tooling, on the
+module in front of you), and load or contention testing (an internal tool at
+one replica; the 429/503 mapping is covered functionally, and the first real
+contention incident is what would justify a rig).

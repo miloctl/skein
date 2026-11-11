@@ -1,5 +1,8 @@
 # Calendar, written by people and agents
 
+Status: shipped. The decisions in this document are current. The sections on
+what existed before, the slices and the build order record how it was built.
+
 Drafted 2026-09-28 from the repository owner's request: a calendar that
 people and agents both write to, with notes, tasks and decisions linked to
 the meetings they came from.
@@ -184,7 +187,7 @@ Backend:
     AND (ends_at > win_start OR (ends_at IS NULL AND starts_at >=
     win_start))`, with the window from `db.local_event_window(start)[0]` and
     `db.local_event_window(end)[1]`. Date-only rows use the same shape
-    against `start` and `end` as dates (D7). This needs a `ponytail:`
+    against `start` and `end` as dates (D7). This needs a `shortcut:`
     comment: the query scans every event before the window end, and a span
     cap or a range index is the fix if events reach six figures.
   - Tasks: `status NOT IN ('done', 'void') AND due_date BETWEEN ? AND ?`.
@@ -440,7 +443,7 @@ Tests that pin the risky parts, in `backend/tests/test_calendar.py`:
   the id is one they once read. Tasks are redacted anyway. Redacting the
   other six kinds means a pass on every list endpoint that returns them. If
   that is wanted, it is a later item.
-- **The overlap query has no lower bound on `starts_at`** (the `ponytail:`
+- **The overlap query has no lower bound on `starts_at`** (the `shortcut:`
   comment in slice 1).
 - **Linking changes no `updated_at`.** A client that syncs on `updated_at`
   does not see a new link. No such client exists for these kinds today.

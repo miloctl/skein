@@ -209,7 +209,7 @@ keys remain supported. See [Browser sessions](docs/BROWSER-SESSIONS.md).
 
 | Integration | Turns on when | What you get |
 |---|---|---|
-| MCP tools | `SKEIN_MCP_SERVERS` (JSON) | GitHub/Linear/etc. tools attached to the real agent |
+| MCP tools | `SKEIN_MCP_SERVERS` (JSON) | GitLab/Linear/etc. tools attached to the real agent |
 | Personal MCP servers | `SKEIN_CREDENTIAL_KEY` (Fernet key) | seals the tokens people store for their own MCP servers on Settings → Connections; unset, personal servers can be added without a token only |
 | Prebuilt tools | `SKEIN_EXTRA_TOOLS` | Allowlisted [strands-agents-tools](https://github.com/strands-agents/tools) for the real agent: `calculator,current_time,batch,sleep` (keyless). Shell/file/exec tools **and** `http_request`/`use_agent`/`think`/`workflow`/`rss` are deliberately not loadable - see `app/agents/extra_tools.py` for the security rationale |
 | Semantic search | `SKEIN_EMBEDDINGS=1` + `SKEIN_EMBED_PROVIDER` | openai (key) · openai_compatible (base URL) · ollama (keyless) - vectors tagged per model |
@@ -272,7 +272,7 @@ deliberately no individual leaderboards.
 
 ## Setup
 
-Prerequisites: Python 3.10+, Node 20+, PostgreSQL 17,
+Prerequisites: Python 3.12+, Node 22, PostgreSQL 17,
 [uv](https://github.com/astral-sh/uv), and pipx (for the CLI).
 
 ```bash

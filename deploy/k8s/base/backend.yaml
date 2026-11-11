@@ -127,7 +127,7 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
           # Starting sizes, not measured ones. Measure uvicorn under real
-          # load and tighten (TODO.md, single-replica posture).
+          # load and tighten (TODO.md, resource requests).
           resources:
             requests:
               cpu: 100m
