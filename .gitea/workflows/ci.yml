@@ -27,13 +27,13 @@ jobs:
           auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
           git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.11.11"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: Build release packages
@@ -41,7 +41,7 @@ jobs:
           uv build --wheel --out-dir dist backend
           npm pack --silent --pack-destination dist ./frontend/packages/extension-api >/dev/null
           npm pack --silent --pack-destination dist ./frontend >/dev/null
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-packages
           path: |
@@ -73,12 +73,12 @@ jobs:
           auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
           git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/pyproject.toml
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.11.11"
       - name: Install
@@ -156,7 +156,7 @@ jobs:
           auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
           git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
@@ -210,11 +210,11 @@ jobs:
           git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
           git -c http.extraHeader="$auth" fetch --unshallow --quiet
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-packages
           path: dist
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
           # Same cache key as the backend and e2e jobs, but not the same
@@ -222,17 +222,17 @@ jobs:
           # installs with uv, which does not read pip's cache.
           cache: pip
           cache-dependency-path: backend/pyproject.toml
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.11.11"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: |
             frontend/package-lock.json
             examples/workplace-extension/package-lock.json
-      - uses: azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5.1.0
+      - uses: azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e # v5.2.0
       - name: Install
         run: |
           python -m venv backend/.venv
@@ -273,7 +273,7 @@ jobs:
         run: ./scripts/audit-deps.sh workplace
       - name: Keep browser failure traces
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-failures-${{ github.job }}
           path: frontend/test-results/
@@ -306,17 +306,17 @@ jobs:
           auth="Authorization: Basic $(printf %s "$CHECKOUT_AUTH" | base64 -w0)"
           git -c http.extraHeader="$auth" clone --depth 50 "${{ github.server_url }}/${{ github.repository }}.git" .
           git checkout "$GITHUB_SHA"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/pyproject.toml
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: "0.11.11"
       - name: Install backend
@@ -353,7 +353,7 @@ jobs:
         run: npx playwright test --config playwright.oidc.config.ts
       - name: Keep browser failure traces
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-failures-${{ github.job }}
           path: frontend/test-results/
