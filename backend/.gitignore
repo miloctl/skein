@@ -6,3 +6,5 @@ __pycache__/
 # local operator settings, beside .env: machine-specific, never the repo's
 *.local.yaml
 *.egg-info/
+# Playwright run output, written when a run starts from this directory
+test-results/
