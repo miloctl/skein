@@ -1,12 +1,19 @@
 """The ICS calendar feed: token semantics and RFC5545 formatting."""
 
+from datetime import date, timedelta
+
+# The feed drops events older than schedule.ICS_LOOKBACK_DAYS. A fixed date
+# passes until the calendar moves past that window, then every test that reads
+# its event back fails on an empty feed.
+SOON = date.today() + timedelta(days=7)
+
 
 def test_ics_feed_open_when_no_token(client, fresh_db):
     client.post(
         "/api/events",
-        json={"title": "Weekly ops review", "starts_at": "2026-08-01T15:00"},
+        json={"title": "Weekly ops review", "starts_at": f"{SOON}T15:00"},
     )
-    client.post("/api/milestones", json={"title": "Beta", "due_date": "2026-08-14"})
+    client.post("/api/milestones", json={"title": "Beta", "due_date": SOON.isoformat()})
     r = client.get("/api/calendar.ics")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/calendar")
@@ -32,9 +39,9 @@ def test_ics_feed_token_semantics(client, fresh_db, monkeypatch):
 
 
 def test_ics_datetime_format_is_rfc5545(client, fresh_db):
-    client.post("/api/events", json={"title": "Ops", "starts_at": "2026-08-01T15:00"})
+    client.post("/api/events", json={"title": "Ops", "starts_at": f"{SOON}T15:00"})
     body = client.get("/api/calendar.ics").text
-    assert "DTSTART:20260801T150000" in body  # padded to 15 chars, not 13
+    assert f"DTSTART:{SOON:%Y%m%d}T150000" in body  # padded to 15 chars, not 13
 
 
 def test_feed_token_guesses_are_capped_per_address(client, fresh_db, monkeypatch, pinned_window):
@@ -56,7 +63,7 @@ def test_ics_content_lines_are_folded_at_75_octets(client, fresh_db):
     line the write path accepts, so the feed folds it rather than emitting a
     line a strict client refuses."""
     title = "Quarterly planning " + "é" * 120
-    client.post("/api/events", json={"title": title, "starts_at": "2026-08-01T15:00"})
+    client.post("/api/events", json={"title": title, "starts_at": f"{SOON}T15:00"})
     body = client.get("/api/calendar.ics").text
     lines = body.split("\r\n")
     assert all(len(line.encode()) <= 75 for line in lines), [len(line.encode()) for line in lines]

@@ -75,11 +75,16 @@ def test_next_occurrence_keeps_the_week_parity_and_the_wall_clock(monkeypatch):
     )
 
 
-def test_the_second_one_thirty_of_a_fall_back_night_fires_nothing(people, fresh_db, monkeypatch):
+def test_the_second_one_thirty_of_a_fall_back_night_fires_nothing(
+    people, fresh_db, monkeypatch, pin_now
+):
     from app import config
     from app.services import routines
 
     monkeypatch.setattr(config, "TZ", ZoneInfo("America/New_York"))
+    # create_routine schedules from the clock: after 2026-11-01 the first due
+    # time is a later Sunday, and the fall-back night is never reached
+    pin_now(routines, datetime(2026, 10, 31, tzinfo=UTC))
     rid = _routine(weekdays="7", at_time="01:30", starts_on="2026-11-01")["id"]
     assert _due(fresh_db, rid) == datetime(2026, 11, 1, 5, 30, tzinfo=UTC)
     assert routines.fire_due(rid, datetime(2026, 11, 1, 5, 30, tzinfo=UTC)) == "fired"

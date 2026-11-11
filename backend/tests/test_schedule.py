@@ -139,16 +139,22 @@ def test_event_rows_carry_the_team_wall_time(client, fresh_db, monkeypatch):
 
 
 def test_the_digest_prints_event_times_on_the_team_clock(client, fresh_db, monkeypatch):
+    from datetime import UTC, datetime, time
+    from zoneinfo import ZoneInfo
+
     from app import db
     from app.services import digest, schedule
 
     _team_zone(monkeypatch, "America/New_York")
-    day = db.today().isoformat()
-    # stored as 13:00 UTC; printed raw, the team reads a 09:00 meeting as 13:00
-    schedule.schedule_event("Standup", f"{day}T09:00-04:00")
+    # The offset comes from the zone for today: a fixed -04:00 is 08:00 on the
+    # team clock from November to March, and the test fails all winter.
+    start = datetime.combine(db.today(), time(9), ZoneInfo("America/New_York"))
+    stored = start.astimezone(UTC).strftime("%H:%M")
+    schedule.schedule_event("Standup", start.isoformat())
     text = digest.build_digest()
     line = next(x for x in text.splitlines() if "Standup" in x)
-    assert "09:00" in line and "13:00" not in line
+    # printed raw, the team reads a 09:00 meeting at its stored UTC hour
+    assert "09:00" in line and stored not in line
 
 
 @pytest.mark.parametrize("zone", ["UTC", "America/Los_Angeles", "Asia/Tokyo"])
