@@ -545,7 +545,7 @@ def test_chat_delta_is_non_consuming(client):
 @pytest.mark.parametrize("action", ["skein.rest.post.delta.ack", "skein.rest.get.delta"])
 @pytest.mark.parametrize("direct_denial", [True, False])
 def test_ack_policy_denial_writes_no_metadata_or_activity(
-    client, monkeypatch, action, direct_denial
+    client, set_app_state, action, direct_denial
 ):
     from dataclasses import replace
 
@@ -565,8 +565,8 @@ def test_ack_policy_denial_writes_no_metadata_or_activity(
             return None
 
     registry = client.app.state.skein_registry
-    monkeypatch.setattr(
-        client.app.state,
+    set_app_state(
+        client.app,
         "skein_registry",
         replace(registry, policies=(PolicyContribution("test.delta", Rule()),)),
     )

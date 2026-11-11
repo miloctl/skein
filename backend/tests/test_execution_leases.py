@@ -79,7 +79,7 @@ def test_lifespan_owns_the_heartbeat(fresh_db):
     assert leases._thread is None
 
 
-def test_heartbeat_precedes_startup_catchup_claims(fresh_db, monkeypatch):
+def test_heartbeat_precedes_startup_catchup_claims(fresh_db, monkeypatch, set_app_state):
     from dataclasses import replace
 
     from fastapi.testclient import TestClient
@@ -102,8 +102,8 @@ def test_heartbeat_precedes_startup_catchup_claims(fresh_db, monkeypatch):
         retry_safe=True,
     )
     monkeypatch.setattr(main, "_job_specs", lambda *_: (spec,))
-    monkeypatch.setattr(
-        main.app.state,
+    set_app_state(
+        main.app,
         "skein_settings",
         replace(main.app.state.skein_settings, scheduler_enabled=True),
     )

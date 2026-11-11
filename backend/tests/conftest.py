@@ -516,6 +516,26 @@ def pinned_clock(monkeypatch):
 
 
 @pytest.fixture
+def set_app_state():
+    """Replace one value on `app.state` for a test, then put the old one back.
+
+    monkeypatch.setattr cannot do this. Starlette keeps the values in an inner
+    dict, and pytest 9.2 restores an instance attribute from the instance
+    `__dict__`, where it finds nothing and deletes the attribute. `main.app`
+    is one object for the whole worker, so every later test that starts it
+    fails on a missing `skein_registry` or `skein_settings`."""
+    saved: list = []
+
+    def set_state(app, name, value):
+        saved.append((app, name, getattr(app.state, name)))
+        setattr(app.state, name, value)
+
+    yield set_state
+    for app, name, old in reversed(saved):
+        setattr(app.state, name, old)
+
+
+@pytest.fixture
 def pin_now(monkeypatch):
     """Freeze `datetime.now` inside one module that reads the clock directly
     rather than through db.now(): services/jobs.py keys a firing on

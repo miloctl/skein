@@ -440,7 +440,7 @@ def test_failed_alias_insert_keeps_original_receipt_and_retries(packet, fresh_db
 
 
 def test_denied_packet_stays_retryable_but_accepted_replay_skips_policy(
-    packet, client, fresh_db, monkeypatch
+    packet, client, fresh_db, monkeypatch, set_app_state
 ):
     from app.extensions import PolicyContribution, PolicyDecision, PolicyEffect, SkeinModule
     from app.main import create_app
@@ -465,7 +465,7 @@ def test_denied_packet_stays_retryable_but_accepted_replay_skips_policy(
         policies=(PolicyContribution("acme.workplace.forge", policy),),
     )
     registry = create_app(modules=(module,)).state.skein_registry
-    monkeypatch.setattr(client.app.state, "skein_registry", registry)
+    set_app_state(client.app, "skein_registry", registry)
     task = work.create_task("Denied delivery remains retryable")
     payload = _push(f"task/{task['id']}-policy")
     delivery = str(uuid4())
