@@ -543,7 +543,9 @@ export function ChatSidebar({
         !searching &&
         threadKind === "solo" &&
         !threads.some((t) => t.id === threadId) && (
-        <div className="mb-2 truncate rounded-lg bg-thread/10 px-2 py-1.5 text-sm font-medium text-ink">
+        // shrink-0: truncate sets overflow hidden, which drops this flex
+        // child's min-height to 0, and a long chat list crushes it to a sliver.
+        <div className="mb-2 shrink-0 truncate rounded-lg bg-thread/10 px-2 py-1.5 text-sm font-medium text-ink">
           New chat
           <span className="ml-1.5 text-xs font-normal text-ink-3">
             - saved after your first message
