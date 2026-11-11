@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from collections.abc import Callable
+from typing import Any, cast
 
 from .. import config, db
 from . import scope
@@ -495,7 +496,10 @@ def _embed(text: str) -> list[float]:
             base_url=config.EMBED_BASE_URL or None,
             # local servers ignore it, but the client demands something
             api_key=config.embed_key() or "not-needed",
-            timeout=httpx.Timeout(5.0, connect=2.0),
+            # cast: openai 2 annotates this as an httpx Timeout and openai 3 as
+            # an httpx2 one, and both read the same four fields from either.
+            # An annotation for one release fails mypy under the other.
+            timeout=cast(Any, httpx.Timeout(5.0, connect=2.0)),
             max_retries=0,
         )
         _embed_client_key = key

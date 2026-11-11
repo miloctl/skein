@@ -371,7 +371,7 @@ Create the workplace root `package.json`:
   "dependencies": {
     "@miloctl/skein-extension-api": "file:dist/miloctl-skein-extension-api-1.0.0.tgz",
     "@miloctl/skein-frontend-host": "file:dist/miloctl-skein-frontend-host-0.6.18.tgz",
-    "next": "16.4.0",
+    "next": "16.4.5",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

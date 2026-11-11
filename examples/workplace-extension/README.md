@@ -52,7 +52,7 @@ The frontend root pins these exact dependencies:
 
 - `@miloctl/skein-frontend-host@0.6.18`
 - `@miloctl/skein-extension-api@1.0.0`
-- `next@16.4.0`
+- `next@16.4.5`
 - `react@19.3.0`
 - `react-dom@19.3.0`
 

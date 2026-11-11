@@ -18,9 +18,19 @@ keeps its existing `minimum_core` and needs no change.
 
 ### Contracts
 
+- Extension API 1.0.0 is unchanged, and a package needs no new `minimum_core`. The backend now requires Strands Agents SDK `>=1.63.0`, MCP `>=2.2.0,<2.4` and Pillow `>=13.0.0`. A package that pins an older version of one of them must raise its pin before it installs this core. The frontend host now requires `next@16.4.5`, and a consumer's `package.json` must name the same version.
+
 ### Behavior
 
+- Chat summarization works with Strands Agents SDK 1.64. That SDK release passes one more argument to the summarizer, and the earlier Skein override refused it, so a long chat stopped summarizing and a context overflow failed the turn. An installation that resolved the SDK without the lock is affected until it upgrades.
+- On the chat page, the "New chat" placeholder in the sidebar keeps its full height when the chat list is longer than the sidebar. Before, a long list reduced it to a thin bar with unreadable text.
+
 ### Operations
+
+- This release closes dependency advisories. Rebuild and redeploy both images. The frontend moves to Next.js 16.4.5, DOMPurify 3.4.17 and Zod 4.6.7. Next.js 16.4.0 has two unauthenticated remote code execution advisories (GHSA-2464-fhr4-w9xw, GHSA-673q-mjm6-r5xr). The backend moves to Pillow 13.0.0, MCP 2.3.0, certifi 2026.10.23, Strands Agents SDK 1.64.0 and Strands tools 0.8.12. Strands tools stays below 0.9.0, which removes `calculator`, `current_time` and `batch` from the tools that `SKEIN_EXTRA_TOOLS` can name.
+- The dependency audit no longer accepts CVE-2026-59951, because the locks now carry the MCP release that fixes it.
+- `scripts/check-session-upgrade.py` now checks sessions written under Strands SDK 1.59.0 against 1.64.0. Stored chat sessions need no migration.
+- The pinned GitHub Actions in the GitHub and Gitea workflows move to their current releases (setup-python 7.1.0, setup-uv 10.3.2, setup-node 7.1.0, upload-artifact 7.0.2, download-artifact 8.0.2, setup-kubectl 5.2.0).
 
 ## 0.6.18 - 2026-10-18
 

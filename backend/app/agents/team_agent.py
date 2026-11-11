@@ -518,18 +518,21 @@ class _PlainSummaries(SummarizingConversationManager):
         # usage rows the turn's writer drains (services/usage.py::record_agent_spend)
         self.pending_rows: list[dict] = []
 
-    def _generate_summary(self, messages, agent):
+    def _generate_summary(self, messages, agent, *request):
         # the SDK's dispatch point; test_context_strategy.py fails if an
         # upgrade renames it or reads another attribute from this agent.
         # Strands 1.57 summarizes with .model and 1.59 with .aux_model, so
         # both name the one model chosen here: without .aux_model, 1.59 logs
         # the AttributeError and stops summarizing, and a context overflow
-        # fails the turn.
+        # fails the turn. Strands 1.64 passes the request's invocation
+        # context as a third positional argument and earlier releases pass
+        # none: a fixed two-argument signature raises TypeError on 1.64, with
+        # the same result.
         model = self._summary_model() if self._summary_model is not None else agent.model
         spent: list[dict] = []
         chosen = _Metered(model, spent)
         metered = cast(Any, SimpleNamespace(model=chosen, aux_model=chosen))
-        summary = super()._generate_summary(messages, metered)
+        summary = super()._generate_summary(messages, metered, *request)
         # The SDK calls model.stream() directly and drops the usage, so a
         # summary (the early chat, sent again) reached no budget or ceiling.
         # On the chat agent's own metrics it lands in the turn's usage_log row

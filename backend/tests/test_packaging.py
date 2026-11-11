@@ -38,13 +38,13 @@ def test_runtime_dependencies_declare_the_supported_mcp_sdk(source):
     }
     mcp = requirements["mcp"]
     assert mcp.marker is None
-    for version in ("2.1.1", "2.1.2", "2.1.99"):
+    for version in ("2.2.0", "2.3.0", "2.3.99"):
         assert version in mcp.specifier
-    for version in ("1.26.0", "2.0.0", "2.1.0", "2.2.0", "3.0.0"):
+    for version in ("1.30.0", "2.0.0", "2.1.1", "2.4.0", "3.0.0"):
         assert version not in mcp.specifier
     strands = requirements["strands-agents"]
-    assert "1.55.1" in strands.specifier
-    assert "1.55.0" not in strands.specifier
+    assert "1.63.0" in strands.specifier
+    assert "1.62.0" not in strands.specifier
     httpx2 = requirements["httpx2"]
     assert httpx2.marker is None
     assert "2.9.0" in httpx2.specifier
